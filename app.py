@@ -856,6 +856,10 @@ def check_and_fix_all_missing_columns():
                 'caller_number': 'VARCHAR(50) NULL',
                 'contact_id': 'UUID NULL',
             },
+            # ✅ v6.0: владелец базы знаний (раньше — только через OpenAI-ассистента)
+            'pinecone_configs': {
+                'user_id': 'UUID NULL',
+            },
             'grok_assistant_configs': {
                 'assistant_type': "VARCHAR(20) DEFAULT 'grok' NOT NULL",
                 'openrouter_model': 'VARCHAR(150) NULL',
@@ -1788,6 +1792,21 @@ def ensure_wallet_tables():
                 logger.info(f"✅ Seeded {added} default voice model tariffs")
         finally:
             db.close()
+
+        # Бэкфилл владельца БЗ из привязанного OpenAI-ассистента
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                res = conn.execute(text(
+                    "UPDATE pinecone_configs pc SET user_id = ac.user_id "
+                    "FROM assistant_configs ac "
+                    "WHERE pc.user_id IS NULL AND pc.assistant_id = ac.id"
+                ))
+                conn.commit()
+                if res.rowcount:
+                    logger.info(f"✅ Backfilled user_id for {res.rowcount} knowledge bases")
+        except Exception as e:
+            logger.warning(f"⚠️ pinecone_configs.user_id backfill skipped: {e}")
     except Exception as e:
         logger.error(f"❌ ensure_wallet_tables error: {e}")
 

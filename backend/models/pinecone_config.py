@@ -15,6 +15,10 @@ class PineconeConfig(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Полностью удаляем поле user_id и связанный с ним relationship
     assistant_id = Column(UUID(as_uuid=True), ForeignKey("assistant_configs.id", ondelete="CASCADE"), nullable=True)
+    # ✅ v6.0: владелец базы знаний. Раньше БЗ физически привязывалась к первому
+    # OpenAI-ассистенту пользователя; теперь она принадлежит пользователю, а к
+    # ассистентам подключается через namespace в системном промпте.
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     namespace = Column(String, nullable=False)
     char_count = Column(Integer, default=0)
     content_preview = Column(Text, nullable=True)  # первые 100-200 символов для предпросмотра

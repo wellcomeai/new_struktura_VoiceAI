@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<!-- /static/voice-assistants.html -->
+<!-- ✅ v6.0: Единая страница «Голосовые ассистенты» — заменяет agents.html,
+     gemini-agents.html, fish-agents.html, yandex-agents.html, cascade.html.
+     Голосовая модель — настройка ассистента, а не отдельный раздел.
+     Бэкенд не менялся: страница обращается к CRUD-API нужного провайдера. -->
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Голосовые ассистенты | Voicyfy</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&display=swap">
+  <style>
+    :root {
+      --primary-blue: #2563eb; --primary-blue-light: #3b82f6; --primary-blue-dark: #1d4ed8;
+      --text-dark: #0f172a; --text-gray: #64748b; --text-light: #94a3b8;
+      --bg-light: #f8fafc; --bg-blue-light: #eff6ff; --white: #ffffff; --border-color: #e2e8f0;
+      --shadow-sm: 0 1px 2px 0 rgba(0,0,0,.05); --shadow-md: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -1px rgba(0,0,0,.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -2px rgba(0,0,0,.05);
+      --radius-md: .5rem; --radius-lg: 1rem; --transition-sm: all .2s ease; --transition-md: all .3s ease;
+      --green-500: #10b981; --red-500: #ef4444; --orange-500: #f97316; --amber-100: #fef3c7; --amber-800: #92400e;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    body { background: var(--bg-light); color: var(--text-dark); min-height: 100vh; display: flex; line-height: 1.5; }
+
+    /* ---------- Сайдбар (общая разметка ЛК, меню рисует /static/js/sidebar.js) ---------- */
+    .sidebar { width: 260px; background: var(--white); border-right: 1px solid var(--border-color); height: 100vh; position: fixed; left: 0; top: 0; overflow-y: auto; display: flex; flex-direction: column; z-index: 10; transition: var(--transition-md); }
+    .sidebar-header { padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; }
+    .sidebar-logo { font-size: 1.25rem; font-weight: 700; color: var(--text-dark); text-decoration: none; display: flex; align-items: center; gap: .5rem; }
+    .sidebar-logo span { font-family: 'Syne', sans-serif; font-weight: 800; letter-spacing: -.04em; background: linear-gradient(135deg,#2563eb,#3b82f6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .logo-icon { width: 30px; height: 30px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; }
+    .logo-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: var(--radius-md); }
+    .mobile-toggle { display: none; background: none; border: none; color: var(--text-gray); font-size: 1.25rem; cursor: pointer; min-width: 36px; min-height: 36px; align-items: center; justify-content: center; }
+    .sidebar-nav { padding: 1.5rem 0; flex-grow: 1; }
+    .sidebar-nav-item { display: flex; align-items: center; padding: .75rem 1.5rem; color: var(--text-gray); text-decoration: none; transition: var(--transition-sm); border-left: 3px solid transparent; position: relative; }
+    .sidebar-nav-item.active { background: var(--bg-blue-light); color: var(--primary-blue); border-left-color: var(--primary-blue); font-weight: 500; }
+    .sidebar-nav-item:hover { background: var(--bg-blue-light); color: var(--primary-blue); }
+    .sidebar-nav-item i { margin-right: .75rem; width: 20px; text-align: center; }
+    .sidebar-section { padding: 0 1.5rem; margin: 1.5rem 0 .75rem; color: var(--text-light); font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+    .sidebar-footer { padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); }
+    .plan-locked-feature { opacity: .6; cursor: pointer !important; }
+    .plan-locked-feature::after { content: "🔒"; font-size: .875rem; position: absolute; right: 1.5rem; }
+
+    /* ---------- Основной контент ---------- */
+    .main-content { flex: 1; margin-left: 260px; min-height: 100vh; display: flex; flex-direction: column; }
+    .top-nav { background: var(--white); border-bottom: 1px solid var(--border-color); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; }
+    .page-title { font-family: 'Syne', sans-serif; font-size: 1.35rem; font-weight: 700; }
+    .top-nav-right { display: flex; align-items: center; gap: .75rem; }
+    .usage-pill { font-size: .8rem; color: var(--text-gray); background: var(--bg-light); border: 1px solid var(--border-color); padding: .35rem .7rem; border-radius: 999px; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .6rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: .9rem; cursor: pointer; border: 1px solid var(--border-color); background: var(--white); color: var(--text-dark); transition: var(--transition-sm); text-decoration: none; white-space: nowrap; }
+    .btn:hover { border-color: var(--primary-blue); color: var(--primary-blue); }
+    .btn-primary { background: var(--primary-blue); border-color: var(--primary-blue); color: #fff; }
+    .btn-primary:hover { background: var(--primary-blue-dark); color: #fff; }
+    .btn-danger { color: var(--red-500); }
+    .btn-danger:hover { border-color: var(--red-500); background: #fef2f2; }
+    .btn-sm { padding: .4rem .7rem; font-size: .8rem; }
+    .btn[disabled] { opacity: .55; cursor: default; }
+
+    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; padding: 1.5rem 2rem; flex: 1; align-items: start; }
+
+    /* ---------- Список ассистентов ---------- */
+    .list-panel { background: var(--white); border: 1px solid var(--border-color); border-radius: var(--radius-lg); overflow: hidden; position: sticky; top: 84px; max-height: calc(100vh - 110px); display: flex; flex-direction: column; }
+    .list-head { padding: 1rem 1.1rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .list-head h2 { font-size: 1rem; font-weight: 700; }
+    .list-search { padding: .6rem 1.1rem; border-bottom: 1px solid var(--border-color); }
+    .list-search input { width: 100%; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: .5rem .7rem; font-size: .85rem; }
+    .list-body { overflow-y: auto; padding: .5rem; flex: 1; }
+    .a-card { padding: .75rem .85rem; border: 1px solid transparent; border-radius: var(--radius-md); cursor: pointer; transition: var(--transition-sm); display: flex; flex-direction: column; gap: .35rem; }
+    .a-card:hover { background: var(--bg-light); }
+    .a-card.active { border-color: var(--primary-blue); background: var(--bg-blue-light); }
+    .a-card-name { font-weight: 600; font-size: .92rem; display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .a-card-name .inactive { font-size: .7rem; color: var(--text-light); font-weight: 500; }
+    .a-card-meta { display: flex; align-items: center; gap: .4rem; font-size: .75rem; color: var(--text-gray); flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; background: var(--bg-light); border: 1px solid var(--border-color); color: var(--text-dark); }
+    .chip.free { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .chip.m-openai { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+    .chip.m-gemini { background: #f5f3ff; border-color: #ddd6fe; color: #5b21b6; }
+    .chip.m-fish { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+    .chip.m-yandex { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+    .chip.m-cascade { background: #ecfeff; border-color: #a5f3fc; color: #155e75; }
+    .list-empty { padding: 2rem 1rem; text-align: center; color: var(--text-light); font-size: .9rem; }
+    .list-empty i { font-size: 2rem; margin-bottom: .5rem; display: block; color: var(--border-color); }
+
+    /* ---------- Редактор ---------- */
+    .editor { background: var(--white); border: 1px solid var(--border-color); border-radius: var(--radius-lg); min-height: 60vh; display: flex; flex-direction: column; }
+    .editor-head { padding: 1.1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .editor-head h2 { font-family: 'Syne', sans-serif; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: .6rem; }
+    .editor-actions { display: flex; gap: .5rem; align-items: center; }
+    .tabs { display: flex; gap: .25rem; padding: 0 1.5rem; border-bottom: 1px solid var(--border-color); overflow-x: auto; }
+    .tab { padding: .8rem 1rem; font-size: .9rem; font-weight: 500; color: var(--text-gray); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .tab.active { color: var(--primary-blue); border-bottom-color: var(--primary-blue); }
+    .tab.disabled { opacity: .45; }
+    .tab-pane { display: none; padding: 1.5rem; }
+    .tab-pane.active { display: block; }
+    .editor-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 3rem 1rem; color: var(--text-gray); text-align: center; gap: .75rem; }
+    .editor-empty i { font-size: 3rem; color: var(--border-color); }
+
+    .block { margin-bottom: 1.75rem; }
+    .block-title { font-size: .95rem; font-weight: 700; margin-bottom: .85rem; display: flex; align-items: center; gap: .5rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: .35rem; }
+    .form-hint { font-size: .78rem; color: var(--text-light); margin-top: .3rem; }
+    .form-input, .form-select, .form-textarea { width: 100%; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: .65rem .85rem; font-size: .9rem; background: var(--white); transition: var(--transition-sm); }
+    .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--primary-blue); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+    .form-textarea { min-height: 220px; resize: vertical; font-family: inherit; line-height: 1.5; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .char-count { text-align: right; font-size: .75rem; color: var(--text-light); }
+
+    /* Витрина моделей */
+    .models-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .75rem; }
+    .model-card { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: .85rem; cursor: pointer; position: relative; transition: var(--transition-sm); background: var(--white); }
+    .model-card:hover { border-color: var(--primary-blue-light); box-shadow: var(--shadow-sm); }
+    .model-card.selected { border-color: var(--primary-blue); background: var(--bg-blue-light); box-shadow: 0 0 0 2px rgba(37,99,235,.15); }
+    .model-card.selected::after { content: "\f00c"; font-family: "Font Awesome 6 Free"; font-weight: 900; position: absolute; top: .6rem; right: .6rem; color: var(--primary-blue); font-size: .8rem; }
+    .model-card .m-name { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: .4rem; }
+    .model-card .m-price { font-family: 'Syne', sans-serif; font-size: 1.15rem; font-weight: 700; margin: .25rem 0; }
+    .model-card .m-price small { font-family: inherit; font-size: .72rem; font-weight: 500; color: var(--text-gray); }
+    .model-card .m-desc { font-size: .75rem; color: var(--text-gray); min-height: 2.2em; }
+    .model-card .m-tags { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .5rem; }
+    .model-card .m-badge { position: absolute; top: -.5rem; left: .75rem; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: .1rem .45rem; border-radius: 999px; background: var(--primary-blue); color: #fff; }
+    .model-card .m-badge.free { background: var(--green-500); }
+    .model-card .m-badge.premium { background: #7c3aed; }
+    .info-line { display: flex; gap: .5rem; align-items: flex-start; font-size: .8rem; color: var(--text-gray); background: var(--bg-light); border-radius: var(--radius-md); padding: .65rem .85rem; margin-top: .85rem; }
+    .warn-line { display: flex; gap: .5rem; align-items: flex-start; font-size: .8rem; color: var(--amber-800); background: var(--amber-100); border-radius: var(--radius-md); padding: .65rem .85rem; margin-top: .6rem; }
+
+    /* Голоса */
+    .voices-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .5rem; }
+    .voice-card { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: .6rem .75rem; cursor: pointer; font-size: .85rem; display: flex; align-items: center; justify-content: space-between; gap: .4rem; transition: var(--transition-sm); }
+    .voice-card:hover { border-color: var(--primary-blue-light); }
+    .voice-card.selected { border-color: var(--primary-blue); background: var(--bg-blue-light); font-weight: 600; }
+    .voice-card small { color: var(--text-light); font-weight: 400; font-size: .7rem; }
+    .range-row { display: flex; align-items: center; gap: .75rem; }
+    .range-row input[type=range] { flex: 1; }
+    .range-val { min-width: 3rem; text-align: right; font-size: .85rem; font-weight: 600; }
+    .preset-row { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .preset { padding: .5rem .8rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); cursor: pointer; font-size: .85rem; }
+    .preset.selected { border-color: var(--primary-blue); background: var(--bg-blue-light); color: var(--primary-blue); font-weight: 600; }
+    .preset small { display: block; font-size: .7rem; color: var(--text-light); font-weight: 400; }
+
+    /* Функции */
+    .func-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .75rem; }
+    .func-card { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: .85rem; display: flex; gap: .75rem; align-items: flex-start; }
+    .func-card.on { border-color: var(--primary-blue-light); background: var(--bg-blue-light); }
+    .func-card .f-name { font-weight: 600; font-size: .9rem; }
+    .func-card .f-desc { font-size: .78rem; color: var(--text-gray); margin-top: .2rem; }
+    .switch { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; background: #cbd5e1; border-radius: 999px; cursor: pointer; transition: .2s; }
+    .slider::before { content: ""; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+    .switch input:checked + .slider { background: var(--primary-blue); }
+    .switch input:checked + .slider::before { transform: translateX(18px); }
+
+    /* База знаний */
+    .kb-table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    .kb-table th { text-align: left; color: var(--text-gray); font-weight: 600; font-size: .78rem; padding: .5rem; border-bottom: 1px solid var(--border-color); }
+    .kb-table td { padding: .6rem .5rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+    .ns { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; background: var(--bg-light); padding: .2rem .45rem; border-radius: .3rem; border: 1px solid var(--border-color); }
+    .icon-btn { border: none; background: none; cursor: pointer; color: var(--text-gray); padding: .3rem; border-radius: .3rem; }
+    .icon-btn:hover { color: var(--primary-blue); background: var(--bg-blue-light); }
+
+    /* Тест / встраивание */
+    .placeholder { text-align: center; padding: 2.5rem 1rem; color: var(--text-gray); }
+    .placeholder i { font-size: 2.5rem; color: var(--border-color); display: block; margin-bottom: .75rem; }
+    .code-box { position: relative; }
+    .code-box pre { background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: var(--radius-md); overflow-x: auto; font-size: .8rem; white-space: pre-wrap; word-break: break-all; }
+    .code-box .btn { position: absolute; top: .5rem; right: .5rem; }
+
+    /* Футер сохранения */
+    .save-bar { position: sticky; bottom: 0; background: var(--white); border-top: 1px solid var(--border-color); padding: .85rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .save-bar .dirty { font-size: .8rem; color: var(--orange-500); }
+    .save-bar .clean { font-size: .8rem; color: var(--text-light); }
+
+    /* Модалки и уведомления */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 1rem; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--white); border-radius: var(--radius-lg); width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-lg); }
+    .modal-head { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .modal-head h3 { font-size: 1.05rem; }
+    .modal-body { padding: 1.5rem; }
+    .modal-foot { padding: 1rem 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: .5rem; }
+    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: var(--text-dark); color: #fff; padding: .8rem 1.1rem; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 2000; font-size: .9rem; display: none; max-width: 420px; }
+    .toast.error { background: var(--red-500); }
+    .toast.success { background: var(--green-500); }
+
+    .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 1100px) { .layout { grid-template-columns: 280px 1fr; padding: 1rem; } }
+    @media (max-width: 860px) {
+      .sidebar { transform: translateX(-100%); box-shadow: var(--shadow-lg); }
+      .sidebar.open { transform: translateX(0); }
+      .main-content { margin-left: 0; }
+      .mobile-toggle { display: inline-flex; }
+      .top-nav { padding: .75rem .9rem; gap: .5rem; }
+      .page-title { font-size: 1.05rem; }
+      .usage-pill { display: none; }
+      .layout { grid-template-columns: 1fr; padding: .75rem; gap: .75rem; }
+      .list-panel { position: static; max-height: none; }
+      .list-body { display: flex; gap: .5rem; overflow-x: auto; padding: .5rem; }
+      .a-card { min-width: 200px; }
+      .form-row { grid-template-columns: 1fr; }
+      .editor-head { padding: .85rem 1rem; }
+      .tab-pane { padding: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <a href="/" class="sidebar-logo">
+        <div class="logo-icon">
+          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div style="display:none;width:30px;height:30px;border-radius:.5rem;background:linear-gradient(135deg,#4a86e8,#2563eb);color:#fff;align-items:center;justify-content:center;font-size:.875rem;"><i class="fas fa-robot"></i></div>
+        </div>
+        <span>Voicyfy</span>
+      </a>
+      <button class="mobile-toggle" id="sidebar-close"><i class="fas fa-times"></i></button>
+    </div>
+    <nav class="sidebar-nav" id="sidebar-nav"></nav>
+    <div class="sidebar-footer">
+      <a href="https://voicyfy.ru" class="btn" style="width:100%;" id="logout-button"><i class="fas fa-sign-out-alt"></i> Выйти</a>
+    </div>
+  </aside>
+  <script src="/static/js/sidebar.js"></script>
+
+  <main class="main-content" id="main-content">
+    <div class="top-nav">
+      <div style="display:flex;align-items:center;gap:.75rem;">
+        <button class="mobile-toggle" id="sidebar-toggle"><i class="fas fa-bars"></i></button>
+        <h1 class="page-title">Голосовые ассистенты</h1>
+      </div>
+      <div class="top-nav-right">
+        <span class="usage-pill" id="usage-pill" title="Лимит ассистентов по тарифу">…</span>
+        <button class="btn btn-primary" id="btn-new"><i class="fas fa-plus"></i> Создать</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <!-- Список -->
+      <section class="list-panel">
+        <div class="list-head">
+          <h2>Мои ассистенты <span id="list-count" style="color:var(--text-light);font-weight:500;"></span></h2>
+        </div>
+        <div class="list-search"><input type="search" id="list-search" placeholder="Поиск по имени…"></div>
+        <div class="list-body" id="list-body"><div class="list-empty">Загрузка…</div></div>
+      </section>
+
+      <!-- Редактор -->
+      <section class="editor" id="editor">
+        <div class="editor-empty" id="editor-empty">
+          <i class="fas fa-microphone-lines"></i>
+          <div style="font-weight:600;">Выберите ассистента или создайте нового</div>
+          <div style="font-size:.85rem;max-width:420px;">Одна страница для всех голосовых моделей: выберите модель, задайте промпт, подключите функции и базу знаний.</div>
+          <button class="btn btn-primary" id="btn-new-empty"><i class="fas fa-plus"></i> Создать ассистента</button>
+        </div>
+
+        <div id="editor-body" style="display:none;flex:1;flex-direction:column;">
+          <div class="editor-head">
+            <h2><i class="fas fa-robot" style="color:var(--primary-blue);"></i> <span id="editor-title">Новый ассистент</span></h2>
+            <div class="editor-actions">
+              <label style="display:inline-flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--text-gray);cursor:pointer;" id="active-wrap">
+                <span>Активен</span>
+                <span class="switch"><input type="checkbox" id="f-active" checked><span class="slider"></span></span>
+              </label>
+              <button class="btn btn-danger btn-sm" id="btn-delete" title="Удалить"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+
+          <div class="tabs" id="tabs">
+            <div class="tab active" data-tab="settings"><i class="fas fa-sliders"></i> Настройки</div>
+            <div class="tab" data-tab="functions"><i class="fas fa-puzzle-piece"></i> Функции</div>
+            <div class="tab" data-tab="knowledge"><i class="fas fa-book"></i> База знаний</div>
+            <div class="tab" data-tab="test"><i class="fas fa-play"></i> Тестирование</div>
+            <div class="tab" data-tab="embed"><i class="fas fa-code"></i> Код встраивания</div>
+          </div>
+
+          <!-- НАСТРОЙКИ -->
+          <div class="tab-pane active" data-pane="settings">
+            <div class="block">
+              <div class="block-title"><i class="fas fa-id-card"></i> Основное</div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Имя ассистента</label>
+                  <input class="form-input" id="f-name" placeholder="Например: Менеджер по записи">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Описание (для себя)</label>
+                  <input class="form-input" id="f-description" placeholder="Кратко, зачем нужен ассистент">
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Первая фраза (приветствие)</label>
+                <input class="form-input" id="f-greeting" placeholder="Здравствуйте! Чем могу помочь?">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Системный промпт</label>
+                <textarea class="form-textarea" id="f-prompt" placeholder="Кто ассистент, как он говорит, что делает и чего не делает…"></textarea>
+                <div class="char-count"><span id="prompt-count">0</span> символов</div>
+              </div>
+            </div>
+
+            <div class="block">
+              <div class="block-title"><i class="fas fa-wave-square"></i> Голосовая модель</div>
+              <div class="models-grid" id="models-grid"></div>
+              <div class="info-line"><i class="fas fa-circle-info"></i><span>Минуты связи при звонках оплачиваются с баланса телефонии. Цена модели списывается с кошелька Voicyfy за минуту разговора. Свой ключ в профиле — бесплатно.</span></div>
+              <div class="warn-line" id="switch-warn" style="display:none;"><i class="fas fa-triangle-exclamation"></i><span>При смене модели ассистент будет пересоздан (изменится его ID), а привязанные номера телефонии автоматически перепривяжутся к новому ассистенту.</span></div>
+            </div>
+
+            <div class="block">
+              <div class="block-title"><i class="fas fa-microphone"></i> Голосовые настройки <span id="voice-model-name" style="color:var(--text-light);font-weight:500;font-size:.85rem;"></span></div>
+              <div id="voice-settings"></div>
+            </div>
+          </div>
+
+          <!-- ФУНКЦИИ -->
+          <div class="tab-pane" data-pane="functions">
+            <div class="block">
+              <div class="block-title"><i class="fas fa-puzzle-piece"></i> Функции ассистента</div>
+              <p style="font-size:.85rem;color:var(--text-gray);margin-bottom:1rem;">Набор функций одинаков для всех моделей. Включённые функции ассистент вызывает сам по ходу разговора. Не забудьте описать в промпте, когда их использовать.</p>
+              <div class="func-list" id="func-list"><div style="color:var(--text-light);">Загрузка…</div></div>
+            </div>
+            <div class="block" id="sheet-block" style="display:none;">
+              <div class="form-group">
+                <label class="form-label">ID Google-таблицы (для функции «Google Таблицы»)</label>
+                <input class="form-input" id="f-sheet" placeholder="1AbC…xyz из ссылки на таблицу">
+                <div class="form-hint">Таблица должна быть доступна сервисному аккаунту Voicyfy (см. настройки).</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- БАЗА ЗНАНИЙ -->
+          <div class="tab-pane" data-pane="knowledge">
+            <div class="block">
+              <div class="block-title" style="justify-content:space-between;">
+                <span><i class="fas fa-book"></i> Базы знаний</span>
+                <button class="btn btn-sm" id="kb-new"><i class="fas fa-plus"></i> Новая база</button>
+              </div>
+              <div class="info-line" style="margin:0 0 1rem;"><i class="fas fa-circle-info"></i><span>Чтобы подключить базу к ассистенту, включите функцию «Поиск по базе знаний» и добавьте в системный промпт строку <code>Pinecone namespace: &lt;namespace&gt;</code>. Кнопка «В промпт» сделает это за вас.</span></div>
+              <div style="overflow-x:auto;">
+                <table class="kb-table">
+                  <thead><tr><th>Название</th><th>Символов</th><th>Namespace</th><th>Обновлена</th><th></th></tr></thead>
+                  <tbody id="kb-body"><tr><td colspan="5" style="color:var(--text-light);">Загрузка…</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- ТЕСТ -->
+          <div class="tab-pane" data-pane="test">
+            <div id="test-content"></div>
+          </div>
+
+          <!-- ВСТРАИВАНИЕ -->
+          <div class="tab-pane" data-pane="embed">
+            <div id="embed-content"></div>
+          </div>
+
+          <div class="save-bar">
+            <span class="clean" id="dirty-state">Нет несохранённых изменений</span>
+            <div style="display:flex;gap:.5rem;">
+              <button class="btn" id="btn-cancel">Отмена</button>
+              <button class="btn btn-primary" id="btn-save"><i class="fas fa-check"></i> Сохранить</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Модалка базы знаний -->
+  <div class="modal-overlay" id="kb-modal">
+    <div class="modal">
+      <div class="modal-head"><h3 id="kb-modal-title">Новая база знаний</h3><button class="icon-btn" id="kb-modal-close"><i class="fas fa-times"></i></button></div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">Название</label><input class="form-input" id="kb-name" placeholder="Например: Прайс и условия"></div>
+        <div class="form-group"><label class="form-label">Содержимое</label><textarea class="form-textarea" id="kb-content" style="min-height:280px;" placeholder="Вставьте текст: описание услуг, цены, ответы на частые вопросы…"></textarea><div class="char-count"><span id="kb-count">0</span> символов</div></div>
+      </div>
+      <div class="modal-foot"><button class="btn" id="kb-cancel">Отмена</button><button class="btn btn-primary" id="kb-save"><i class="fas fa-check"></i> Сохранить</button></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    // =====================================================================
+    // КОНФИГУРАЦИЯ ПРОВАЙДЕРОВ (бэкенд и таблицы не менялись)
+    // =====================================================================
+    const PROVIDERS = {
+      openai: {
+        name: 'OpenAI', icon: 'fas fa-bolt',
+        list: '/api/assistants/', create: '/api/assistants/', item: id => '/api/assistants/' + id,
+        listShape: 'array', widget: true, embed: id => '/api/assistants/' + id + '/embed-code',
+      },
+      gemini: {
+        name: 'Gemini', icon: 'fas fa-gem',
+        list: '/api/gemini-assistants', create: '/api/gemini-assistants', item: id => '/api/gemini-assistants/' + id,
+        listShape: 'array', widget: true, embed: id => '/api/gemini-assistants/' + id + '/embed-code',
+      },
+      fish: {
+        name: 'Fish', icon: 'fas fa-fish',
+        list: '/api/fish-assistants', create: '/api/fish-assistants', item: id => '/api/fish-assistants/' + id,
+        listShape: 'assistants', widget: false, options: '/api/fish-assistants/options',
+      },
+      yandex: {
+        name: 'Яндекс', icon: 'fab fa-yandex',
+        list: '/api/yandex-assistants', create: '/api/yandex-assistants', item: id => '/api/yandex-assistants/' + id,
+        listShape: 'assistants', widget: false, options: '/api/yandex-assistants/options',
+      },
+      cascade: {
+        name: 'Каскад', icon: 'fas fa-water',
+        list: '/api/grok-assistants/cascade', create: '/api/grok-assistants/cascade', item: id => '/api/grok-assistants/cascade/' + id,
+        listShape: 'array', widget: false, options: '/api/grok-assistants/cascade/tts-providers',
+      },
+    };
+    // Порядок витрины по умолчанию (перекрывается sort_order тарифа)
+    const MODEL_ORDER = ['cascade', 'gemini', 'fish', 'yandex', 'openai'];
+
+    const OPENAI_VOICES = ['alloy', 'echo', 'marin', 'cedar', 'shimmer', 'ash', 'ballad', 'coral', 'sage', 'verse'];
+    const GEMINI_VOICES = [
+      ['Puck', 'M'], ['Charon', 'M'], ['Kore', 'F'], ['Fenrir', 'M'], ['Aoede', 'F'], ['Achernar', 'F'], ['Achird', 'M'], ['Algenib', 'M'],
+      ['Algieba', 'M'], ['Alnilam', 'M'], ['Autonoe', 'F'], ['Callirrhoe', 'F'], ['Despina', 'F'], ['Enceladus', 'M'], ['Erinome', 'F'],
+      ['Gacrux', 'F'], ['Iapetus', 'M'], ['Laomedeia', 'F'], ['Leda', 'F'], ['Orus', 'M'], ['Pulcherrima', 'F'], ['Rasalgethi', 'M'],
+      ['Sadachbia', 'M'], ['Sadaltager', 'M'], ['Schedar', 'M'], ['Sulafat', 'F'], ['Umbriel', 'M'], ['Vindemiatrix', 'F'], ['Zephyr', 'F'], ['Zubenelgenubi', 'M'],
+    ];
+    const YANDEX_VOICES_FALLBACK = ['marina', 'dasha', 'alexander', 'julia', 'lera', 'masha', 'anton', 'kirill', 'filipp', 'ermil', 'jane', 'omazh', 'zahar', 'madi_ru', 'saule_ru'];
+    const YANDEX_MODEL = 'speech-realtime-260528';
+    const SILENCE_PRESETS = [[300, 'Быстрая', '≈1,4 с'], [650, 'Сбалансированная', '≈1,7 с'], [1000, 'Терпеливая', '≈2,1 с']];
+    const DEFAULT_GREETING = 'Здравствуйте! Чем я могу вам помочь?';
+
+    // =====================================================================
+    // СОСТОЯНИЕ
+    // =====================================================================
+    const state = {
+      user: null,
+      tariffs: {},          // code -> tariff
+      assistants: [],       // [{id, type, data}]
+      current: null,        // {id, type, data} | null (new)
+      isNew: false,
+      model: null,          // выбранная модель
+      voice: {},            // голосовые настройки текущей модели
+      functions: [],        // каталог
+      enabledFunctions: new Set(),
+      options: {},          // fish/yandex/cascade options cache
+      kbs: [],
+      dirty: false,
+      saving: false,
+    };
+
+    // =====================================================================
+    // УТИЛИТЫ
+    // =====================================================================
+    const $ = id => document.getElementById(id);
+    const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const token = () => { try { return localStorage.getItem('auth_token'); } catch (e) { return null; } };
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      const t = token();
+      if (!t) { location.href = '/static/login.html'; return null; }
+      headers['Authorization'] = 'Bearer ' + t;
+      const r = await fetch(path, Object.assign({}, opts, { headers }));
+      if (r.status === 401) { localStorage.removeItem('auth_token'); location.href = '/static/login.html'; return null; }
+      if (r.status === 204) return { ok: true, data: null, status: 204 };
+      let data = null;
+      try { data = await r.json(); } catch (e) { /* no body */ }
+      return { ok: r.ok, status: r.status, data };
+    }
+
+    function errDetail(res) {
+      // Бэкенд оборачивает HTTPException в {"message": detail}; часть роутов отдаёт {"detail": ...}
+      if (!res || !res.data) return null;
+      return res.data.detail != null ? res.data.detail : res.data.message;
+    }
+    function errCode(res) {
+      const d = errDetail(res);
+      return d && typeof d === 'object' ? (d.error || d.code || null) : null;
+    }
+    function errText(res, fallback) {
+      const d = errDetail(res);
+      if (!d) return fallback || 'Ошибка запроса';
+      if (typeof d === 'string') return d;
+      if (d.message) return d.message;
+      if (Array.isArray(d) && d[0] && d[0].msg) return d[0].msg;
+      return fallback || JSON.stringify(d);
+    }
+
+    let toastTimer;
+    function toast(msg, type) {
+      const el = $('toast');
+      el.textContent = msg; el.className = 'toast ' + (type || ''); el.style.display = 'block';
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.style.display = 'none'; }, 4000);
+    }
+
+    function fmtPrice(t) {
+      if (!t) return '';
+      if (t.own_key) return 'ваш ключ';
+      if (!t.price_rub_per_min) return 'Бесплатно';
+      return t.price_rub_per_min + ' ₽/мин';
+    }
+
+    function setDirty(v) {
+      state.dirty = v;
+      const el = $('dirty-state');
+      el.textContent = v ? 'Есть несохранённые изменения' : 'Нет несохранённых изменений';
+      el.className = v ? 'dirty' : 'clean';
+    }
+
+    // =====================================================================
+    // ЗАГРУЗКА ДАННЫХ
+    // =====================================================================
+    async function loadTariffs() {
+      const r = await api('/api/wallet/tariffs/me');
+      state.tariffs = {};
+      ((r && r.data && r.data.tariffs) || []).forEach(t => { state.tariffs[t.code] = t; });
+    }
+
+    async function loadUsage() {
+      const r = await api('/api/subscriptions/assistants-usage');
+      const d = r && r.data;
+      if (!d) return;
+      $('usage-pill').textContent = d.unlimited ? 'Без лимита' : `Ассистенты: ${d.used} / ${d.max}`;
+    }
+
+    async function loadAssistants() {
+      const entries = await Promise.all(Object.keys(PROVIDERS).map(async type => {
+        const p = PROVIDERS[type];
+        try {
+          const r = await api(p.list);
+          if (!r || !r.ok) return [];
+          const rows = p.listShape === 'assistants' ? (r.data.assistants || []) : (Array.isArray(r.data) ? r.data : []);
+          return rows.map(a => ({ id: String(a.id), type, data: a }));
+        } catch (e) { return []; }
+      }));
+      state.assistants = entries.flat().sort((a, b) => (b.data.created_at || '').localeCompare(a.data.created_at || ''));
+      renderList();
+    }
+
+    async function loadFunctions() {
+      const r = await api('/api/functions/');
+      state.functions = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+      renderFunctions();
+    }
+
+    async function loadOptions(type) {
+      if (state.options[type]) return state.options[type];
+      const p = PROVIDERS[type];
+      if (!p.options) return null;
+      const r = await api(p.options);
+      state.options[type] = (r && r.ok) ? r.data : null;
+      return state.options[type];
+    }
+
+    async function loadKbs() {
+      const r = await api('/api/knowledge-base/all');
+      state.kbs = (r && r.ok && Array.isArray(r.data)) ? r.data : [];
+      renderKbs();
+    }
+
+    // =====================================================================
+    // СПИСОК
+    // =====================================================================
+    function modelLabel(type) {
+      const t = state.tariffs[type];
+      return (t && t.name) || (PROVIDERS[type] && PROVIDERS[type].name) || type;
+    }
+
+    function renderList() {
+      const q = ($('list-search').value || '').trim().toLowerCase();
+      const body = $('list-body');
+      const rows = state.assistants.filter(a => !q || (a.data.name || '').toLowerCase().includes(q));
+      $('list-count').textContent = state.assistants.length ? `(${state.assistants.length})` : '';
+      if (!rows.length) {
+        body.innerHTML = `<div class="list-empty"><i class="fas fa-robot"></i>${state.assistants.length ? 'Ничего не найдено' : 'Создайте первого ассистента'}</div>`;
+        return;
+      }
+      body.innerHTML = rows.map(a => {
+        const t = state.tariffs[a.type];
+        const price = fmtPrice(t);
+        const active = state.current && state.current.id === a.id;
+        return `<div class="a-card${active ? ' active' : ''}" data-id="${esc(a.id)}" data-type="${esc(a.type)}">
+          <div class="a-card-name"><span>${esc(a.data.name || 'Без имени')}</span>${a.data.is_active === false ? '<span class="inactive">выключен</span>' : ''}</div>
+          <div class="a-card-meta"><span class="chip m-${esc(a.type)}"><i class="${PROVIDERS[a.type].icon}"></i> ${esc(modelLabel(a.type))}</span>${price ? `<span class="chip${(!t || !t.price_rub_per_min || t.own_key) ? ' free' : ''}">${esc(price)}</span>` : ''}</div>
+        </div>`;
+      }).join('');
+      body.querySelectorAll('.a-card').forEach(el => el.addEventListener('click', () => selectAssistant(el.dataset.id, el.dataset.type)));
+    }
+
+    // =====================================================================
+    // ВЫБОР / НОВЫЙ
+    // =====================================================================
+    function confirmDiscard() {
+      return !state.dirty || confirm('Есть несохранённые изменения. Продолжить без сохранения?');
+    }
+
+    async function selectAssistant(id, type) {
+      if (!confirmDiscard()) return;
+      const a = state.assistants.find(x => x.id === id && x.type === type);
+      if (!a) return;
+      // Подтягиваем свежие данные
+      const r = await api(PROVIDERS[type].item(id));
+      if (r && r.ok && r.data) a.data = r.data;
+      state.current = a; state.isNew = false; state.model = type;
+      fillForm(a.data, type);
+      showEditor();
+      renderList();
+      history.replaceState(null, '', `/static/voice-assistants.html?id=${encodeURIComponent(id)}&model=${type}`);
+    }
+
+    function newAssistant(preModel) {
+      if (!confirmDiscard()) return;
+      state.current = null; state.isNew = true;
+      const enabled = visibleModels();
+      state.model = (preModel && enabled.includes(preModel)) ? preModel : (enabled.includes('gemini') ? 'gemini' : enabled[0]);
+      fillForm({ name: '', description: '', system_prompt: '', greeting_message: DEFAULT_GREETING, functions: null, is_active: true }, state.model);
+      showEditor();
+      renderList();
+      activateTab('settings');
+      $('f-name').focus();
+    }
+
+    function visibleModels() {
+      const codes = Object.keys(state.tariffs).filter(c => PROVIDERS[c] && state.tariffs[c].is_enabled !== false);
+      const withOrder = codes.length ? codes : MODEL_ORDER.slice();
+      return withOrder.sort((a, b) => {
+        const ta = state.tariffs[a], tb = state.tariffs[b];
+        const sa = ta ? ta.sort_order : MODEL_ORDER.indexOf(a) * 10, sb = tb ? tb.sort_order : MODEL_ORDER.indexOf(b) * 10;
+        return sa - sb;
+      });
+    }
+
+    function showEditor() {
+      $('editor-empty').style.display = 'none';
+      $('editor-body').style.display = 'flex';
+      $('btn-delete').style.display = state.isNew ? 'none' : '';
+      $('active-wrap').style.display = state.isNew ? 'none' : '';
+      $('editor-title').textContent = state.isNew ? 'Новый ассистент' : (state.current.data.name || 'Ассистент');
+      setDirty(false);
+      teardownWidgets();
+      $('test-content').innerHTML = ''; $('embed-content').innerHTML = '';
+    }
+
+    function hideEditor() {
+      state.current = null; state.isNew = false;
+      $('editor-empty').style.display = '';
+      $('editor-body').style.display = 'none';
+      teardownWidgets();
+      renderList();
+      history.replaceState(null, '', '/static/voice-assistants.html');
+    }
+
+    // =====================================================================
+    // ФОРМА
+    // =====================================================================
+    function fillForm(d, type) {
+      $('f-name').value = d.name || '';
+      $('f-description').value = d.description || '';
+      $('f-greeting').value = d.greeting_message || '';
+      $('f-prompt').value = d.system_prompt || '';
+      $('f-sheet').value = d.google_sheet_id || '';
+      $('f-active').checked = d.is_active !== false;
+      $('prompt-count').textContent = ($('f-prompt').value || '').length;
+      state.enabledFunctions = new Set((d.functions || []).map(f => typeof f === 'string' ? f : f.name).filter(Boolean));
+      state.voice = extractVoice(d, type);
+      renderModels();
+      renderVoiceSettings();
+      renderFunctions();
+      updateTabAvailability();
+    }
+
+    function extractVoice(d, type) {
+      switch (type) {
+        case 'openai': return { voice: d.voice || 'alloy' };
+        case 'gemini': return { voice: d.voice || 'Aoede' };
+        case 'fish': return { fish_voice_id: d.fish_voice_id || '', fish_model: d.fish_model || null, fish_latency: d.fish_latency || 'balanced', voice_speed: d.voice_speed != null ? d.voice_speed : 1.0, llm_model: d.llm_model || null, temperature: d.temperature != null ? d.temperature : 0.7 };
+        case 'yandex': return { voice: d.voice || 'marina', voice_role: d.voice_role || '', model: YANDEX_MODEL };
+        case 'cascade': return { tts_provider: d.tts_provider || 'voxtts', tts_voice: d.tts_voice || 'Anna', silence_duration_ms: d.silence_duration_ms || 300 };
+        default: return {};
+      }
+    }
+
+    function defaultVoice(type) { return extractVoice({}, type); }
+
+    function renderModels() {
+      const grid = $('models-grid');
+      const models = visibleModels();
+      grid.innerHTML = models.map(code => {
+        const t = state.tariffs[code] || {};
+        const p = PROVIDERS[code];
+        const chans = t.channels || (p.widget ? ['widget', 'telephony'] : ['telephony']);
+        const badge = t.badge ? `<span class="m-badge${/бесплат/i.test(t.badge) ? ' free' : (/премиум/i.test(t.badge) ? ' premium' : '')}">${esc(t.badge)}</span>` : '';
+        const priceHtml = t.own_key ? `0 ₽ <small>ваш ключ</small>` : (t.price_rub_per_min ? `${t.price_rub_per_min} ₽<small>/мин</small>` : `0 ₽ <small>бесплатно</small>`);
+        return `<div class="model-card${state.model === code ? ' selected' : ''}" data-code="${code}">
+          ${badge}
+          <div class="m-name"><i class="${p.icon}"></i> ${esc(t.name || p.name)}</div>
+          <div class="m-price">${priceHtml}</div>
+          <div class="m-desc">${esc(t.description || '')}</div>
+          <div class="m-tags">${chans.includes('widget') ? '<span class="chip">Виджет</span><span class="chip">Телефония</span>' : '<span class="chip">Только телефония</span>'}</div>
+        </div>`;
+      }).join('');
+      grid.querySelectorAll('.model-card').forEach(el => el.addEventListener('click', () => switchModel(el.dataset.code)));
+      $('switch-warn').style.display = (!state.isNew && state.current && state.model !== state.current.type) ? 'flex' : 'none';
+      $('voice-model-name').textContent = '· ' + modelLabel(state.model);
+    }
+
+    function switchModel(code) {
+      if (code === state.model) return;
+      state.model = code;
+      state.voice = (!state.isNew && state.current && state.current.type === code) ? extractVoice(state.current.data, code) : defaultVoice(code);
+      renderModels();
+      renderVoiceSettings();
+      updateTabAvailability();
+      setDirty(true);
+    }
+
+    async function renderVoiceSettings() {
+      const box = $('voice-settings');
+      const v = state.voice;
+      const type = state.model;
+      const bind = () => box.querySelectorAll('[data-vf]').forEach(el => {
+        el.addEventListener(el.type === 'range' || el.tagName === 'SELECT' ? 'input' : 'input', () => {
+          const key = el.dataset.vf;
+          let val = el.value;
+          if (el.type === 'range' || el.type === 'number') val = parseFloat(val);
+          state.voice[key] = val;
+          const out = box.querySelector(`[data-out="${key}"]`); if (out) out.textContent = el.value;
+          setDirty(true);
+        });
+      });
+
+      if (type === 'openai') {
+        box.innerHTML = `<div class="voices-grid">${OPENAI_VOICES.map(id => `<div class="voice-card${v.voice === id ? ' selected' : ''}" data-voice="${id}"><span>${id[0].toUpperCase() + id.slice(1)}</span></div>`).join('')}</div>`;
+        box.querySelectorAll('.voice-card').forEach(el => el.addEventListener('click', () => { state.voice.voice = el.dataset.voice; renderVoiceSettings(); setDirty(true); }));
+        return;
+      }
+      if (type === 'gemini') {
+        box.innerHTML = `<div class="voices-grid">${GEMINI_VOICES.map(([id, g]) => `<div class="voice-card${v.voice === id ? ' selected' : ''}" data-voice="${id}"><span>${id}</span><small>${g === 'F' ? 'жен.' : 'муж.'}</small></div>`).join('')}</div>
+          <div class="form-hint" style="margin-top:.6rem;">Подмодель и режим размышлений скрыты намеренно — ради скорости ответа ассистента.</div>`;
+        box.querySelectorAll('.voice-card').forEach(el => el.addEventListener('click', () => { state.voice.voice = el.dataset.voice; renderVoiceSettings(); setDirty(true); }));
+        return;
+      }
+      if (type === 'fish') {
+        box.innerHTML = '<div style="color:var(--text-light);font-size:.85rem;">Загрузка параметров…</div>';
+        const o = (await loadOptions('fish')) || {};
+        if (state.model !== 'fish') return;
+        const models = o.models || ['s2.1-pro'];
+        const lat = o.latency_modes || ['low', 'balanced', 'normal'];
+        const llms = o.llm_models || ['gpt-realtime-2.1-mini', 'gpt-realtime-1.5'];
+        if (!v.fish_model) v.fish_model = o.default_model || models[0];
+        if (!v.llm_model) v.llm_model = o.default_llm_model || llms[0];
+        const opt = (list, cur) => list.concat(cur && !list.includes(cur) ? [cur] : []).map(x => `<option value="${esc(x)}"${x === cur ? ' selected' : ''}>${esc(x)}</option>`).join('');
+        box.innerHTML = `
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Voice ID (Fish Audio)</label><input class="form-input" data-vf="fish_voice_id" value="${esc(v.fish_voice_id)}" placeholder="reference_id голоса из fish.audio"><div class="form-hint">Пусто — голос по умолчанию. Свои клоны голоса берите в кабинете Fish Audio.</div></div>
+            <div class="form-group"><label class="form-label">Модель синтеза</label><select class="form-select" data-vf="fish_model">${opt(models, v.fish_model)}</select></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Задержка</label><select class="form-select" data-vf="fish_latency">${opt(lat, v.fish_latency)}</select></div>
+            <div class="form-group"><label class="form-label">Мозг диалога</label><select class="form-select" data-vf="llm_model">${opt(llms, v.llm_model)}</select></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Скорость речи</label><div class="range-row"><input type="range" data-vf="voice_speed" min="0.5" max="2" step="0.05" value="${v.voice_speed}"><span class="range-val" data-out="voice_speed">${v.voice_speed}</span></div></div>
+            <div class="form-group"><label class="form-label">Температура</label><div class="range-row"><input type="range" data-vf="temperature" min="0" max="1" step="0.05" value="${v.temperature}"><span class="range-val" data-out="temperature">${v.temperature}</span></div></div>
+          </div>`;
+        bind();
+        return;
+      }
+      if (type === 'yandex') {
+        box.innerHTML = '<div style="color:var(--text-light);font-size:.85rem;">Загрузка голосов…</div>';
+        const o = (await loadOptions('yandex')) || {};
+        if (state.model !== 'yandex') return;
+        const voices = o.voices && o.voices.length ? o.voices : YANDEX_VOICES_FALLBACK;
+        box.innerHTML = `<div class="voices-grid">${voices.map(id => `<div class="voice-card${v.voice === id ? ' selected' : ''}" data-voice="${esc(id)}"><span>${esc(id)}</span></div>`).join('')}</div>
+          <div class="form-group" style="margin-top:1rem;"><label class="form-label">Роль голоса (необязательно)</label><input class="form-input" data-vf="voice_role" value="${esc(v.voice_role || '')}" placeholder="например: friendly, strict"><div class="form-hint">Модель распознавания и синтеза: ${YANDEX_MODEL}.</div></div>`;
+        box.querySelectorAll('.voice-card').forEach(el => el.addEventListener('click', () => { state.voice.voice = el.dataset.voice; renderVoiceSettings(); setDirty(true); }));
+        bind();
+        return;
+      }
+      if (type === 'cascade') {
+        box.innerHTML = '<div style="color:var(--text-light);font-size:.85rem;">Загрузка голосов…</div>';
+        const o = (await loadOptions('cascade')) || {};
+        if (state.model !== 'cascade') return;
+        const providers = o.providers || { voxtts: { name: 'VoxTTS (Voximplant)', voices: [{ id: 'Anna', name: 'Anna' }] } };
+        if (!providers[v.tts_provider]) v.tts_provider = Object.keys(providers)[0];
+        const voices = (providers[v.tts_provider] && providers[v.tts_provider].voices) || [];
+        if (!voices.find(x => x.id === v.tts_voice) && voices.length) v.tts_voice = voices[0].id;
+        box.innerHTML = `
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Провайдер синтеза</label><select class="form-select" id="cascade-provider">${Object.keys(providers).map(k => `<option value="${esc(k)}"${k === v.tts_provider ? ' selected' : ''}>${esc(providers[k].name || k)}</option>`).join('')}</select></div>
+            <div class="form-group"><label class="form-label">Голос</label><select class="form-select" id="cascade-voice">${voices.map(x => `<option value="${esc(x.id)}"${x.id === v.tts_voice ? ' selected' : ''}>${esc(x.name || x.id)}${x.gender ? ' · ' + esc(x.gender) : ''}</option>`).join('')}</select></div>
+          </div>
+          <div class="form-group"><label class="form-label">Пауза перед ответом</label>
+            <div class="preset-row">${SILENCE_PRESETS.map(([ms, l, est]) => `<div class="preset${v.silence_duration_ms === ms ? ' selected' : ''}" data-ms="${ms}">${l}<small>${ms} мс · ответ ${est}</small></div>`).join('')}</div>
+            <div class="form-hint">Меньше пауза — быстрее ответ, но ассистент чаще перебивает. Распознавание и синтез в Каскаде оплачиваются с баланса телефонии.</div></div>`;
+        $('cascade-provider').addEventListener('change', e => { state.voice.tts_provider = e.target.value; state.voice.tts_voice = null; renderVoiceSettings(); setDirty(true); });
+        $('cascade-voice').addEventListener('change', e => { state.voice.tts_voice = e.target.value; setDirty(true); });
+        box.querySelectorAll('.preset').forEach(el => el.addEventListener('click', () => { state.voice.silence_duration_ms = parseInt(el.dataset.ms, 10); renderVoiceSettings(); setDirty(true); }));
+        return;
+      }
+      box.innerHTML = '<div class="form-hint">Для этой модели нет дополнительных голосовых настроек.</div>';
+    }
+
+    // =====================================================================
+    // ФУНКЦИИ
+    // =====================================================================
+    function renderFunctions() {
+      const box = $('func-list');
+      if (!state.functions.length) { box.innerHTML = '<div style="color:var(--text-light);">Каталог функций недоступен</div>'; return; }
+      box.innerHTML = state.functions.map(f => {
+        const on = state.enabledFunctions.has(f.name);
+        return `<label class="func-card${on ? ' on' : ''}">
+          <span class="switch"><input type="checkbox" data-fn="${esc(f.name)}"${on ? ' checked' : ''}><span class="slider"></span></span>
+          <span><div class="f-name">${esc(f.display_name || f.name)}</div><div class="f-desc">${esc(f.description || '')}</div></span>
+        </label>`;
+      }).join('');
+      box.querySelectorAll('input[data-fn]').forEach(inp => inp.addEventListener('change', () => {
+        if (inp.checked) state.enabledFunctions.add(inp.dataset.fn); else state.enabledFunctions.delete(inp.dataset.fn);
+        inp.closest('.func-card').classList.toggle('on', inp.checked);
+        updateSheetBlock(); setDirty(true);
+      }));
+      updateSheetBlock();
+    }
+
+    function updateSheetBlock() {
+      const needs = Array.from(state.enabledFunctions).some(n => /sheet/i.test(n));
+      $('sheet-block').style.display = needs ? '' : 'none';
+    }
+
+    function functionsPayload() {
+      if (!state.enabledFunctions.size) return null;
+      return state.functions.filter(f => state.enabledFunctions.has(f.name)).map(f => ({ name: f.name, description: f.description || ('Функция ' + f.name) }));
+    }
+
+    // =====================================================================
+    // СБОРКА PAYLOAD ПО ПРОВАЙДЕРУ
+    // =====================================================================
+    function buildPayload(type, forCreate) {
+      const common = {
+        name: $('f-name').value.trim(),
+        description: $('f-description').value.trim() || null,
+        system_prompt: $('f-prompt').value,
+        greeting_message: $('f-greeting').value.trim() || DEFAULT_GREETING,
+        functions: functionsPayload(),
+        google_sheet_id: $('f-sheet').value.trim() || null,
+      };
+      if (!forCreate) common.is_active = $('f-active').checked;
+      const v = state.voice;
+      switch (type) {
+        case 'openai': return Object.assign(common, { voice: v.voice || 'alloy', language: 'ru' });
+        case 'gemini': return Object.assign(common, { voice: v.voice || 'Aoede', language: 'ru' });
+        case 'fish': return Object.assign(common, {
+          fish_voice_id: v.fish_voice_id || null, fish_model: v.fish_model || undefined, fish_latency: v.fish_latency || 'balanced',
+          voice_speed: v.voice_speed != null ? v.voice_speed : 1.0, llm_model: v.llm_model || undefined, temperature: v.temperature != null ? v.temperature : 0.7, language: 'ru',
+        });
+        case 'yandex': return Object.assign(common, { model: YANDEX_MODEL, voice: v.voice || 'marina', voice_role: v.voice_role || null, language: 'ru' });
+        case 'cascade': {
+          delete common.description; // у каскада description есть, оставим
+          return Object.assign(common, { description: $('f-description').value.trim() || null, tts_provider: v.tts_provider || 'voxtts', tts_voice: v.tts_voice || 'Anna', silence_duration_ms: v.silence_duration_ms || 300, tts_lang: 'ru', asr_lang: 'ru', is_telephony_enabled: true });
+        }
+      }
+      return common;
+    }
+
+    function stripUndefined(o) { Object.keys(o).forEach(k => { if (o[k] === undefined) delete o[k]; }); return o; }
+
+    // =====================================================================
+    // СОХРАНЕНИЕ / СМЕНА МОДЕЛИ / УДАЛЕНИЕ
+    // =====================================================================
+    async function save() {
+      if (state.saving) return;
+      const name = $('f-name').value.trim();
+      if (!name) { toast('Укажите имя ассистента', 'error'); activateTab('settings'); $('f-name').focus(); return; }
+      if (!$('f-prompt').value.trim()) { toast('Заполните системный промпт', 'error'); activateTab('settings'); $('f-prompt').focus(); return; }
+      const type = state.model;
+      const p = PROVIDERS[type];
+      const btn = $('btn-save'); state.saving = true; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Сохраняем…';
+      try {
+        if (state.isNew) {
+          const r = await api(p.create, { method: 'POST', body: JSON.stringify(stripUndefined(buildPayload(type, true))) });
+          if (!r || !r.ok) throw new Error(errText(r, 'Не удалось создать ассистента'));
+          toast('Ассистент создан', 'success');
+          await loadAssistants(); await loadUsage();
+          await selectAssistant(String(r.data.id), type);
+        } else if (type === state.current.type) {
+          const r = await api(p.item(state.current.id), { method: 'PUT', body: JSON.stringify(stripUndefined(buildPayload(type, false))) });
+          if (!r || !r.ok) throw new Error(errText(r, 'Не удалось сохранить'));
+          toast('Сохранено', 'success');
+          await loadAssistants();
+          await selectAssistant(state.current.id, type);
+        } else {
+          await migrateModel(type);
+        }
+      } catch (e) {
+        toast(e.message || 'Ошибка', 'error');
+      } finally {
+        state.saving = false; btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Сохранить';
+      }
+    }
+
+    // Смена модели: создаём в новой таблице, перепривязываем телефонию, удаляем старого
+    async function migrateModel(newType) {
+      const old = state.current;
+      const oldType = old.type;
+      if (!confirm(`Сменить модель на «${modelLabel(newType)}»? Ассистент будет пересоздан с новым ID, привязанные номера телефонии перепривяжутся автоматически.`)) return;
+      const p = PROVIDERS[newType];
+      const payload = JSON.stringify(stripUndefined(buildPayload(newType, true)));
+
+      // Номера телефонии, привязанные к старому ассистенту — запоминаем ДО любых удалений
+      let numbers = [];
+      try {
+        const nr = await api('/api/telephony/my-numbers');
+        numbers = ((nr && nr.ok && Array.isArray(nr.data)) ? nr.data : []).filter(n => String(n.assistant_id || '') === old.id);
+      } catch (e) { numbers = []; }
+
+      let r = await api(p.create, { method: 'POST', body: payload });
+      let oldDeleted = false;
+      if (r && !r.ok && errCode(r) === 'assistant_limit_reached') {
+        // Лимит ассистентов по тарифу: старый ещё занимает слот. Удаляем его первым,
+        // но только если после удаления слот действительно освободится.
+        const ur = await api('/api/subscriptions/assistants-usage');
+        const usage = (ur && ur.ok && ur.data) || {};
+        if (!usage.unlimited && usage.max != null && (usage.used - 1) >= usage.max) {
+          throw new Error(`Достигнут лимит ассистентов по тарифу (${usage.used} из ${usage.max}). Удалите лишних ассистентов или обновите тариф.`);
+        }
+        if (!confirm('Достигнут лимит ассистентов по тарифу. Удалить текущего ассистента перед созданием на новой модели? Настройки перенесутся, номера перепривяжутся.')) return;
+        const dr = await api(PROVIDERS[oldType].item(old.id), { method: 'DELETE' });
+        if (!dr || !dr.ok) throw new Error(errText(dr, 'Не удалось удалить старого ассистента'));
+        oldDeleted = true;
+        r = await api(p.create, { method: 'POST', body: payload });
+      }
+      if (!r || !r.ok) {
+        if (oldDeleted) { await loadAssistants(); await loadUsage(); hideEditor(); }
+        throw new Error(errText(r, 'Не удалось создать ассистента на новой модели'));
+      }
+      const newId = String(r.data.id);
+
+      // Перепривязка номеров телефонии
+      let rebound = 0, failed = 0;
+      for (const n of numbers) {
+        try {
+          const br = await api('/api/telephony/bind-assistant', { method: 'POST', body: JSON.stringify({ phone_number_id: n.id, assistant_type: newType, assistant_id: newId, first_phrase: n.first_phrase || null }) });
+          if (br && br.ok) rebound++; else failed++;
+        } catch (e) { failed++; }
+      }
+
+      if (failed) {
+        toast(`Новый ассистент создан, но ${failed} номер(ов) не удалось перепривязать${oldDeleted ? '' : '. Старый ассистент сохранён'} — проверьте Телефонию.`, 'error');
+      } else if (!oldDeleted) {
+        const dr = await api(PROVIDERS[oldType].item(old.id), { method: 'DELETE' });
+        if (!dr || !dr.ok) toast('Новый ассистент создан, старый удалить не удалось — удалите вручную', 'error');
+        else toast(rebound ? `Модель изменена, перепривязано номеров: ${rebound}` : 'Модель изменена', 'success');
+      } else {
+        toast(rebound ? `Модель изменена, перепривязано номеров: ${rebound}` : 'Модель изменена', 'success');
+      }
+      state.dirty = false;
+      await loadAssistants(); await loadUsage();
+      await selectAssistant(newId, newType);
+    }
+
+    async function remove() {
+      if (!state.current) return;
+      if (!confirm(`Удалить ассистента «${state.current.data.name}»? Это действие необратимо.`)) return;
+      const r = await api(PROVIDERS[state.current.type].item(state.current.id), { method: 'DELETE' });
+      if (!r || !r.ok) { toast(errText(r, 'Не удалось удалить'), 'error'); return; }
+      toast('Ассистент удалён', 'success');
+      state.dirty = false;
+      await loadAssistants(); await loadUsage();
+      hideEditor();
+    }
+
+    // =====================================================================
+    // ТАБЫ, ТЕСТ, ВСТРАИВАНИЕ
+    // =====================================================================
+    function modelHasWidget(type) {
+      const t = state.tariffs[type];
+      if (t && t.channels) return t.channels.includes('widget');
+      return !!(PROVIDERS[type] && PROVIDERS[type].widget);
+    }
+
+    function updateTabAvailability() {
+      const has = modelHasWidget(state.model);
+      document.querySelectorAll('.tab[data-tab="test"], .tab[data-tab="embed"]').forEach(t => t.classList.toggle('disabled', !has));
+    }
+
+    function activateTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+      if (name !== 'test') teardownWidgets();
+      if (name === 'test') renderTest();
+      if (name === 'embed') renderEmbed();
+      if (name === 'knowledge') loadKbs();
+    }
+
+    function telephonyOnlyHtml(what) {
+      return `<div class="placeholder"><i class="fas fa-phone"></i><div style="font-weight:600;margin-bottom:.35rem;">Модель «${esc(modelLabel(state.model))}» работает только в телефонии</div><div style="font-size:.85rem;max-width:460px;margin:0 auto 1rem;">${what}</div><a class="btn btn-primary" href="/static/telephony.html"><i class="fas fa-phone"></i> Перейти в Телефонию</a></div>`;
+    }
+
+    function teardownWidgets() {
+      ['wellcomeai-widget-container', 'wellcomeai-widget-styles', 'gemini-voice-widget', 'gemini-31-voice-widget', 'fsw-btn', 'fsw-panel', 'fsw-overlay', 'fsw-styles'].forEach(id => { const el = document.getElementById(id); if (el) el.remove(); });
+      document.querySelectorAll('.wellcomeai-widget-container').forEach(el => el.remove());
+      document.querySelectorAll('script[src*="widget.js"], script[src*="gemini-widget"], script[src*="gemini-31-widget"]').forEach(s => s.remove());
+    }
+
+    function renderTest() {
+      const box = $('test-content');
+      if (state.isNew) { box.innerHTML = '<div class="placeholder"><i class="fas fa-floppy-disk"></i>Сначала сохраните ассистента</div>'; return; }
+      if (!modelHasWidget(state.model)) { box.innerHTML = telephonyOnlyHtml('Привяжите ассистента к номеру и позвоните на него, чтобы протестировать разговор.'); return; }
+      if (state.model !== state.current.type) { box.innerHTML = '<div class="placeholder"><i class="fas fa-floppy-disk"></i>Сохраните смену модели, затем протестируйте</div>'; return; }
+      const t = state.tariffs[state.model];
+      box.innerHTML = `<div class="placeholder" style="padding-top:1rem;"><i class="fas fa-headphones"></i>
+        <div style="font-weight:600;margin-bottom:.35rem;">Виджет запущен в правом нижнем углу</div>
+        <div style="font-size:.85rem;max-width:460px;margin:0 auto;">Нажмите на кнопку виджета и говорите. ${t && t.price_rub_per_min && !t.own_key ? `Тестирование тарифицируется как обычный разговор: ${t.price_rub_per_min} ₽/мин с кошелька.` : 'Тестирование бесплатно.'}</div>
+        <div id="widget-status" style="margin-top:.75rem;font-size:.8rem;color:var(--text-light);">Загружаем виджет…</div></div>`;
+      teardownWidgets();
+      const s = document.createElement('script');
+      if (state.model === 'openai') {
+        s.src = '/static/widget.js?t=' + Date.now();
+        s.setAttribute('data-assistant-id', state.current.id);
+        s.setAttribute('data-position', 'bottom-right');
+      } else {
+        s.src = '/static/gemini-widget.js?t=' + Date.now();
+        s.setAttribute('data-assistantId', state.current.id);
+        s.setAttribute('data-server', location.origin);
+        s.setAttribute('data-position', 'bottom-right');
+      }
+      s.async = true;
+      s.onload = () => { const st = $('widget-status'); if (st) st.textContent = 'Виджет загружен'; };
+      s.onerror = () => { const st = $('widget-status'); if (st) st.textContent = 'Не удалось загрузить виджет'; };
+      document.body.appendChild(s);
+    }
+
+    async function renderEmbed() {
+      const box = $('embed-content');
+      if (state.isNew) { box.innerHTML = '<div class="placeholder"><i class="fas fa-floppy-disk"></i>Сначала сохраните ассистента</div>'; return; }
+      if (!modelHasWidget(state.model)) { box.innerHTML = telephonyOnlyHtml('Веб-виджет для этой модели недоступен. Ассистент отвечает на звонки через привязанный номер.'); return; }
+      if (state.model !== state.current.type) { box.innerHTML = '<div class="placeholder"><i class="fas fa-floppy-disk"></i>Сохраните смену модели, затем получите код</div>'; return; }
+      box.innerHTML = '<div style="color:var(--text-light);">Загрузка…</div>';
+      const r = await api(PROVIDERS[state.model].embed(state.current.id));
+      if (!r || !r.ok) { box.innerHTML = `<div class="placeholder"><i class="fas fa-triangle-exclamation"></i>${esc(errText(r, 'Не удалось получить код'))}</div>`; return; }
+      const code = r.data.embed_code || '';
+      box.innerHTML = `<p style="font-size:.85rem;color:var(--text-gray);margin-bottom:.75rem;">Вставьте этот код перед закрывающим тегом <code>&lt;/body&gt;</code> на вашем сайте. Разговоры посетителей списываются с вашего кошелька по цене модели.</p>
+        <div class="code-box"><button class="btn btn-sm" id="embed-copy"><i class="fas fa-copy"></i> Копировать</button><pre id="embed-code">${esc(code)}</pre></div>`;
+      $('embed-copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(code); toast('Код скопирован', 'success'); } catch (e) { toast('Не удалось скопировать', 'error'); } });
+    }
+
+    // =====================================================================
+    // БАЗА ЗНАНИЙ
+    // =====================================================================
+    let kbEditing = null;
+    function renderKbs() {
+      const body = $('kb-body');
+      if (!state.kbs.length) { body.innerHTML = '<tr><td colspan="5" style="color:var(--text-light);padding:1.25rem .5rem;">Баз знаний пока нет. Создайте первую — и вставьте её namespace в промпт ассистента.</td></tr>'; return; }
+      body.innerHTML = state.kbs.map(kb => `<tr>
+        <td><b>${esc(kb.name)}</b></td>
+        <td>${(kb.char_count || 0).toLocaleString('ru-RU')}</td>
+        <td><span class="ns">${esc(kb.namespace)}</span> <button class="icon-btn" data-copy="${esc(kb.namespace)}" title="Копировать"><i class="fas fa-copy"></i></button></td>
+        <td style="white-space:nowrap;font-size:.8rem;color:var(--text-gray);">${kb.updated_at ? new Date(kb.updated_at).toLocaleDateString('ru-RU') : ''}</td>
+        <td style="white-space:nowrap;text-align:right;">
+          <button class="btn btn-sm" data-insert="${esc(kb.namespace)}" title="Добавить строку в системный промпт"><i class="fas fa-arrow-turn-down"></i> В промпт</button>
+          <button class="icon-btn" data-edit="${esc(kb.id)}" title="Редактировать"><i class="fas fa-pen"></i></button>
+          <button class="icon-btn" data-del="${esc(kb.id)}" title="Удалить" style="color:var(--red-500);"><i class="fas fa-trash"></i></button>
+        </td></tr>`).join('');
+      body.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Namespace скопирован', 'success'); } catch (e) { toast('Не удалось скопировать', 'error'); } }));
+      body.querySelectorAll('[data-insert]').forEach(b => b.addEventListener('click', () => insertNamespace(b.dataset.insert)));
+      body.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => openKbModal(b.dataset.edit)));
+      body.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => deleteKb(b.dataset.del)));
+    }
+
+    function insertNamespace(ns) {
+      const ta = $('f-prompt');
+      const line = 'Pinecone namespace: ' + ns;
+      let text = ta.value.replace(/^\s*Pinecone namespace:.*$/gmi, '').replace(/\n{3,}/g, '\n\n').trimEnd();
+      ta.value = (text ? text + '\n\n' : '') + line + '\n';
+      $('prompt-count').textContent = ta.value.length;
+      // Включаем функцию поиска, если она есть в каталоге
+      const searchFn = state.functions.find(f => /pinecone|knowledge|search/i.test(f.name));
+      if (searchFn) { state.enabledFunctions.add(searchFn.name); renderFunctions(); }
+      setDirty(true);
+      toast('Строка добавлена в промпт. Не забудьте сохранить ассистента.', 'success');
+    }
+
+    async function openKbModal(id) {
+      kbEditing = id || null;
+      $('kb-modal-title').textContent = id ? 'Редактировать базу знаний' : 'Новая база знаний';
+      $('kb-name').value = ''; $('kb-content').value = ''; $('kb-count').textContent = '0';
+      if (id) {
+        const r = await api('/api/knowledge-base/' + id + '/content');
+        if (r && r.ok) { $('kb-name').value = r.data.name || ''; $('kb-content').value = r.data.full_content || ''; $('kb-count').textContent = ($('kb-content').value || '').length; }
+      }
+      $('kb-modal').classList.add('open');
+    }
+    function closeKbModal() { $('kb-modal').classList.remove('open'); }
+
+    async function saveKb() {
+      const name = $('kb-name').value.trim() || 'Knowledge Base';
+      const content = $('kb-content').value;
+      if (!content.trim()) { toast('Добавьте содержимое базы', 'error'); return; }
+      const btn = $('kb-save'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Сохраняем…';
+      try {
+        const r = kbEditing
+          ? await api('/api/knowledge-base/' + kbEditing, { method: 'PUT', body: JSON.stringify({ name, content }) })
+          : await api('/api/knowledge-base/new', { method: 'POST', body: JSON.stringify({ name, content }) });
+        if (!r || !r.ok) throw new Error(errText(r, 'Не удалось сохранить базу знаний'));
+        toast('База знаний сохранена', 'success');
+        closeKbModal(); await loadKbs();
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Сохранить'; }
+    }
+
+    async function deleteKb(id) {
+      const kb = state.kbs.find(k => k.id === id);
+      if (!confirm(`Удалить базу знаний «${kb ? kb.name : ''}»?`)) return;
+      const r = await api('/api/knowledge-base/' + id, { method: 'DELETE' });
+      if (!r || !r.ok) { toast(errText(r, 'Не удалось удалить'), 'error'); return; }
+      toast('База знаний удалена', 'success'); await loadKbs();
+    }
+
+    // =====================================================================
+    // СОБЫТИЯ
+    // =====================================================================
+    function bindEvents() {
+      $('btn-new').addEventListener('click', () => newAssistant());
+      $('btn-new-empty').addEventListener('click', () => newAssistant());
+      $('btn-save').addEventListener('click', save);
+      $('btn-delete').addEventListener('click', remove);
+      $('btn-cancel').addEventListener('click', () => { if (!confirmDiscard()) return; state.dirty = false; if (state.isNew) hideEditor(); else selectAssistant(state.current.id, state.current.type); });
+      $('list-search').addEventListener('input', renderList);
+      ['f-name', 'f-description', 'f-greeting', 'f-prompt', 'f-sheet'].forEach(id => $(id).addEventListener('input', () => { setDirty(true); if (id === 'f-prompt') $('prompt-count').textContent = $('f-prompt').value.length; if (id === 'f-name') $('editor-title').textContent = $('f-name').value || (state.isNew ? 'Новый ассистент' : 'Ассистент'); }));
+      $('f-active').addEventListener('change', () => setDirty(true));
+      document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => activateTab(t.dataset.tab)));
+      $('kb-new').addEventListener('click', () => openKbModal(null));
+      $('kb-modal-close').addEventListener('click', closeKbModal);
+      $('kb-cancel').addEventListener('click', closeKbModal);
+      $('kb-save').addEventListener('click', saveKb);
+      $('kb-content').addEventListener('input', () => { $('kb-count').textContent = $('kb-content').value.length; });
+      $('kb-modal').addEventListener('click', e => { if (e.target === $('kb-modal')) closeKbModal(); });
+      // Мобильное меню и выход
+      $('sidebar-toggle').addEventListener('click', () => $('sidebar').classList.add('open'));
+      $('sidebar-close').addEventListener('click', () => $('sidebar').classList.remove('open'));
+      $('logout-button').addEventListener('click', () => { localStorage.removeItem('auth_token'); });
+      window.addEventListener('beforeunload', e => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
+    }
+
+    // =====================================================================
+    // INIT
+    // =====================================================================
+    async function init() {
+      if (!token()) { location.href = '/static/login.html'; return; }
+      bindEvents();
+      await loadTariffs();
+      await Promise.all([loadAssistants(), loadFunctions(), loadUsage()]);
+      const params = new URLSearchParams(location.search);
+      const id = params.get('id'), model = params.get('model'), tab = params.get('tab');
+      if (id) {
+        const a = state.assistants.find(x => x.id === id);
+        if (a) await selectAssistant(a.id, a.type);
+      } else if (tab === 'knowledge') {
+        // Переход со старой страницы «База знаний»: открываем таб на первом ассистенте либо на новом
+        if (state.assistants.length) await selectAssistant(state.assistants[0].id, state.assistants[0].type); else newAssistant(model);
+        activateTab('knowledge');
+      } else if (model || !state.assistants.length) {
+        newAssistant(model);
+      }
+      if (tab && tab !== 'knowledge') activateTab(tab);
+    }
+
+    init();
+  })();
+  </script>
+</body>
+</html>

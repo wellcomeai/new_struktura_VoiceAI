@@ -75,6 +75,46 @@ async def get_knowledge_base_status(
             detail=f"Failed to get knowledge base status: {str(e)}"
         )
 
+
+
+# =============================================================================
+# ✅ v6.0: владение БЗ — по user_id (новые) ИЛИ через OpenAI-ассистента (старые)
+# =============================================================================
+
+def _owned_kb_query(db: Session, current_user: User):
+    """Запрос по всем базам знаний пользователя (новые и унаследованные)."""
+    from sqlalchemy import or_
+    assistant_ids = [aid[0] for aid in db.query(AssistantConfig.id).filter(
+        AssistantConfig.user_id == current_user.id
+    ).all()]
+    cond = PineconeConfig.user_id == current_user.id
+    if assistant_ids:
+        cond = or_(cond, PineconeConfig.assistant_id.in_(assistant_ids))
+    return db.query(PineconeConfig).filter(cond)
+
+
+def _user_owns_kb(db: Session, current_user: User, config: PineconeConfig) -> bool:
+    if config.user_id and config.user_id == current_user.id:
+        return True
+    if config.assistant_id:
+        owner = db.query(AssistantConfig.user_id).filter(
+            AssistantConfig.id == config.assistant_id
+        ).scalar()
+        return owner == current_user.id
+    return False
+
+
+def _embedding_api_key(current_user: User) -> str:
+    """Ключ OpenAI для эмбеддингов: свой из профиля или серверный Voicyfy."""
+    from backend.services import provider_keys
+    key = provider_keys.resolve(current_user, "openai").api_key
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenAI API key is not configured on the server"
+        )
+    return key
+
 @router.get("/all", response_model=List[Dict[str, Any]])
 async def get_all_knowledge_bases(
     current_user: User = Depends(get_current_user),
@@ -91,18 +131,8 @@ async def get_all_knowledge_bases(
         List of knowledge bases
     """
     try:
-        # Get all assistant IDs belonging to the user
-        assistant_ids = db.query(AssistantConfig.id).filter(
-            AssistantConfig.user_id == current_user.id
-        ).all()
-        assistant_ids = [aid[0] for aid in assistant_ids]
-        
-        # Get all knowledge bases linked to user's assistants
-        configs = []
-        if assistant_ids:
-            configs = db.query(PineconeConfig).filter(
-                PineconeConfig.assistant_id.in_(assistant_ids)
-            ).order_by(PineconeConfig.updated_at.desc()).all()
+        # ✅ v6.0: все БЗ пользователя — свои (user_id) и унаследованные (через OpenAI-ассистента)
+        configs = _owned_kb_query(db, current_user).order_by(PineconeConfig.updated_at.desc()).all()
         
         result = []
         for config in configs:
@@ -244,30 +274,14 @@ async def create_new_knowledge_base(
         Status information including namespace
     """
     try:
-        # Check for API key
-        api_key = current_user.openai_api_key
-        if not api_key:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OpenAI API key is required for knowledge base creation"
-            )
-        
+        # ✅ v6.0: ключ для эмбеддингов — свой или серверный; ассистент не нужен,
+        # БЗ принадлежит пользователю и подключается к любому ассистенту через
+        # строку «Pinecone namespace: <ns>» в системном промпте.
+        api_key = _embedding_api_key(current_user)
+
         content = content_data.get("content", "")
         name = content_data.get("name", "Knowledge Base")
-        
-        # Получаем все ID ассистентов пользователя
-        assistant_ids = db.query(AssistantConfig.id).filter(
-            AssistantConfig.user_id == current_user.id
-        ).all()
-        assistant_ids = [aid[0] for aid in assistant_ids]
-        
-        # Проверяем, есть ли у пользователя ассистенты
-        if not assistant_ids:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Необходимо сначала создать ассистента"
-            )
-        
+
         # Create new knowledge base in Pinecone with fresh namespace
         from backend.services.pinecone_service import PineconeService
         namespace, char_count = await PineconeService.create_or_update_knowledge_base(
@@ -275,13 +289,11 @@ async def create_new_knowledge_base(
             api_key=api_key,
             namespace=None  # Всегда передаем None, чтобы создать новую БЗ
         )
-        
-        # Берем первого ассистента пользователя для привязки
-        assistant_id = assistant_ids[0]
-        
+
         # Create new PineconeConfig
         new_config = PineconeConfig(
-            assistant_id=assistant_id,
+            assistant_id=None,
+            user_id=current_user.id,
             namespace=namespace,
             char_count=char_count,
             content_preview=content[:200] + "..." if len(content) > 200 else content,
@@ -392,13 +404,8 @@ async def get_knowledge_base_content(
                 detail="Knowledge base not found"
             )
             
-        # Verify ownership via assistants
-        assistant_ids = db.query(AssistantConfig.id).filter(
-            AssistantConfig.user_id == current_user.id
-        ).all()
-        assistant_ids = [aid[0] for aid in assistant_ids]
-        
-        if config.assistant_id not in assistant_ids:
+        # ✅ v6.0: владение — по user_id или через OpenAI-ассистента (старые БЗ)
+        if not _user_owns_kb(db, current_user, config):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to access this knowledge base"
@@ -447,13 +454,8 @@ async def update_knowledge_base(
                 detail="Knowledge base not found"
             )
             
-        # Verify ownership via assistants
-        assistant_ids = db.query(AssistantConfig.id).filter(
-            AssistantConfig.user_id == current_user.id
-        ).all()
-        assistant_ids = [aid[0] for aid in assistant_ids]
-        
-        if config.assistant_id not in assistant_ids:
+        # ✅ v6.0: владение — по user_id или через OpenAI-ассистента (старые БЗ)
+        if not _user_owns_kb(db, current_user, config):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to update this knowledge base"
@@ -462,14 +464,9 @@ async def update_knowledge_base(
         content = content_data.get("content", "")
         name = content_data.get("name", "Knowledge Base")
         
-        # Check for API key
-        api_key = current_user.openai_api_key
-        if not api_key:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OpenAI API key is required for knowledge base creation"
-            )
-        
+        # ✅ v6.0: ключ для эмбеддингов — свой или серверный
+        api_key = _embedding_api_key(current_user)
+
         # Update embeddings in Pinecone
         from backend.services.pinecone_service import PineconeService
         namespace, char_count = await PineconeService.create_or_update_knowledge_base(
@@ -532,13 +529,8 @@ async def delete_specific_knowledge_base(
                 "message": "Knowledge base not found or already deleted"
             }
             
-        # Verify ownership via assistants
-        assistant_ids = db.query(AssistantConfig.id).filter(
-            AssistantConfig.user_id == current_user.id
-        ).all()
-        assistant_ids = [aid[0] for aid in assistant_ids]
-        
-        if config.assistant_id not in assistant_ids:
+        # ✅ v6.0: владение — по user_id или через OpenAI-ассистента (старые БЗ)
+        if not _user_owns_kb(db, current_user, config):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to delete this knowledge base"

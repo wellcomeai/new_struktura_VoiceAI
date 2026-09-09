@@ -9,6 +9,17 @@ services:
     envVars:
       - key: OPENAI_API_KEY
         sync: false
+      # ✅ v6.0: серверные ключи голосовых провайдеров (единый кошелёк)
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FISH_API_KEY
+        sync: false
+      - key: YANDEX_API_KEY
+        sync: false
+      - key: YANDEX_FOLDER_ID
+        sync: false
+      - key: CARTESIA_API_KEY
+        sync: false
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: HOST_URL
