@@ -1,13 +1,15 @@
 import React, { useEffect } from 'react';
+import Icon from './Icon';
 import LoginForm from './AuthSection/LoginForm';
 import RegisterForm from './AuthSection/RegisterForm';
 
 function AuthModal({ isOpen, onClose, activeTab, setActiveTab }) {
   useEffect(() => {
-    const handler = (e) => e.key === 'Escape' && onClose();
+    if (!isOpen) return undefined;
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     document.body.style.overflow = isOpen ? 'hidden' : '';
@@ -17,35 +19,21 @@ function AuthModal({ isOpen, onClose, activeTab, setActiveTab }) {
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-box" onClick={e => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>
-          <svg width="18" height="18" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
+    <div className="lp-auth-backdrop" onClick={onClose}>
+      <div className="lp-auth card card-raised" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="btn btn-ghost btn-icon lp-auth-close" aria-label="Закрыть" onClick={onClose}>
+          <Icon name="x" />
         </button>
-        <div className="modal-logo">
-          <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" />
-          <span>Voicyfy</span>
-        </div>
-        <div className="modal-title">
-          {activeTab === 'login' ? 'Добро пожаловать' : 'Начните бесплатно'}
-        </div>
-        <div className="modal-sub">
-          {activeTab === 'register' ? '3 дня полного доступа без ограничений' : ''}
-        </div>
-        <div className="auth-tabs">
-          <button className={`auth-tab ${activeTab === 'login' ? 'active' : ''}`}
-            onClick={() => setActiveTab('login')}>Вход</button>
-          <button className={`auth-tab ${activeTab === 'register' ? 'active' : ''}`}
-            onClick={() => setActiveTab('register')}>Регистрация</button>
+        <div className="vf-logo lp-logo lp-auth-logo"><img src="/static/images/IMG_2820.PNG" alt="" /><span className="wordmark">Voicyfy</span></div>
+        <h2 className="lp-auth-title">{activeTab === 'login' ? 'С возвращением' : 'Начните бесплатно'}</h2>
+        <p className="lp-auth-sub">{activeTab === 'login' ? 'Войдите в кабинет' : '3 дня полного доступа без карты'}</p>
+        <div className="tabs lp-auth-tabs" role="tablist">
+          <button type="button" role="tab" className={`tab${activeTab === 'login' ? ' active' : ''}`} onClick={() => setActiveTab('login')}>Вход</button>
+          <button type="button" role="tab" className={`tab${activeTab === 'register' ? ' active' : ''}`} onClick={() => setActiveTab('register')}>Регистрация</button>
         </div>
         {activeTab === 'login'
           ? <LoginForm onSwitchToRegister={() => setActiveTab('register')} />
-          : <RegisterForm onSwitchToLogin={() => setActiveTab('login')} />
-        }
+          : <RegisterForm onSwitchToLogin={() => setActiveTab('login')} />}
       </div>
     </div>
   );

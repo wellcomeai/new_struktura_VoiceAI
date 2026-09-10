@@ -1,154 +1,87 @@
 import React from 'react';
+import Icon from './Icon';
 
-const CheckIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-    <circle cx="8" cy="8" r="8" fill="#eff6ff"/>
-    <path d="M5 8l2 2 4-4"
-      stroke="#2563eb" strokeWidth="1.6"
-      strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
-
-const ChipIcon = () => (
-  <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-    <rect x="6" y="6" width="12" height="12" rx="2" />
-    <rect x="10" y="10" width="4" height="4" />
-    <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
-  </svg>
-);
-
-const PhoneIcon = () => (
-  <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-    <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.69 15a19.79 19.79 0 01-3.07-8.67A2 2 0 013.6 4.22h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.91 11.8a16 16 0 006.29 6.29l1.87-1.87a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 18.92z" />
-  </svg>
-);
+const DAY = [
+  { t: '10:05', title: 'Недозвон.', text: 'Марина не ответила. Агент ставит перезвон на завтра и помечает в карточке: утром не берёт трубку.' },
+  { t: '14:30', title: 'Перезвонила сама.', text: 'Агент узнаёт номер и начинает с сути. Марине интересны платья, 44 размер, ближе к выходным.' },
+  { t: '14:33', title: 'После разговора.', text: 'Карточка обновлена, стадия «в работе». Подборка ушла в Telegram, задача: в пятницу напомнить о примерке.' },
+  { t: '15:10', title: 'Переписка.', text: '«А синее есть в наличии?» Агент отвечает по базе знаний и договаривается на субботу в 12:00.' },
+  { t: 'Вечер', title: 'Отчёт.', text: '«Как прошёл обзвон?» Дозвонился до 312, заинтересовались 87, записались 23. Недозвоны перезвонит завтра.' },
+];
 
 function AgentSection({ onOpenModal }) {
   return (
-    <section className="section agent-section" id="agent">
-      <div className="section-inner">
-        <div className="s-head rev">
-          <span className="s-label">Уникальная разработка Voicyfy</span>
-          <h2 className="s-title">Voicyfy Agent — <span className="gt">сотрудник, который звонит сам</span></h2>
-          <p className="s-desc">Автономный AI-агент сам совершает исходящие, принимает входящие, помнит каждого клиента и планирует следующий шаг — без участия человека</p>
+    <section className="lp-section lp-section-alt" id="agent">
+      <div className="lp-container">
+        <div className="lp-head rev">
+          <span className="lp-eyebrow lp-eyebrow-violet">Агент</span>
+          <h2>Сотрудник, который сам звонит, всё помнит и доводит до результата</h2>
+          <p className="lp-lead">
+            Представьте менеджера, который обзванивает базу, отвечает на входящие, помнит каждого клиента,
+            сам перезванивает, пишет в мессенджеры и вечером присылает отчёт. Он не болеет и не забывает.
+            Вы описываете бизнес обычными словами, загружаете контакты, дальше он работает сам.
+          </p>
         </div>
 
-        {/* Два мозга */}
-        <div className="agent-brains">
-          <div className="agent-brain rev">
-            <div className="icon-box ib-blue"><ChipIcon /></div>
-            <h3>ИИ-оркестратор</h3>
-            <p className="agent-brain-role">Руководитель. Никогда не говорит с клиентом — только управляет</p>
-            <ul className="show-feats">
-              <li><CheckIcon /> <span>Изучает клиента перед звонком</span></li>
-              <li><CheckIcon /> <span>Готовит стратегию разговора</span></li>
-              <li><CheckIcon /> <span>Анализирует итоги после звонка</span></li>
-              <li><CheckIcon /> <span>Сам ставит следующие задачи</span></li>
+        <div className="lp-cols">
+          <div className="card lp-col rev">
+            <div className="lp-col-head"><Icon name="user-round" />Вы, один раз</div>
+            <ul className="lp-checks">
+              <li><Icon name="check" className="ic-sm" />Заполняете пять полей: кто вы, кому звоните, как говорите, что предлагаете, что считать успехом</li>
+              <li><Icon name="check" className="ic-sm" />Загружаете базу контактов файлом xlsx или csv</li>
+              <li><Icon name="check" className="ic-sm" />Подключаете номер и, если нужно, Telegram или MAX</li>
+              <li><Icon name="check" className="ic-sm" />Отвечаете на уведомления о горячих клиентах</li>
             </ul>
           </div>
-          <div className="agent-brain rev d1">
-            <div className="icon-box ib-green"><PhoneIcon /></div>
-            <h3>Голосовой ИИ-агент</h3>
-            <p className="agent-brain-role">Сотрудник. Работает только во время звонка</p>
-            <ul className="show-feats">
-              <li><CheckIcon /> <span>Ведёт живой разговор без сценария</span></li>
-              <li><CheckIcon /> <span>Отвечает и задаёт вопросы</span></li>
-              <li><CheckIcon /> <span>Находит ответы прямо во время звонка</span></li>
-              <li><CheckIcon /> <span>Передаёт итоги оркестратору</span></li>
-            </ul>
-          </div>
-        </div>
-        <p className="agent-note rev">Вместе они работают как один сотрудник</p>
-
-        {/* Три фазы звонка */}
-        <div className="agent-subhead rev">
-          <h3>Каждый звонок проходит три фазы</h3>
-          <p>Оркестратор работает до и после, голосовой агент — во время</p>
-        </div>
-        <div className="agent-phases rev">
-          <div className="agent-phase">
-            <span className="agent-phase-num">1</span>
-            <h4>Precall — подготовка</h4>
-            <ul>
-              <li>Подтягивает историю клиента</li>
-              <li>Читает память прошлых разговоров</li>
-              <li>Берёт данные из CRM</li>
-              <li>Готовит план и стратегию</li>
-            </ul>
-          </div>
-          <div className="agent-phase-arrow">→</div>
-          <div className="agent-phase">
-            <span className="agent-phase-num">2</span>
-            <h4>Разговор</h4>
-            <ul>
-              <li>Живой диалог без сценария</li>
-              <li>Отвечает и задаёт вопросы</li>
-              <li>Находит ответы в базе знаний</li>
-              <li>Работает по своему промпту</li>
-            </ul>
-          </div>
-          <div className="agent-phase-arrow">→</div>
-          <div className="agent-phase">
-            <span className="agent-phase-num">3</span>
-            <h4>Postcall — выводы</h4>
-            <ul>
-              <li>Читает итоги разговора</li>
-              <li>Обновляет память о клиенте</li>
-              <li>Отправляет письма и SMS</li>
-              <li>Сам ставит следующую задачу</li>
+          <div className="card lp-col lp-col-agent rev d1">
+            <div className="lp-col-head"><Icon name="headset" />Агент, каждый день</div>
+            <ul className="lp-checks">
+              <li><Icon name="check" className="ic-sm" />Звонит по базе и принимает входящие живым голосом</li>
+              <li><Icon name="check" className="ic-sm" />Готовится к каждому звонку по карточке клиента</li>
+              <li><Icon name="check" className="ic-sm" />После разговора записывает выводы и ставит следующий шаг</li>
+              <li><Icon name="check" className="ic-sm" />Перезванивает недозвонам, пишет в Telegram, MAX и SMS</li>
+              <li><Icon name="check" className="ic-sm" />Ведёт воронку: новый, в работе, успех, отказ, не звонить</li>
             </ul>
           </div>
         </div>
 
-        {/* Исходящие и входящие */}
-        <div className="agent-directions">
-          <div className="agent-dir rev">
-            <div className="agent-dir-head">
-              <span className="agent-dir-arrow out">↑</span>
-              <h4>Исходящие: полный цикл без человека</h4>
-            </div>
-            <ul className="show-feats">
-              <li><CheckIcon /> <span>Задача приходит из CRM, чата или API</span></li>
-              <li><CheckIcon /> <span>Оркестратор изучает клиента и готовит стратегию</span></li>
-              <li><CheckIcon /> <span>Голосовой агент звонит и ведёт живой диалог</span></li>
-              <li><CheckIcon /> <span>Итоги фиксируются, память обновляется</span></li>
-              <li><CheckIcon /> <span>Сам планирует повторный звонок или следующий шаг</span></li>
-            </ul>
+        <div className="lp-agent-day rev">
+          <div className="lp-agent-day-copy">
+            <h3>Один день агента</h3>
+            <p>В шоурум пришла новая коллекция. Владелица загрузила базу из 400 покупательниц и написала агенту: «Обзвони всех, расскажи о коллекции, кому интересно, отправь подборку и запиши на примерку». Вот его день с одной клиенткой.</p>
+            <p>Тот же агент принимает входящие: в салоне красоты отвечает в 21:40, когда администратор ушёл, записывает, шлёт SMS с адресом и накануне напоминает о визите.</p>
           </div>
-          <div className="agent-dir rev d1">
-            <div className="agent-dir-head">
-              <span className="agent-dir-arrow in">↓</span>
-              <h4>Входящие: узнаёт клиента до первой фразы</h4>
-            </div>
-            <ul className="show-feats">
-              <li><CheckIcon /> <span>Принимает звонок мгновенно, без ожидания и очереди</span></li>
-              <li><CheckIcon /> <span>За доли секунды находит клиента в базе по номеру</span></li>
-              <li><CheckIcon /> <span>Получает досье: имя, компания, история разговоров</span></li>
-              <li><CheckIcon /> <span>Приветствует по имени — как знакомый менеджер</span></li>
-              <li><CheckIcon /> <span>Запоминает данные о контакте после разговора</span></li>
-            </ul>
+          <div className="card lp-day">
+            {DAY.map((r) => (
+              <div key={r.t} className="lp-day-row">
+                <span className="lp-day-time">{r.t}</span>
+                <div><b>{r.title}</b> {r.text}</div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Чипы про память */}
-        <div className="agent-chips rev">
-          <span className="agent-chip">Помнит все прошлые разговоры</span>
-          <span className="agent-chip">Узнаёт клиента до первой фразы</span>
-          <span className="agent-chip">Каждый звонок умнее предыдущего</span>
+        <div className="lp-brains rev">
+          <div className="card lp-brain lp-brain-orch">
+            <div className="lp-brain-head"><Icon name="brain" />Оркестратор</div>
+            <p>Думает между звонками. Видит CRM, карточку клиента и историю, перед звонком пишет план, после звонка обновляет карточку и ставит задачи.</p>
+          </div>
+          <div className="lp-brains-link"><Icon name="arrow-right" /><span>передаёт план и первую фразу</span></div>
+          <div className="card lp-brain lp-brain-voice">
+            <div className="lp-brain-head"><Icon name="audio-lines" />Голосовой агент</div>
+            <p>Говорит в живом звонке на выбранной модели. Отвечает мгновенно, ведёт разговор по плану и ищет ответы в базе знаний.</p>
+          </div>
         </div>
+        <p className="lp-note-text rev">
+          Почему две модели? В живом разговоре нельзя думать секундами: пауза, и клиент вешает трубку.
+          Всё долгое мышление вынесено до и после звонка, как бриф от руководителя менеджеру.
+        </p>
 
-        {/* CTA */}
-        <div className="agent-cta rev">
-          <button className="btn-primary-hero" onClick={() => onOpenModal('register')}>Попробовать бесплатно</button>
-          <a
-            className="btn-secondary-hero agent-video-btn"
-            href="https://www.youtube.com/watch?v=NI_UMGrWt9E"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            Смотреть обзор
-          </a>
+        <div className="lp-center rev">
+          <button type="button" className="btn btn-primary btn-lg" onClick={() => onOpenModal('register')}>
+            Подключить агента<Icon name="arrow-right" />
+          </button>
+          <a href="#pricing" className="btn btn-lg">Тариф Agent</a>
         </div>
       </div>
     </section>

@@ -1,43 +1,77 @@
 import React, { useState, useEffect } from 'react';
+import Icon from './Icon';
+
+const LINKS = [
+  { href: '#platform', label: 'Возможности' },
+  { href: '#agent', label: 'Агент' },
+  { href: '#integration', label: 'Интеграция' },
+  { href: '#pricing', label: 'Тарифы' },
+  { href: '/static/prompts-wiki.html', label: 'База знаний' },
+  { href: '/static/api-docs.html', label: 'API' },
+  { href: 'https://t.me/voicyfy_support', label: 'Поддержка', external: true },
+];
 
 function Navbar({ onOpenModal }) {
   const [scrolled, setScrolled] = useState(false);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 10);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  return (
-    <nav
-      className="nav"
-      style={{ boxShadow: scrolled ? '0 2px 20px rgba(0,0,0,.07)' : 'none' }}
+  useEffect(() => {
+    document.body.style.overflow = open ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
+
+  const links = LINKS.map((l) => (
+    <a
+      key={l.href}
+      href={l.href}
+      className="lp-nav-link"
+      target={l.external ? '_blank' : undefined}
+      rel={l.external ? 'noopener' : undefined}
+      onClick={() => setOpen(false)}
     >
-      <a href="#" className="nav-logo">
-        <img src="/static/images/IMG_2820.PNG" alt="Voicyfy" className="nav-logo-img" />
-        <span className="nav-logo-text">Voicyfy</span>
-      </a>
+      {l.label}
+    </a>
+  ));
 
-      <div className="nav-center">
-        <a href="#features" className="nav-link">Возможности</a>
-        <a href="#telephony" className="nav-link">Телефония</a>
-        <a href="#agent" className="nav-link">Agent</a>
-        <a href="#showcase" className="nav-link">Платформа</a>
-        <a href="#providers" className="nav-link">Технологии</a>
-        <a href="#pricing" className="nav-link">Тарифы</a>
-        <a href="/static/prompts-wiki.html" className="nav-link" target="_blank" rel="noopener noreferrer">База знаний</a>
-        <a href="https://t.me/voicyfy_support" className="nav-link" target="_blank" rel="noopener noreferrer">Поддержка</a>
-        <a href="/static/api-docs.html" className="nav-link">API</a>
+  return (
+    <header className={`lp-nav${scrolled ? ' scrolled' : ''}`}>
+      <div className="lp-container lp-nav-inner">
+        <a href="#top" className="vf-logo lp-logo" aria-label="Voicyfy">
+          <img src="/static/images/IMG_2820.PNG" alt="" />
+          <span className="wordmark">Voicyfy</span>
+        </a>
+        <nav className="lp-nav-links">{links}</nav>
+        <div className="lp-nav-actions">
+          <button type="button" className="btn btn-ghost" onClick={() => onOpenModal('login')}>Войти</button>
+          <button type="button" className="btn btn-primary" onClick={() => onOpenModal('register')}>Начать бесплатно</button>
+          <button
+            type="button"
+            className="btn btn-icon lp-burger"
+            aria-label={open ? 'Закрыть меню' : 'Открыть меню'}
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            <Icon name={open ? 'x' : 'menu'} />
+          </button>
+        </div>
       </div>
-
-      <div className="nav-right">
-        <button className="nav-login" onClick={() => onOpenModal('login')}>Войти</button>
-        <button className="nav-cta" onClick={() => onOpenModal('register')}>Начать бесплатно</button>
-      </div>
-    </nav>
+      {open && (
+        <div className="lp-nav-mobile">
+          {links}
+          <div className="lp-nav-mobile-actions">
+            <button type="button" className="btn btn-lg" onClick={() => { setOpen(false); onOpenModal('login'); }}>Войти</button>
+            <button type="button" className="btn btn-primary btn-lg" onClick={() => { setOpen(false); onOpenModal('register'); }}>Начать бесплатно</button>
+          </div>
+        </div>
+      )}
+    </header>
   );
 }
 

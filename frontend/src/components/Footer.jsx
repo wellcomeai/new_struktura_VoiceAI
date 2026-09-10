@@ -2,36 +2,36 @@ import React from 'react';
 
 function Footer() {
   return (
-    <footer className="footer">
-      <div className="footer-inner">
-        <div className="foot-top">
-          <div className="foot-brand">
-            <span className="foot-logo">Voicyfy</span>
-            <p>Платформа голосовых ИИ-ассистентов для бизнеса. OpenAI, Google Gemini, Cartesia, Яндекс SpeechKit.</p>
-          </div>
-          <div className="foot-col">
-            <h5>Продукт</h5>
-            <a href="#features">Возможности</a>
-            <a href="#pricing">Тарифы</a>
-            <a href="/static/api-docs.html">API</a>
-          </div>
-          <div className="foot-col">
-            <h5>Документы</h5>
-            <a href="/static/privacy-policy.html">Конфиденциальность</a>
-            <a href="/static/terms-of-service.html">Соглашение</a>
-            <a href="/static/public-offer.html">Оферта</a>
-          </div>
-          <div className="foot-col">
-            <h5>Контакты</h5>
-            <a href="https://t.me/voicyfy" target="_blank" rel="noopener noreferrer">Telegram</a>
-            <a href="https://t.me/voicyfy_support">Поддержка</a>
-            <a href="mailto:info@voicyfy.ru">Email</a>
-          </div>
+    <footer className="lp-footer">
+      <div className="lp-container lp-footer-inner">
+        <div className="lp-footer-brand">
+          <a href="#top" className="vf-logo lp-logo"><img src="/static/images/IMG_2820.PNG" alt="" /><span className="wordmark">Voicyfy</span></a>
+          <p>Платформа голосовых ИИ-ассистентов и агента для бизнеса. OpenAI, Gemini, Яндекс, Fish Audio и Каскад в одном кабинете.</p>
         </div>
-        <div className="foot-bottom">
-          <span>&copy; 2025–2026 Voicyfy. Все права защищены.</span>
-          <span>ИП Шишкин Валерий Сергеевич · ИНН: 385101159652</span>
+        <div className="lp-footer-col">
+          <h4>Продукт</h4>
+          <a href="#platform">Возможности</a>
+          <a href="#agent">Агент</a>
+          <a href="#pricing">Тарифы</a>
+          <a href="/static/api-docs.html">API</a>
+          <a href="/static/prompts-wiki.html">База знаний</a>
         </div>
+        <div className="lp-footer-col">
+          <h4>Документы</h4>
+          <a href="/static/privacy-policy.html">Конфиденциальность</a>
+          <a href="/static/terms-of-service.html">Соглашение</a>
+          <a href="/static/public-offer.html">Оферта</a>
+        </div>
+        <div className="lp-footer-col">
+          <h4>Контакты</h4>
+          <a href="https://t.me/voicyfy" target="_blank" rel="noopener">Telegram</a>
+          <a href="https://t.me/voicyfy_support" target="_blank" rel="noopener">Поддержка</a>
+          <a href="mailto:info@voicyfy.ru">info@voicyfy.ru</a>
+        </div>
+      </div>
+      <div className="lp-container lp-footer-bottom">
+        <span>© 2025–2026 Voicyfy. Все права защищены.</span>
+        <span>ИП Шишкин Валерий Сергеевич · ИНН 385101159652</span>
       </div>
     </footer>
   );

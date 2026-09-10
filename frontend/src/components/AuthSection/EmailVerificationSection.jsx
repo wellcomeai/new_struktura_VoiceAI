@@ -1,111 +1,68 @@
 import React, { useState, useRef } from 'react';
 import { useEmailVerification } from '../../hooks/useEmailVerification';
 import InlineNotification from '../InlineNotification';
+import Icon from '../Icon';
 
 function EmailVerificationSection({ email, message, onVerified }) {
   const [code, setCode] = useState('');
   const codeInputRef = useRef(null);
 
   const {
-    attempts,
-    secondsLeft,
-    isTimerActive,
-    notification,
-    isVerifying,
-    isResending,
-    codeDisabled,
-    verifyCode,
-    resendCode
+    attempts, secondsLeft, isTimerActive, notification, isVerifying, isResending, codeDisabled, verifyCode, resendCode,
   } = useEmailVerification(email, onVerified);
 
   const handleVerify = () => {
     verifyCode(code);
     if (attempts > 1) {
       setCode('');
-      if (codeInputRef.current) {
-        codeInputRef.current.focus();
-      }
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleVerify();
+      if (codeInputRef.current) codeInputRef.current.focus();
     }
   };
 
   const handleResend = () => {
     resendCode();
     setCode('');
-    if (codeInputRef.current) {
-      codeInputRef.current.focus();
-    }
+    if (codeInputRef.current) codeInputRef.current.focus();
   };
 
-  const attemptsClass = attempts === 2 ? 'warning' : attempts === 1 ? 'danger' : '';
+  const attemptsClass = attempts === 2 ? 'chip-warning' : attempts === 1 ? 'chip-danger' : '';
 
   return (
-    <div className="verification-section">
-      <div className={`verification-notice${message ? ' warning' : ''}`}>
-        <i className={message ? 'fas fa-info-circle' : 'fas fa-envelope'}></i>
-        {message || (
-          <>Код подтверждения отправлен на <strong>{email}</strong></>
-        )}
+    <div className="lp-form">
+      <div className={`note${message ? ' note-warning' : ''}`}>
+        <Icon name={message ? 'info' : 'mail'} className="ic-sm" />
+        <span>{message || <>Код подтверждения отправлен на <b>{email}</b></>}</span>
       </div>
-
       <InlineNotification notification={notification} />
-
-      <div className="code-input-container">
-        <label htmlFor="verification-code">Введите 6-значный код</label>
+      <div className="field">
+        <label className="label" htmlFor="verification-code">Введите 6-значный код</label>
         <input
           type="text"
           id="verification-code"
           ref={codeInputRef}
-          className="fi verification-code-input"
+          className="input lp-code-input"
           placeholder="000000"
           maxLength="6"
           pattern="[0-9]{6}"
           inputMode="numeric"
+          autoComplete="one-time-code"
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          onKeyPress={handleKeyPress}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleVerify(); } }}
           disabled={codeDisabled}
           autoFocus
         />
       </div>
-
-      <div className="verification-info">
-        <span className={`attempts-left ${attemptsClass}`}>
-          Осталось попыток: {attempts}
-        </span>
-        {isTimerActive && (
-          <span className="resend-timer">
-            Повторная отправка через <strong>{secondsLeft}</strong>с
-          </span>
-        )}
+      <div className="lp-verify-info">
+        <span className={`chip ${attemptsClass}`.trim()}>Осталось попыток: {attempts}</span>
+        {isTimerActive && <span className="muted">Повторная отправка через <b>{secondsLeft}</b> с</span>}
       </div>
-
-      <button
-        type="button"
-        className="btn-submit"
-        onClick={handleVerify}
-        disabled={isVerifying || codeDisabled}
-      >
+      <button type="button" className="btn btn-primary btn-lg lp-form-submit" onClick={handleVerify} disabled={isVerifying || codeDisabled}>
         {isVerifying ? 'Проверяем...' : 'Подтвердить email'}
       </button>
-
       {!isTimerActive && (
-        <button
-          type="button"
-          className="btn-resend"
-          onClick={handleResend}
-          disabled={isResending}
-        >
-          {isResending ? (
-            <><div className="spinner"></div> Отправка...</>
-          ) : (
-            <><i className="fas fa-redo"></i> Отправить код повторно</>
-          )}
+        <button type="button" className="btn btn-lg lp-form-submit" onClick={handleResend} disabled={isResending}>
+          {isResending ? <><span className="spin" /> Отправка...</> : <><Icon name="refresh-cw" />Отправить код повторно</>}
         </button>
       )}
     </div>

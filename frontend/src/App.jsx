@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './hooks/useAuth';
-import MeshBackground from './components/MeshBackground';
 import Navbar from './components/Navbar';
-import HeroSection from './components/HeroSection';
-import CodeSection from './components/CodeSection';
-import ShowcaseSection from './components/ShowcaseSection';
-import PhoneCTASection from './components/PhoneCTASection';
+import Hero from './components/Hero';
+import ModelsStrip from './components/ModelsStrip';
+import HowItWorks from './components/HowItWorks';
+import Products from './components/Products';
+import Platform from './components/Platform';
 import AgentSection from './components/AgentSection';
-import ProvidersSection from './components/ProvidersSection';
-import PricingSection from './components/PricingSection';
-import AuthModal from './components/AuthModal';
-import ScrollProgress from './components/ScrollProgress';
+import Integration from './components/Integration';
+import Scenarios from './components/Scenarios';
+import TestCall from './components/TestCall';
+import Pricing from './components/Pricing';
+import Faq from './components/Faq';
+import FinalCta from './components/FinalCta';
 import Footer from './components/Footer';
+import AuthModal from './components/AuthModal';
 
 function App() {
   const [activeTab, setActiveTab] = useState('register');
@@ -20,73 +23,65 @@ function App() {
   useAuth();
 
   const openModal = useCallback((tab) => {
-    setActiveTab(tab);
+    setActiveTab(tab || 'register');
     setIsModalOpen(true);
   }, []);
 
-  const closeModal = useCallback(() => {
-    setIsModalOpen(false);
-  }, []);
+  const closeModal = useCallback(() => setIsModalOpen(false), []);
 
-  // IntersectionObserver for .rev elements
+  // Появление блоков при прокрутке
   useEffect(() => {
     const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('on');
-          }
-        });
-      },
+      (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('on'); }),
       { threshold: 0.08 }
     );
-
     document.querySelectorAll('.rev').forEach((el) => observer.observe(el));
-
     return () => observer.disconnect();
   }, []);
 
-  // Smooth scroll for anchor links
+  // Плавная прокрутка по якорям с учётом высоты шапки
   useEffect(() => {
-    const handleClick = (e) => {
-      const href = e.currentTarget.getAttribute('href');
-      if (href && href.startsWith('#')) {
-        const target = document.querySelector(href);
-        if (target) {
-          e.preventDefault();
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }
+    const onClick = (e) => {
+      const a = e.target.closest('a[href^="#"]');
+      if (!a) return;
+      const id = a.getAttribute('href').slice(1);
+      if (!id) return;
+      const target = document.getElementById(id);
+      if (!target) return;
+      e.preventDefault();
+      const top = target.getBoundingClientRect().top + window.scrollY - 72;
+      window.scrollTo({ top, behavior: 'smooth' });
+      history.replaceState(null, '', '#' + id);
     };
-
-    const links = document.querySelectorAll('a[href^="#"]');
-    links.forEach((link) => link.addEventListener('click', handleClick));
-
-    return () => {
-      links.forEach((link) => link.removeEventListener('click', handleClick));
-    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
   }, []);
 
   return (
-    <>
-      <ScrollProgress />
-      <MeshBackground />
+    <div className="lp">
       <Navbar onOpenModal={openModal} />
-      <HeroSection onOpenModal={openModal} />
-      <CodeSection />
-      <ShowcaseSection />
-      <PhoneCTASection />
-      <AgentSection onOpenModal={openModal} />
-      <ProvidersSection />
-      <PricingSection onOpenModal={openModal} />
+      <main>
+        <Hero onOpenModal={openModal} />
+        <ModelsStrip />
+        <HowItWorks onOpenModal={openModal} />
+        <Products onOpenModal={openModal} />
+        <Platform />
+        <AgentSection onOpenModal={openModal} />
+        <Integration />
+        <Scenarios />
+        <TestCall />
+        <Pricing onOpenModal={openModal} />
+        <Faq />
+        <FinalCta onOpenModal={openModal} />
+      </main>
+      <Footer />
       <AuthModal
         isOpen={isModalOpen}
         onClose={closeModal}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
       />
-      <Footer />
-    </>
+    </div>
   );
 }
 

@@ -1,22 +1,19 @@
 import React from 'react';
+import Icon from './Icon';
 
-const icons = {
-  success: 'fas fa-check-circle',
-  error: 'fas fa-exclamation-circle',
-  warning: 'fas fa-exclamation-triangle',
-  info: 'fas fa-info-circle',
+const ICONS = {
+  success: 'circle-check',
+  error: 'circle-alert',
+  warning: 'triangle-alert',
+  info: 'info',
 };
 
 function InlineNotification({ notification }) {
   if (!notification) return null;
-
+  const type = notification.type || 'info';
   return (
-    <div className={`inline-notification ${notification.type}`}>
-      {notification.type === 'loading' ? (
-        <div className="spinner" />
-      ) : (
-        <i className={icons[notification.type] || icons.info} />
-      )}
+    <div className={`note lp-inote lp-inote-${type}`} role="status">
+      {type === 'loading' ? <span className="spin" /> : <Icon name={ICONS[type] || ICONS.info} className="ic-sm" />}
       <span>{notification.message}</span>
     </div>
   );

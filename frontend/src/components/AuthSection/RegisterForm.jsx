@@ -18,33 +18,27 @@ function RegisterForm({ onSwitchToLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    setNotification({ type: 'loading', message: 'Отправляем код верификации на email...' });
+    setNotification({ type: 'loading', message: 'Отправляем код подтверждения на email...' });
     setIsLoading(true);
-
     try {
       const referralData = getReferralData();
-
       const userData = {
-        email: email,
-        password: password,
+        email,
+        password,
         first_name: firstName || null,
         last_name: null,
         company_name: companyName || null,
         referral_code: referralData?.referral_code || null,
-        utm_data: referralData?.utm_data || null
+        utm_data: referralData?.utm_data || null,
       };
-
       const data = await api.register(userData);
-
       setNotification({ type: 'success', message: 'Код отправлен! Проверьте email.' });
 
       if (data.message && data.message.includes('exists but not verified')) {
-        setVerificationMessage('Аккаунт уже существует. Новый код верификации отправлен на email!');
+        setVerificationMessage('Аккаунт уже существует. Новый код подтверждения отправлен на email.');
         setShowVerification(true);
         return;
       }
-
       if (data.verification_required && data.verification_sent) {
         setShowVerification(true);
         clearReferralData();
@@ -52,10 +46,8 @@ function RegisterForm({ onSwitchToLogin }) {
         localStorage.setItem('auth_token', data.token);
         window.location.href = '/static/dashboard.html';
       }
-
     } catch (error) {
       setIsLoading(false);
-
       if (error.message.includes('already registered')) {
         setNotification({ type: 'error', message: 'Email уже зарегистрирован и подтверждён. Войдите в аккаунт.' });
         setTimeout(() => onSwitchToLogin(), 2000);
@@ -70,86 +62,44 @@ function RegisterForm({ onSwitchToLogin }) {
       <EmailVerificationSection
         email={email}
         message={verificationMessage}
-        onVerified={() => {
-          window.location.href = '/static/dashboard.html';
-        }}
+        onVerified={() => { window.location.href = '/static/dashboard.html'; }}
       />
     );
   }
 
   return (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} className="lp-form">
       <InlineNotification notification={notification} />
-
-      <div className="fg">
-        <label htmlFor="register-name">Имя</label>
-        <input
-          type="text"
-          id="register-name"
-          className="fi"
-          placeholder="Введите ваше имя"
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-        />
+      <div className="field">
+        <label className="label" htmlFor="register-name">Имя</label>
+        <input type="text" id="register-name" className="input" placeholder="Как к вам обращаться" autoComplete="given-name"
+          value={firstName} onChange={(e) => setFirstName(e.target.value)} />
       </div>
-
-      <div className="fg">
-        <label htmlFor="register-email">Email</label>
-        <input
-          type="email"
-          id="register-email"
-          className="fi"
-          placeholder="your@email.com"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
+      <div className="field">
+        <label className="label" htmlFor="register-email">Email</label>
+        <input type="email" id="register-email" className="input" placeholder="your@email.com" required autoComplete="email"
+          value={email} onChange={(e) => setEmail(e.target.value)} />
       </div>
-
-      <div className="fg">
-        <label htmlFor="register-password">Пароль</label>
-        <input
-          type="password"
-          id="register-password"
-          className="fi"
-          placeholder="Минимум 8 символов"
-          required
-          minLength="8"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+      <div className="field">
+        <label className="label" htmlFor="register-password">Пароль</label>
+        <input type="password" id="register-password" className="input" placeholder="Минимум 8 символов" required minLength="8" autoComplete="new-password"
+          value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
-
-      <div className="fg">
-        <label htmlFor="register-company">Компания <span>(опционально)</span></label>
-        <input
-          type="text"
-          id="register-company"
-          className="fi"
-          placeholder="Название компании"
-          value={companyName}
-          onChange={(e) => setCompanyName(e.target.value)}
-        />
+      <div className="field">
+        <label className="label" htmlFor="register-company">Компания <span className="muted">(необязательно)</span></label>
+        <input type="text" id="register-company" className="input" placeholder="Название компании" autoComplete="organization"
+          value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
       </div>
-
-      <button
-        type="submit"
-        className="btn-submit"
-        disabled={isLoading}
-      >
+      <button type="submit" className="btn btn-primary btn-lg lp-form-submit" disabled={isLoading}>
         {isLoading ? 'Регистрируем...' : 'Зарегистрироваться'}
       </button>
-
-      <p className="auth-hint">
+      <p className="lp-form-hint">
         Уже есть аккаунт?{' '}
-        <a
-          onClick={(e) => {
-            e.preventDefault();
-            onSwitchToLogin();
-          }}
-        >
-          Войти
-        </a>
+        <a href="#login" onClick={(e) => { e.preventDefault(); onSwitchToLogin(); }}>Войти</a>
+      </p>
+      <p className="lp-form-legal">
+        Нажимая кнопку, вы принимаете <a href="/static/terms-of-service.html" target="_blank" rel="noopener">соглашение</a> и{' '}
+        <a href="/static/privacy-policy.html" target="_blank" rel="noopener">политику конфиденциальности</a>.
       </p>
     </form>
   );
