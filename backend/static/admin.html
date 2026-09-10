@@ -1598,7 +1598,7 @@
           if(!payload.email||!payload.amount_rub||payload.notes.length<3){ out.textContent='Заполните email, сумму и комментарий'; return; }
           fetch('/api/wallet/admin/adjust',{method:'POST',headers:hdr(),body:JSON.stringify(payload)})
             .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
-            .then(function(res){ out.textContent = res.ok ? ('Готово. Новый баланс: '+res.d.balance_rub+' ₽') : ('Ошибка: '+(res.d.detail||'')); })
+            .then(function(res){ out.textContent = res.ok ? ('Готово. Новый баланс: '+res.d.balance_rub+' ₽') : ('Ошибка: '+(res.d.message||res.d.detail||'')); })
             .catch(function(e){ out.textContent='Ошибка: '+e.message; });
         });
         var walletTab=document.querySelector('.tab[data-tab="wallet"]');
@@ -1669,7 +1669,7 @@
                 var id=this.getAttribute('data-id'), enabled=this.checked; var self=this;
                 fetch(API+'/admin/pool/'+id,{method:'PUT',headers:hdr(),body:JSON.stringify({is_test_pool:enabled})})
                   .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
-                  .then(function(res){ if(!res.ok){ self.checked=!enabled; msg('Ошибка: '+(res.d.detail||''),true); } else { msg(enabled?'Номер добавлен в пул':'Номер снят с пула'); } loadPool(); loadLeases(); })
+                  .then(function(res){ if(!res.ok){ self.checked=!enabled; msg('Ошибка: '+(res.d.message||res.d.detail||''),true); } else { msg(enabled?'Номер добавлен в пул':'Номер снят с пула'); } loadPool(); loadLeases(); })
                   .catch(function(e){ self.checked=!enabled; msg('Ошибка: '+e.message,true); });
               });
             });
@@ -1678,7 +1678,7 @@
                 var id=this.getAttribute('data-release');
                 fetch(API+'/admin/leases/'+id+'/release',{method:'POST',headers:hdr()})
                   .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
-                  .then(function(res){ msg(res.ok?'Аренда завершена':'Ошибка: '+(res.d.detail||''),!res.ok); loadPool(); loadLeases(); });
+                  .then(function(res){ msg(res.ok?'Аренда завершена':'Ошибка: '+(res.d.message||res.d.detail||''),!res.ok); loadPool(); loadLeases(); });
               });
             });
           }).catch(function(e){ msg('Ошибка загрузки: '+e.message,true); });
