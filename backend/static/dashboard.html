@@ -439,14 +439,12 @@
     .ob-step.done .ob-step-num { background: #16a34a; color: #fff; }
     .ob-step.done .ob-step-num span { display: none; }
     .ob-step.done .ob-step-num i { display: flex; }
-    .ob-step.done h3::after { content: "готово"; margin-left: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #16a34a; }
-    .ob-step-body h3 { font-size: 15px; font-weight: 600; color: var(--vf-text, #0f172a); margin: 5px 0 6px; }
-    .ob-step-body p { font-size: 13.5px; line-height: 1.55; color: var(--vf-text-3, #64748b); margin: 0 0 12px; }
-    .ob-step-status { display: inline-flex; align-items: center; gap: 6px; margin: -4px 0 12px; padding: 4px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: #f1f5f9; color: #475569; }
-    .ob-step-status.ok { background: #dcfce7; color: #15803d; }
-    .ob-step-status.wait { background: #fef3c7; color: #b45309; }
-    .ob-step-status.bad { background: #fee2e2; color: #b91c1c; }
-    .ob-step-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--vf-accent, #2563eb) !important; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
+    .ob-step.done h3::after { content: "готово"; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #16a34a; white-space: nowrap; }
+    .ob-step-body { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+    .ob-step-body h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 15px; line-height: 1.35; font-weight: 600; color: var(--vf-text, #0f172a); margin: 6px 0 8px; }
+    .ob-step-body p { font-size: 13.5px; line-height: 1.55; color: var(--vf-text-3, #64748b); margin: 0 0 16px; }
+    .ob-step-status { display: inline-flex; align-self: flex-start; align-items: center; gap: 6px; margin: 0 0 14px; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 1.3; background: #dcfce7; color: #15803d; }
+    .ob-step-link { margin-top: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--vf-accent, #2563eb) !important; text-decoration: none; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; }
     .ob-step-link .ic { transition: transform .15s ease; }
     .ob-step-link:hover .ic { transform: translateX(3px); }
     .ob-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
@@ -2136,7 +2134,7 @@
             <div class="ob-step-num"><span>2</span><i data-ob-icon="check"></i></div>
             <div class="ob-step-body">
               <h3>Позвоните ассистенту</h3>
-              <p>Арендуйте тестовый номер на 10 минут в разделе «Телефония» и позвоните на него с любого телефона. Пока идёт тест, меняйте модель в конструкторе: номер перепривяжется сам, так за 10 минут можно послушать все модели. Попытка одна, таймер идёт с момента включения, поэтому сначала подготовьте ассистента и держите телефон под рукой.</p>
+              <p>Арендуйте тестовый номер на 10 минут в разделе «Телефония» и позвоните на него с любого телефона. Пока идёт тест, меняйте модель в конструкторе: номер перепривяжется сам, и за 10 минут вы послушаете все модели. Попытка одна, таймер идёт с момента включения: подготовьте ассистента заранее.</p>
               <a href="/static/telephony.html#test-number" class="ob-step-link" data-ob-icon="arrow-right">Включить тестовый номер</a>
             </div>
           </li>
@@ -2144,7 +2142,7 @@
             <div class="ob-step-num"><span>3</span><i data-ob-icon="check"></i></div>
             <div class="ob-step-body">
               <h3>Пройдите верификацию и купите номер</h3>
-              <p>Если всё понравилось, для дальнейшей работы на платформе по закону РФ нужна верификация. Нажмите «Подключить телефонию» в разделе «Телефония», выберите тип (физлицо, ИП или юрлицо) и следуйте инструкции, это занимает несколько минут. После проверки купите номер и привяжите к нему ассистента: он начнёт отвечать на входящие.</p>
+              <p>Если всё понравилось, подключите телефонию: по закону РФ для работы с номерами нужна верификация. В разделе «Телефония» нажмите «Подключить телефонию», выберите тип (физлицо, ИП или юрлицо) и следуйте инструкции. После проверки купите номер и привяжите к нему ассистента.</p>
               <div class="ob-step-status" id="ob-step-3-status" hidden></div>
               <a href="/static/telephony.html" class="ob-step-link" id="ob-step-3-link" data-ob-icon="arrow-right">Пройти верификацию</a>
             </div>
@@ -4111,22 +4109,17 @@
       $('ob-step-2').classList.toggle('done', used);
     });
 
+    // Шаг 3: «готово» означает, что аккаунт телефонии создан. Статус
+    // верификации здесь не показываем, чтобы не путать с её прохождением.
     api('/telephony/status').then(function (st) {
       if (!st) return;
       var connected = !!st.is_connected;
       $('ob-step-3').classList.toggle('done', connected);
       var box = $('ob-step-3-status');
-      var link = $('ob-step-3-link');
       if (!connected) { box.hidden = true; return; }
-      var v = String(st.verification_status || '');
-      var label, cls;
-      if (st.is_verified || v === 'verified') { label = 'Верифицирован, можно покупать номера'; cls = 'ok'; }
-      else if (v === 'rejected') { label = 'Верификация отклонена, напишите в поддержку'; cls = 'bad'; }
-      else { label = 'Документы на проверке'; cls = 'wait'; }
-      box.className = 'ob-step-status ' + cls;
-      box.innerHTML = VF.icon(cls === 'ok' ? 'check' : (cls === 'bad' ? 'x' : 'clock'), 'ic-sm') + VF.esc(label);
+      box.innerHTML = VF.icon('check', 'ic-sm') + 'Телефония подключена';
       box.hidden = false;
-      link.firstChild.nodeValue = (st.is_verified || v === 'verified') ? 'Купить номер' : 'Открыть телефонию';
+      $('ob-step-3-link').firstChild.nodeValue = 'Открыть телефонию';
     });
 
     // Кошелёк
