@@ -16,6 +16,9 @@ API тестовых номеров телефонии.
   PUT  /admin/pool/{phone_number_id}    — {is_test_pool: bool}
   GET  /admin/leases                    — журнал аренд
   POST /admin/leases/{lease_id}/release — принудительно освободить
+  GET  /admin/grants                    — выданные дополнительные попытки
+  POST /admin/grants                    — выдать попытку: {email, minutes, note}
+  DELETE /admin/grants/{grant_id}       — отозвать неиспользованную попытку
 """
 
 import uuid
@@ -43,6 +46,12 @@ class StartTestNumberRequest(BaseModel):
 
 class PoolFlagRequest(BaseModel):
     is_test_pool: bool
+
+
+class GrantRequest(BaseModel):
+    email: str = Field(..., description="Email пользователя")
+    minutes: int = Field(10, ge=1, le=1440, description="Длительность аренды по этой попытке")
+    note: Optional[str] = Field(None, description="Комментарий админа")
 
 
 def _bad_request(e: TestNumberError):
@@ -90,7 +99,7 @@ async def start_test_number(
         raise HTTPException(status_code=500, detail="Не удалось включить тестовый номер")
     return {
         "success": True,
-        "message": f"Тестовый номер включён на {TestNumberService.lease_minutes()} минут",
+        "message": f"Тестовый номер включён на {max(1, lease.duration_seconds // 60)} минут",
         "lease": lease.to_dict(),
         "status": TestNumberService.status(db, current_user),
     }
@@ -170,3 +179,44 @@ async def admin_release_lease(
     if not lease:
         raise HTTPException(status_code=404, detail="Активная аренда не найдена")
     return {"success": True, "lease": lease.to_dict()}
+
+
+@router.get("/admin/grants")
+async def admin_get_grants(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    admin: User = Depends(check_admin_access),
+):
+    return {"grants": TestNumberService.admin_grants(db, limit=max(1, min(limit, 500)))}
+
+
+@router.post("/admin/grants")
+async def admin_grant_attempt(
+    request: GrantRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(check_admin_access),
+):
+    try:
+        grant = TestNumberService.grant_attempt(db, admin, request.email, request.minutes, request.note)
+    except TestNumberError as e:
+        db.rollback()
+        raise _bad_request(e)
+    return {"success": True, "message": f"Попытка на {grant.minutes} мин выдана", "grant": grant.to_dict()}
+
+
+@router.delete("/admin/grants/{grant_id}")
+async def admin_revoke_grant(
+    grant_id: str,
+    db: Session = Depends(get_db),
+    admin: User = Depends(check_admin_access),
+):
+    try:
+        gid = uuid.UUID(grant_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный ID попытки")
+    try:
+        TestNumberService.revoke_grant(db, gid)
+    except TestNumberError as e:
+        db.rollback()
+        raise _bad_request(e)
+    return {"success": True}

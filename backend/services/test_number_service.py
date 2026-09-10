@@ -13,6 +13,10 @@
   status()   — состояние для ЛК: моя аренда, свободные номера, ближайшее
                освобождение, «уже использовал».
 
+Лимит: одна базовая попытка на пользователя + дополнительные попытки,
+выданные админом (TestNumberGrant, каждая со своей длительностью).
+Попытки тратятся по порядку: сначала базовая, затем гранты от старых к новым.
+
 Ключи и списание: при входящем звонке /api/telephony/config берёт
 пользователя из активной аренды (а не владельца номера), поэтому звонок
 идёт на ключах арендатора или на серверных ключах с его кошелька.
@@ -33,7 +37,7 @@ from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.models.user import User
 from backend.models.voximplant_child import VoximplantPhoneNumber, VoximplantChildAccount
-from backend.models.test_number_lease import TestNumberLease
+from backend.models.test_number_lease import TestNumberLease, TestNumberGrant
 
 logger = get_logger(__name__)
 
@@ -143,11 +147,43 @@ class TestNumberService:
         ).order_by(TestNumberLease.started_at.desc()).first()
 
     @classmethod
+    def unused_grants(cls, db: Session, user_id: uuid.UUID) -> List[TestNumberGrant]:
+        return db.query(TestNumberGrant).filter(
+            TestNumberGrant.user_id == user_id,
+            TestNumberGrant.lease_id.is_(None),
+        ).order_by(TestNumberGrant.created_at.asc()).all()
+
+    @classmethod
+    def attempts(cls, db: Session, user: User) -> Dict[str, Any]:
+        """
+        Попытки пользователя: базовая (одна) + гранты админа.
+
+        Возвращает total, used, can_start, next_minutes и грант, который
+        будет потрачен следующим включением (None — базовая попытка).
+        """
+        leases_count = db.query(TestNumberLease).filter(TestNumberLease.user_id == user.id).count()
+        grants_total = db.query(TestNumberGrant).filter(TestNumberGrant.user_id == user.id).count()
+        unused = cls.unused_grants(db, user.id)
+        is_admin = bool(getattr(user, "is_admin", False))
+        if leases_count == 0:
+            next_grant, next_minutes = None, cls.lease_minutes()
+        elif unused:
+            next_grant, next_minutes = unused[0], max(1, int(unused[0].minutes or cls.lease_minutes()))
+        else:
+            next_grant, next_minutes = None, cls.lease_minutes()
+        can_start = is_admin or leases_count == 0 or bool(unused)
+        return {
+            "total": 1 + grants_total,
+            "used": leases_count,
+            "can_start": can_start,
+            "next_minutes": next_minutes,
+            "next_grant": next_grant,
+        }
+
+    @classmethod
     def user_can_start(cls, db: Session, user: User) -> bool:
-        """Одна попытка на пользователя. Админы — без ограничений."""
-        if getattr(user, "is_admin", False):
-            return True
-        return cls.last_lease_for_user(db, user.id) is None
+        """Базовая попытка + гранты админа. Админы — без ограничений."""
+        return cls.attempts(db, user)["can_start"]
 
     @classmethod
     def status(cls, db: Session, user: User) -> Dict[str, Any]:
@@ -168,7 +204,8 @@ class TestNumberService:
 
         my = cls.active_lease_for_user(db, user.id)
         last = cls.last_lease_for_user(db, user.id)
-        can_start = cls.user_can_start(db, user)
+        att = cls.attempts(db, user)
+        can_start = att["can_start"]
 
         next_free_in = None
         if pool and not free:
@@ -191,6 +228,10 @@ class TestNumberService:
         return {
             "state": state,
             "lease_minutes": cls.lease_minutes(),
+            # Сколько минут даст СЛЕДУЮЩЕЕ включение (грант админа может отличаться)
+            "next_attempt_minutes": att["next_minutes"],
+            "attempts_total": att["total"],
+            "attempts_used": att["used"],
             "pool_total": len(pool),
             "pool_free": len(free),
             "next_free_in_seconds": next_free_in,
@@ -215,8 +256,10 @@ class TestNumberService:
 
         if cls.active_lease_for_user(db, user.id):
             raise TestNumberError("Тестовый номер уже включён", "already_active")
-        if not cls.user_can_start(db, user):
+        att = cls.attempts(db, user)
+        if not att["can_start"]:
             raise TestNumberError("Тестовый номер можно включить только один раз", "used")
+        grant: Optional[TestNumberGrant] = att["next_grant"]
 
         assistant = load_voice_assistant(db, assistant_type, assistant_id, user.id)
         if not assistant:
@@ -251,7 +294,7 @@ class TestNumberService:
             raise TestNumberError(
                 "Не удалось настроить маршрутизацию номера, попробуйте позже", "rule_failed")
 
-        minutes = cls.lease_minutes()
+        minutes = att["next_minutes"]
         now = _now()
         lease = TestNumberLease(
             user_id=user.id,
@@ -269,11 +312,17 @@ class TestNumberService:
         phone.first_phrase = None
         db.add(lease)
         db.add(phone)
+        db.flush()
+        if grant is not None:
+            grant.lease_id = lease.id
+            grant.used_at = now
+            db.add(grant)
         db.commit()
         db.refresh(lease)
         logger.info(
             f"[TEST-NUMBER] ▶️ Lease started: {phone.phone_number} → user {user.email} "
             f"({assistant_type}:{assistant.id}) for {minutes} min, billing={billing_mode}"
+            + (f", grant={grant.id}" if grant is not None else "")
         )
         return lease
 
@@ -407,3 +456,62 @@ class TestNumberService:
             .all()
         )
         return [dict(l.to_dict(), user_email=u.email) for l, u in rows]
+
+    # ------------------------------------------------------------------
+    # Дополнительные попытки (гранты админа)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def grant_attempt(cls, db: Session, admin: User, email: str, minutes: int,
+                      note: Optional[str] = None) -> TestNumberGrant:
+        email = (email or "").strip().lower()
+        user = db.query(User).filter(User.email.ilike(email)).first() if email else None
+        if not user:
+            raise TestNumberError("Пользователь с таким email не найден", "user_not_found")
+        try:
+            minutes = int(minutes)
+        except (TypeError, ValueError):
+            minutes = 0
+        if minutes < 1 or minutes > 24 * 60:
+            raise TestNumberError("Длительность должна быть от 1 до 1440 минут", "bad_minutes")
+        grant = TestNumberGrant(
+            user_id=user.id,
+            minutes=minutes,
+            granted_by_id=admin.id,
+            note=(note or "").strip()[:500] or None,
+        )
+        db.add(grant)
+        db.commit()
+        db.refresh(grant)
+        logger.info(f"[TEST-NUMBER] 🎁 Grant: admin {admin.email} → {user.email}, {minutes} min")
+        return grant
+
+    @classmethod
+    def revoke_grant(cls, db: Session, grant_id: uuid.UUID) -> bool:
+        grant = db.query(TestNumberGrant).filter(TestNumberGrant.id == grant_id).first()
+        if not grant:
+            raise TestNumberError("Попытка не найдена", "not_found")
+        if grant.is_used:
+            raise TestNumberError("Попытка уже использована, отозвать нельзя", "used")
+        db.delete(grant)
+        db.commit()
+        return True
+
+    @classmethod
+    def admin_grants(cls, db: Session, limit: int = 100) -> List[Dict[str, Any]]:
+        rows = (
+            db.query(TestNumberGrant, User)
+            .join(User, TestNumberGrant.user_id == User.id)
+            .order_by(TestNumberGrant.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        admins = {}
+        out = []
+        for g, u in rows:
+            if g.granted_by_id and g.granted_by_id not in admins:
+                a = db.query(User).filter(User.id == g.granted_by_id).first()
+                admins[g.granted_by_id] = a.email if a else None
+            out.append(dict(g.to_dict(), user_email=u.email,
+                            granted_by_email=admins.get(g.granted_by_id)))
+        return out

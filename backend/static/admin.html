@@ -1626,12 +1626,33 @@
           <div id="tn-pool-msg" style="margin-top:.5rem;color:var(--text-gray);font-size:.9rem;"></div>
         </div>
 
+        <div class="stats-section" style="margin-top:1.5rem;" id="tn-grant-section">
+          <h3 style="margin-bottom:.75rem;">Дополнительные попытки</h3>
+          <p style="color:var(--text-gray);font-size:.9rem;margin-bottom:.75rem;">
+            Базово у пользователя одна попытка. Здесь можно выдать ещё одну со своей длительностью: пользователь
+            просто снова увидит доступную карточку «Тестовый номер» в телефонии. Неиспользованную попытку можно отозвать.
+          </p>
+          <div style="display:grid;grid-template-columns:2fr 1fr 2fr auto;gap:.5rem;align-items:end;max-width:900px;">
+            <div><label>Email пользователя</label><input type="email" id="tn-grant-email" class="form-control" placeholder="user@example.com"></div>
+            <div><label>Минут</label><input type="number" id="tn-grant-minutes" class="form-control" value="10" min="1" max="1440" style="width:100px;"></div>
+            <div><label>Комментарий</label><input type="text" id="tn-grant-note" class="form-control" placeholder="Например: просьба из поддержки"></div>
+            <button class="btn btn-primary" id="tn-grant-btn">Выдать попытку</button>
+          </div>
+          <div id="tn-grant-msg" style="margin-top:.5rem;color:var(--text-gray);font-size:.9rem;"></div>
+          <div class="table-container" style="margin-top:.75rem;">
+            <table class="table" id="tn-grants-table">
+              <thead><tr><th>Пользователь</th><th>Минут</th><th>Комментарий</th><th>Выдал</th><th>Когда</th><th>Статус</th><th></th></tr></thead>
+              <tbody id="tn-grants-body"><tr><td colspan="7">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="stats-section" style="margin-top:1.5rem;">
           <h3 style="margin-bottom:.75rem;">Журнал аренд</h3>
           <div class="table-container">
             <table class="table" id="tn-leases-table">
-              <thead><tr><th>Пользователь</th><th>Номер</th><th>Ассистент</th><th>Начало</th><th>Статус</th></tr></thead>
-              <tbody id="tn-leases-body"><tr><td colspan="5">—</td></tr></tbody>
+              <thead><tr><th>Пользователь</th><th>Номер</th><th>Ассистент</th><th>Начало</th><th>Статус</th><th></th></tr></thead>
+              <tbody id="tn-leases-body"><tr><td colspan="6">—</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -1687,22 +1708,68 @@
           fetch(API+'/admin/leases?limit=50',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
             var body=document.getElementById('tn-leases-body'); body.innerHTML='';
             var rows=d.leases||[];
-            if(!rows.length){ body.innerHTML='<tr><td colspan="5">Аренд ещё не было</td></tr>'; return; }
+            if(!rows.length){ body.innerHTML='<tr><td colspan="6">Аренд ещё не было</td></tr>'; return; }
             rows.forEach(function(l){
               var st = l.is_active ? ('Активна · осталось '+mmss(l.seconds_left)) :
                        ({expired:'Истекла',user:'Отключена пользователем',admin:'Снята админом'}[l.release_reason]||'Завершена');
+              var mins = l.duration_seconds ? Math.round(l.duration_seconds/60) : '';
               var tr=document.createElement('tr');
               tr.innerHTML='<td>'+esc(l.user_email)+'</td><td>'+esc(fmtPhone(l.phone_number))+'</td>'+
                 '<td>'+esc(l.assistant_name||'')+' <span style="color:var(--text-gray);font-size:.8rem;">'+esc(l.assistant_type)+'</span></td>'+
-                '<td>'+fmtDate(l.started_at)+'</td><td>'+st+'</td>';
+                '<td>'+fmtDate(l.started_at)+(mins?' <span style="color:var(--text-gray);font-size:.8rem;">'+mins+' мин</span>':'')+'</td><td>'+st+'</td>'+
+                '<td>'+(l.is_active?'':'<button class="btn btn-outline btn-sm" data-grant-email="'+esc(l.user_email)+'">Ещё попытку</button>')+'</td>';
               body.appendChild(tr);
+            });
+            body.querySelectorAll('[data-grant-email]').forEach(function(b){
+              b.addEventListener('click', function(){
+                document.getElementById('tn-grant-email').value=this.getAttribute('data-grant-email');
+                document.getElementById('tn-grant-section').scrollIntoView({behavior:'smooth',block:'start'});
+                document.getElementById('tn-grant-minutes').focus();
+              });
             });
           }).catch(function(){});
         }
+        function gmsg(t,isErr){ var el=document.getElementById('tn-grant-msg'); el.textContent=t||''; el.style.color=isErr?'#dc2626':'var(--text-gray)'; }
+        function loadGrants(){
+          fetch(API+'/admin/grants?limit=100',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            var body=document.getElementById('tn-grants-body'); body.innerHTML='';
+            var rows=d.grants||[];
+            if(!rows.length){ body.innerHTML='<tr><td colspan="7">Дополнительных попыток ещё не выдавали</td></tr>'; return; }
+            rows.forEach(function(g){
+              var tr=document.createElement('tr');
+              tr.innerHTML='<td>'+esc(g.user_email)+'</td><td>'+esc(g.minutes)+'</td><td>'+esc(g.note||'')+'</td>'+
+                '<td>'+esc(g.granted_by_email||'')+'</td><td>'+fmtDate(g.created_at)+'</td>'+
+                '<td>'+(g.is_used?'Использована '+fmtDate(g.used_at):'<span style="color:#15803d;">Доступна</span>')+'</td>'+
+                '<td>'+(g.is_used?'':'<button class="btn btn-outline btn-sm" data-revoke="'+esc(g.id)+'">Отозвать</button>')+'</td>';
+              body.appendChild(tr);
+            });
+            body.querySelectorAll('[data-revoke]').forEach(function(b){
+              b.addEventListener('click', function(){
+                var id=this.getAttribute('data-revoke');
+                fetch(API+'/admin/grants/'+id,{method:'DELETE',headers:hdr()})
+                  .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+                  .then(function(res){ gmsg(res.ok?'Попытка отозвана':'Ошибка: '+(res.d.message||res.d.detail||''),!res.ok); loadGrants(); });
+              });
+            });
+          }).catch(function(){});
+        }
+        document.getElementById('tn-grant-btn').addEventListener('click', function(){
+          var payload={ email:(document.getElementById('tn-grant-email').value||'').trim(),
+                        minutes:parseInt(document.getElementById('tn-grant-minutes').value,10)||10,
+                        note:(document.getElementById('tn-grant-note').value||'').trim() };
+          if(!payload.email){ gmsg('Укажите email пользователя',true); return; }
+          fetch(API+'/admin/grants',{method:'POST',headers:hdr(),body:JSON.stringify(payload)})
+            .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+            .then(function(res){
+              if(res.ok){ gmsg(res.d.message||'Попытка выдана'); document.getElementById('tn-grant-note').value=''; loadGrants(); }
+              else gmsg('Ошибка: '+(res.d.message||res.d.detail||''),true);
+            })
+            .catch(function(e){ gmsg('Ошибка: '+e.message,true); });
+        });
         var tab=document.querySelector('.tab[data-tab="test-numbers"]');
         var timer=null;
         if(tab) tab.addEventListener('click', function(){
-          loadPool(); loadLeases();
+          loadPool(); loadLeases(); loadGrants();
           if(timer) clearInterval(timer);
           timer=setInterval(function(){ if(tab.classList.contains('active')) { loadPool(); loadLeases(); } }, 30000);
         });

@@ -3495,7 +3495,8 @@
         const st = tnStatus;
         const box = document.getElementById('tn-content');
         tnStopTimers();
-        const minutes = st.lease_minutes || 10;
+        const minutes = st.next_attempt_minutes || st.lease_minutes || 10;
+        const extraAttempt = (st.attempts_used || 0) > 0 && st.can_start;
 
         const intro = `
           <div>
@@ -3511,7 +3512,7 @@
         if (st.state === 'active') {
           const lease = st.lease;
           tnDeadline = Date.now() + (lease.seconds_left || 0) * 1000;
-          const total = minutes * 60;
+          const total = lease.duration_seconds || minutes * 60;
           tnSetBadge('Включён', 'active');
           box.innerHTML = intro + `
             <div class="tn-panel">
@@ -3548,7 +3549,7 @@
             <div class="tn-panel">
               <div style="font-weight:700;margin-bottom:.35rem;">Тестовый номер уже использован</div>
               <div class="tn-muted">${last ? `${last.phone_number ? formatPhoneNumber(last.phone_number) : ''} · ${VF.esc(last.assistant_name || '')}${when ? ' · ' + when : ''}` : ''}</div>
-              <p class="tn-muted" style="margin:.75rem 0 0;">Чтобы принимать звонки постоянно, подключите телефонию и купите свой номер — это займёт несколько минут.</p>
+              <p class="tn-muted" style="margin:.75rem 0 0;">Чтобы принимать звонки постоянно, подключите телефонию и купите свой номер — это займёт несколько минут. Нужна ещё одна тестовая попытка — напишите в <a href="https://t.me/voicyfy_support" target="_blank">поддержку</a>.</p>
             </div>`;
           return;
         }
@@ -3574,7 +3575,7 @@
         }
 
         // available
-        tnSetBadge(`Свободно: ${st.pool_free} из ${st.pool_total}`, '');
+        tnSetBadge(extraAttempt ? `Доступна ещё попытка · свободно ${st.pool_free} из ${st.pool_total}` : `Свободно: ${st.pool_free} из ${st.pool_total}`, extraAttempt ? 'active' : '');
         box.innerHTML = intro + `
           <div class="tn-panel">
             <div class="form-group" style="margin-bottom:.5rem;">
@@ -3585,6 +3586,7 @@
             <div class="tn-actions">
               <button class="btn btn-primary" id="tn-start-btn" disabled><i class="fas fa-play"></i> Включить на ${minutes} минут</button>
             </div>
+            ${extraAttempt ? `<div class="tn-hint" style="color:#15803d;">Администратор выдал вам дополнительную попытку на ${minutes} минут.</div>` : ''}
             <div class="tn-hint" id="tn-error" style="color:#dc2626;"></div>
           </div>`;
         document.getElementById('tn-start-btn').addEventListener('click', startTestNumber);
@@ -3650,10 +3652,11 @@
         if (idx < 0) return;
         const assistant_type = tnSelectValue.slice(0, idx);
         const assistant_id = tnSelectValue.slice(idx + 1);
-        const minutes = (tnStatus && tnStatus.lease_minutes) || 10;
+        const minutes = (tnStatus && (tnStatus.next_attempt_minutes || tnStatus.lease_minutes)) || 10;
+        const attemptsLeft = tnStatus ? Math.max(0, (tnStatus.attempts_total || 1) - (tnStatus.attempts_used || 0)) : 1;
         const ok = await VF.confirm({
           title: `Включить тестовый номер на ${minutes} минут?`,
-          message: 'Это можно сделать только один раз. Таймер начнётся сразу после включения, досрочное отключение попытку не возвращает.',
+          message: (attemptsLeft > 1 ? `У вас ${attemptsLeft} попытки. ` : 'Это можно сделать только один раз. ') + 'Таймер начнётся сразу после включения, досрочное отключение попытку не возвращает.',
           confirmText: 'Включить',
           icon: 'phone',
         });
@@ -3678,7 +3681,7 @@
       async function releaseTestNumber() {
         const ok = await VF.confirm({
           title: 'Отключить тестовый номер?',
-          message: 'Номер вернётся в общий пул. Повторно включить тестовый номер будет нельзя.',
+          message: 'Номер вернётся в общий пул. Эта попытка будет считаться использованной.',
           confirmText: 'Отключить',
           danger: true,
         });

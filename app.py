@@ -1826,8 +1826,8 @@ def ensure_wallet_tables():
 
 def ensure_test_number_tables():
     """
-    🆕 Тестовые номера телефонии: таблица аренд test_number_leases и
-    административные флаги. Колонку voximplant_phone_numbers.is_test_pool
+    🆕 Тестовые номера телефонии: таблицы аренд test_number_leases и
+    дополнительных попыток test_number_grants, административные флаги. Колонку voximplant_phone_numbers.is_test_pool
     добавляет check_and_fix_all_missing_columns(). Alembic не трогаем
     (несколько head).
 
@@ -1837,12 +1837,15 @@ def ensure_test_number_tables():
     """
     try:
         from sqlalchemy import inspect, text
-        from backend.models.test_number_lease import TestNumberLease
+        from backend.models.test_number_lease import TestNumberLease, TestNumberGrant
 
         inspector = inspect(engine)
         if not inspector.has_table('test_number_leases'):
             TestNumberLease.__table__.create(bind=engine, checkfirst=True)
             logger.info("✅ Created table test_number_leases")
+        if not inspector.has_table('test_number_grants'):
+            TestNumberGrant.__table__.create(bind=engine, checkfirst=True)
+            logger.info("✅ Created table test_number_grants")
 
         emails = [e.strip().lower() for e in BOOTSTRAP_ADMIN_EMAILS if e and e.strip()]
         if emails:
