@@ -15,12 +15,26 @@ const LINKS = [
 function Navbar({ onOpenModal }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState('');
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Подсветка раздела, который сейчас на экране
+  useEffect(() => {
+    const ids = LINKS.filter((l) => l.href.startsWith('#')).map((l) => l.href.slice(1));
+    const sections = ids.map((id) => document.getElementById(id)).filter(Boolean);
+    if (!sections.length) return undefined;
+    const io = new IntersectionObserver((entries) => {
+      const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (hit) setActive('#' + hit.target.id);
+    }, { rootMargin: '-40% 0px -50% 0px', threshold: [0, 0.1, 0.5] });
+    sections.forEach((s) => io.observe(s));
+    return () => io.disconnect();
   }, []);
 
   useEffect(() => {
@@ -32,7 +46,7 @@ function Navbar({ onOpenModal }) {
     <a
       key={l.href}
       href={l.href}
-      className="lp-nav-link"
+      className={`lp-nav-link${active === l.href ? ' on' : ''}`}
       target={l.external ? '_blank' : undefined}
       rel={l.external ? 'noopener' : undefined}
       onClick={() => setOpen(false)}

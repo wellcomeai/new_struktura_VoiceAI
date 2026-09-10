@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion, useScroll, useTransform } from 'motion/react';
 
 // Обёртки для анимаций появления на Motion. Уважают prefers-reduced-motion.
 const EASE = [0.2, 0.7, 0.2, 1];
@@ -86,4 +86,17 @@ export function CountUp({ value, suffix = '', duration = 1.2 }) {
     return () => { io.disconnect(); cancelAnimationFrame(raf); };
   }, [value, duration, reduce]);
   return <span ref={ref}>{shown.toLocaleString('ru-RU')}{suffix}</span>;
+}
+
+// Параллакс: блок едет чуть медленнее прокрутки, пока проходит через экран
+export function Parallax({ children, className, amount = 40 }) {
+  const ref = React.useRef(null);
+  const reduce = useReducedMotion();
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
+  const y = useTransform(scrollYProgress, [0, 1], [amount, -amount]);
+  return (
+    <motion.div ref={ref} className={className} style={reduce ? undefined : { y }}>
+      {children}
+    </motion.div>
+  );
 }

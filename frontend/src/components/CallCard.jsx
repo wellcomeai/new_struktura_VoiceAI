@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useReducedMotion } from 'motion/react';
 import Icon from './Icon';
 import ModelLogo, { MODELS } from './ModelLogo';
 
 // Четыре сценария: входящие у ассистента, исходящие у агента. Каждый
-// проигрывается один раз, порядок при загрузке случайный. Размер карточки
-// фиксирован, реплики появляются внутри без прыжков раскладки.
+// проигрывается один раз, порядок при загрузке случайный. Все реплики
+// сцены отрисованы сразу на своих местах и только проявляются: раскладка
+// не меняется, ничего не прыгает.
 const SCENES = [
   {
     key: 'salon', label: 'Входящий · салон', dir: 'in', name: 'Администратор салона', model: 'gemini',
@@ -68,50 +69,34 @@ function CallCard() {
   const [pos, setPos] = useState(0);
   const [sceneKey, setSceneKey] = useState(order[0]);
   const [shown, setShown] = useState(0);
-  const [typing, setTyping] = useState(false);
   const [seconds, setSeconds] = useState(0);
-  const [run, setRun] = useState(0); // перезапуск сцены по клику
+  const [run, setRun] = useState(0);
   const reduce = useReducedMotion();
   const timers = useRef([]);
 
   const scene = SCENES.find((s) => s.key === sceneKey) || SCENES[0];
-
   const clear = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   const later = (fn, ms) => { timers.current.push(setTimeout(fn, ms)); };
 
-  // Таймер звонка
   useEffect(() => {
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Прогон сцены: реплики по очереди, один раз, затем следующая сцена
+  // Реплики проявляются по очереди, после последней пауза и следующая сцена
   useEffect(() => {
     clear();
-    setShown(0);
-    setTyping(false);
     setSeconds(0);
     if (reduce) { setShown(scene.msgs.length); return clear; }
-    let i = 0;
-    const step = () => {
-      if (i >= scene.msgs.length) {
-        later(() => {
-          const next = (pos + 1) % order.length;
-          setPos(next);
-          setSceneKey(order[next]);
-        }, 4500);
-        return;
-      }
-      const m = scene.msgs[i];
-      setTyping(true);
-      later(() => {
-        setTyping(false);
-        i += 1;
-        setShown(i);
-        later(step, 700);
-      }, m.who === 'bot' ? 1400 : 1000);
-    };
-    later(step, 600);
+    setShown(0);
+    scene.msgs.forEach((m, i) => {
+      later(() => setShown(i + 1), 700 + i * 1500);
+    });
+    later(() => {
+      const next = (pos + 1) % order.length;
+      setPos(next);
+      setSceneKey(order[next]);
+    }, 700 + scene.msgs.length * 1500 + 4500);
     return clear;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneKey, run]);
@@ -123,7 +108,7 @@ function CallCard() {
   };
 
   const tags = scene.msgs.slice(0, shown).flatMap((m) => m.tags || []);
-  const nextWho = shown < scene.msgs.length ? scene.msgs[shown].who : 'bot';
+  const sceneTags = Object.keys(TAGS).filter((k) => scene.msgs.some((m) => (m.tags || []).includes(k)));
 
   return (
     <div className="cc-wrap">
@@ -153,36 +138,17 @@ function CallCard() {
           </div>
           <span className="chip chip-success"><Icon name={scene.dir === 'in' ? 'phone-incoming' : 'phone-outgoing'} className="ic-sm" />На линии</span>
         </div>
-        <div className="cc-msgs">
-          <AnimatePresence initial={false}>
-            {scene.msgs.slice(0, shown).map((m, i) => (
-              <motion.div
-                key={`${scene.key}-${run}-${i}`}
-                className={`cc-msg cc-msg-${m.who}`}
-                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ duration: 0.28, ease: [0.2, 0.7, 0.2, 1] }}
-              >
-                <span>{m.text}</span>
-              </motion.div>
-            ))}
-            {typing && (
-              <motion.div
-                key={`${scene.key}-${run}-typing-${shown}`}
-                className={`cc-msg cc-msg-${nextWho} cc-typing`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.12 } }}
-              >
-                <span><i></i><i></i><i></i></span>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="cc-msgs" key={`${scene.key}-${run}`}>
+          {scene.msgs.map((m, i) => (
+            <div key={i} className={`cc-msg cc-msg-${m.who}${i < shown ? ' on' : ''}`}>
+              <span>{m.text}</span>
+            </div>
+          ))}
         </div>
         <div className="cc-foot">
           <span className="cc-model"><ModelLogo code={scene.model} size={14} wrap={false} />{MODELS[scene.model].name}</span>
           <div className="cc-tags">
-            {Object.keys(TAGS).filter((k) => scene.msgs.some((m) => (m.tags || []).includes(k))).map((k) => (
+            {sceneTags.map((k) => (
               <span key={k} className={`cc-tag${tags.includes(k) ? ' on' : ''}`}>
                 <Icon name={TAGS[k].icon} className="ic-sm" />{TAGS[k].label}
               </span>

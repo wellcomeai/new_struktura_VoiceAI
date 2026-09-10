@@ -4,7 +4,7 @@ import { Reveal } from './Reveal';
 // Заголовок раздела: индекс моноширинным, заголовок и подводка слева
 function SectionHead({ index, title, lead, children }) {
   return (
-    <Reveal className="sh" y={16}>
+    <Reveal className="sh" y={16} data-index={index}>
       <span className="sh-index">{index}</span>
       <div className="sh-text">
         <h2>{title}</h2>

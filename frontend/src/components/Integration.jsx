@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import SectionHead from './SectionHead';
-import { Reveal } from './Reveal';
+import { Reveal, Parallax } from './Reveal';
 
 const CODE = `<!-- Voicyfy Voice Assistant -->
 <script>
@@ -17,30 +17,49 @@ const CODE = `<!-- Voicyfy Voice Assistant -->
 </script>
 <!-- End Voicyfy Widget -->`;
 
-// Демо-виджет подгружается, когда секция попадает в экран
+const WIDGET_ID = 'wellcomeai-widget-container';
+const HIDDEN_CLASS = 'lp-widget-hidden';
+
+// Демо-виджет грузится заранее, а виден только пока эта секция на экране.
+// Открытый виджет (идёт разговор) не прячем.
 function Integration() {
   const ref = useRef(null);
-  const [loaded, setLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!ref.current || loaded) return undefined;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && !loaded) {
-        setLoaded(true);
-        observer.disconnect();
-        const script = document.createElement('script');
-        script.src = 'https://voicyfy.ru/static/gemini-widget.js';
-        script.dataset.assistantId = '991b2b45-b52b-43be-9e59-81eaf7ea980a';
-        script.dataset.server = 'https://voicyfy.ru';
-        script.dataset.position = 'bottom-right';
-        script.async = true;
-        document.head.appendChild(script);
-      }
-    }, { threshold: 0.25 });
-    observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [loaded]);
+    document.documentElement.classList.add(HIDDEN_CLASS);
+    const load = setTimeout(() => {
+      if (document.querySelector('script[data-lp-widget]')) return;
+      const script = document.createElement('script');
+      script.src = 'https://voicyfy.ru/static/gemini-widget.js';
+      script.dataset.assistantId = '991b2b45-b52b-43be-9e59-81eaf7ea980a';
+      script.dataset.server = 'https://voicyfy.ru';
+      script.dataset.position = 'bottom-right';
+      script.dataset.lpWidget = '1';
+      script.async = true;
+      document.head.appendChild(script);
+    }, 1500);
+
+    const isOpen = () => {
+      const c = document.getElementById(WIDGET_ID);
+      if (!c) return false;
+      const exp = c.querySelector('.wellcomeai-widget-expanded');
+      return /\b(active|open|expanded|show)\b/.test((c.className || '') + ' ' + (exp ? exp.className : ''));
+    };
+    let visible = false;
+    const apply = () => {
+      const hide = !visible && !isOpen();
+      document.documentElement.classList.toggle(HIDDEN_CLASS, hide);
+    };
+    const io = new IntersectionObserver((entries) => {
+      visible = entries[0].isIntersecting;
+      apply();
+    }, { threshold: 0.12 });
+    if (ref.current) io.observe(ref.current);
+    const tick = setInterval(apply, 800);
+
+    return () => { clearTimeout(load); io.disconnect(); clearInterval(tick); document.documentElement.classList.remove(HIDDEN_CLASS); };
+  }, []);
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(CODE); } catch (err) { /* буфер недоступен */ }
@@ -49,19 +68,21 @@ function Integration() {
   };
 
   return (
-    <section className="sec sec-alt" id="integration" ref={ref}>
+    <section className="sec sec-alt sec-grid" id="integration" ref={ref}>
       <div className="lp-container">
         <SectionHead index="04" title="Виджет на сайт одной строкой" lead="Вставьте код перед закрывающим тегом body. Голосовой виджет появится в углу и будет разговаривать с посетителями. Такой же работает на этой странице, справа внизу." />
         <div className="integ">
-          <Reveal className="code" y={20}>
-            <div className="code-head">
-              <span className="code-file"><Icon name="code" className="ic-sm" />index.html</span>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={copy}>
-                <Icon name={copied ? 'check' : 'copy'} className="ic-sm" />{copied ? 'Скопировано' : 'Скопировать'}
-              </button>
-            </div>
-            <pre><code>{CODE}</code></pre>
-          </Reveal>
+          <Parallax amount={24}>
+            <Reveal className="code" y={20}>
+              <div className="code-head">
+                <span className="code-file"><Icon name="code" className="ic-sm" />index.html</span>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={copy}>
+                  <Icon name={copied ? 'check' : 'copy'} className="ic-sm" />{copied ? 'Скопировано' : 'Скопировать'}
+                </button>
+              </div>
+              <pre><code>{CODE}</code></pre>
+            </Reveal>
+          </Parallax>
           <Reveal className="integ-text" x={16} y={0} delay={0.1}>
             <dl className="facts">
               <div><dt>Модели для виджета</dt><dd>OpenAI и Gemini, с прерываниями и вызовом функций</dd></div>

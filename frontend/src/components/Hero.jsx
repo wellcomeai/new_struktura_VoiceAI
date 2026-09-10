@@ -29,15 +29,15 @@ function Hero({ onOpenModal }) {
   };
 
   return (
-    <section className="hero" id="top">
+    <section className="hero sec-grid" id="top">
       <div className="lp-container">
         <div className="hero-grid">
           <Stagger className="hero-copy" stagger={0.09} amount={0.1}>
-            <Item as="p" className="hero-kicker" y={10}>Voicyfy · голосовой ИИ для бизнеса</Item>
-            <Item as="h1" y={22}>Отвечает на звонки. Сам обзванивает клиентов. Помнит каждого.</Item>
+            <Item as="p" className="hero-kicker" y={10}>Voicyfy · голосовой ИИ, который создаёте вы</Item>
+            <Item as="h1" y={22}>Платформа голосовых ИИ‑ассистентов и агентов для бизнеса</Item>
             <Item as="p" className="hero-lead">
-              Голосовой ассистент принимает входящие и разговаривает на сайте. Агент обзванивает базу,
-              пишет в мессенджеры и ведёт клиентов до результата. Всё в одном кабинете, без программирования.
+              Ассистент отвечает на звонки и разговаривает на сайте. Агент сам обзванивает клиентов,
+              пишет в мессенджеры и помнит каждого. Собираются за десять минут, без программирования.
             </Item>
             <Item className="hero-actions">
               <button type="button" className="btn btn-primary btn-lg" onClick={() => onOpenModal('register')}>

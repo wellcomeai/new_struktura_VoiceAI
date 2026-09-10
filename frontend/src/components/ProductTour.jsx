@@ -1,7 +1,7 @@
 import React from 'react';
 import Icon from './Icon';
 import SectionHead from './SectionHead';
-import { Reveal } from './Reveal';
+import { Reveal, Parallax } from './Reveal';
 import { MockAssistant, MockTelephony, MockDialogs, MockCrm, MockKnowledge } from './Mockups';
 
 const ROWS = [
@@ -39,7 +39,7 @@ const ROWS = [
 
 function ProductTour() {
   return (
-    <section className="sec" id="platform">
+    <section className="sec sec-grid" id="platform">
       <div className="lp-container">
         <SectionHead index="01" title="Кабинет, в котором всё это работает" lead="Пять экранов, которые вы увидите после регистрации. Ассистенты, телефония, диалоги, CRM и база знаний, без сторонних сервисов." />
         <div className="tour">
@@ -53,7 +53,9 @@ function ProductTour() {
                   {r.facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
                 </dl>
               </Reveal>
-              <Reveal className="tour-mock" y={24} delay={0.1}>{r.mock}</Reveal>
+              <Parallax className="tour-mock" amount={36}>
+                <Reveal className="stack" y={24} delay={0.1}>{r.mock}</Reveal>
+              </Parallax>
             </div>
           ))}
         </div>

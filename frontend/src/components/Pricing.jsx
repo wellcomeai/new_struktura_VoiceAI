@@ -7,9 +7,9 @@ import { useTariffs } from '../hooks/useTariffs';
 
 // Тарифы таблицей, как в кабинете. Кнопки открывают регистрацию.
 const PLANS = [
-  { key: 'trial', name: 'Пробный', price: '0 ₽', period: '3 дня', cta: 'Начать бесплатно', primary: true, note: 'с него начинают' },
+  { key: 'trial', name: 'Trial', price: '0 ₽', period: '3 дня', cta: 'Начать бесплатно', primary: true, note: 'с него начинают' },
   { key: 'voice', name: 'AI Voice', price: '1 490 ₽', period: 'в месяц', cta: 'Выбрать' },
-  { key: 'start', name: 'Старт', price: '2 990 ₽', period: 'в месяц', cta: 'Выбрать', hot: true, note: 'популярный' },
+  { key: 'start', name: 'Start', price: '2 990 ₽', period: 'в месяц', cta: 'Выбрать', hot: true, note: 'популярный' },
   { key: 'profi', name: 'Profi', price: '5 990 ₽', period: 'в месяц', cta: 'Выбрать' },
   { key: 'agent', name: 'Agent', price: '5 490 ₽', period: 'в месяц', cta: 'Выбрать', agent: true, note: 'автономный' },
 ];

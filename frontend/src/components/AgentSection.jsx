@@ -1,7 +1,7 @@
 import React from 'react';
 import Icon from './Icon';
 import SectionHead from './SectionHead';
-import { Reveal, Stagger, Item } from './Reveal';
+import { Reveal, Stagger, Item, Parallax } from './Reveal';
 import { MockAgent } from './Mockups';
 
 const DAY = [
@@ -18,7 +18,7 @@ function AgentSection({ onOpenModal }) {
       <div className="lp-container">
         <SectionHead index="02" title="Агент. Сотрудник, который звонит сам, всё помнит и доводит до результата" lead="Вы описываете бизнес пятью полями обычными словами и загружаете базу контактов. Дальше агент звонит, пишет, перезванивает и отчитывается вам в чате. Он не болеет, не уходит в отпуск и не забывает." />
 
-        <Reveal className="agent-mock" y={28}><MockAgent /></Reveal>
+        <Parallax className="agent-mock" amount={30}><Reveal className="stack" y={28}><MockAgent /></Reveal></Parallax>
 
         <div className="agent-grid">
           <Reveal className="agent-split" x={-16} y={0}>
