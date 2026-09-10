@@ -3447,6 +3447,7 @@
       let tnRebindValue = '';
       let tnAssistants = null;  // кэш списка ассистентов
       let tnTariffs = {};
+      let tnScrolled = false;   // прокрутка к карточке по якорю #test-number выполнена
 
       function tnMmss(sec) {
         sec = Math.max(0, sec | 0);
@@ -3491,6 +3492,11 @@
         card.classList.remove('hidden');
         tnAssistants = null;  // список ассистентов мог измениться (смена модели, удаление)
         renderTestNumber();
+        // Переход с дашборда по ссылке #test-number: прокрутить к карточке один раз
+        if (!tnScrolled && location.hash === '#test-number') {
+          tnScrolled = true;
+          card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       }
 
       function renderTestNumber() {
