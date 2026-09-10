@@ -60,7 +60,6 @@ function switchTab(tab){
 }
 function fillEditForm(){
   ['doc_who_am_i','doc_who_we_call','doc_how_we_talk','doc_what_we_offer','doc_rules_and_goals'].forEach(f => { document.getElementById('e-'+f).value = agentData[f]||''; });
-  document.getElementById('e-assistant_type').value = agentData.assistant_type || 'gemini';
 }
 async function saveEdit(){
   const btn = document.getElementById('edit-save-btn');
@@ -72,8 +71,6 @@ async function saveEdit(){
     doc_what_we_offer: document.getElementById('e-doc_what_we_offer').value,
     doc_rules_and_goals: document.getElementById('e-doc_rules_and_goals').value,
   };
-  const newType = document.getElementById('e-assistant_type').value;
-  if(newType && newType !== agentData.assistant_type) body.assistant_type = newType;
   try{
     const r = await apiFetch(API + '/', { method:'PUT', body:JSON.stringify(body) });
     if(r && r.status===200){
@@ -227,8 +224,62 @@ function readVoiceBody(type, ids){
 const I_VOICE_IDS = { voice:'i-voice', vid:'i-cartesia-voice-id', spd:'i-voice-speed', spdv:'i-voice-speed-val', desc:'i-voice-desc', fvid:'i-fish-voice-id', flat:'i-fish-latency' };
 const W_VOICE_IDS = { voice:'w-voice', vid:'w-cartesia-voice-id', spd:'w-voice-speed', spdv:'w-voice-speed-val', desc:'w-voice-desc', fvid:'w-fish-voice-id', flat:'w-fish-latency' };
 
+// ════════════════ ГОЛОСОВАЯ МОДЕЛЬ (смена типа в модалке настроек) ════════════════
+// Смена типа пересоздаёт голосового ассистента на бэкенде (PUT /api/agent/ с
+// assistant_type): база знаний, коннекторы, задачи и номера переносятся сами.
+// TYPE_DEFS / loadWizardTariffs — из wizard.js (общее глобальное окружение).
+let iSelectedType = null;
+let iTariffs = null;
+
+function iTypePriceLabel(type){
+  const tf = iTariffs && iTariffs[type];
+  if(!tf) return '';
+  if(tf.own_key) return 'На вашем API-ключе, с кошелька не списывается';
+  if(!tf.price_rub_per_min) return 'Бесплатно — платите только за связь';
+  return `${tf.price_rub_per_min} ₽/мин с кошелька Voicyfy`;
+}
+
+function renderModelTypeCards(){
+  const wrap = document.getElementById('i-model-type-group');
+  if(!wrap) return;
+  const cur = agentData.assistant_type || 'gemini';
+  const defs = (typeof TYPE_DEFS !== 'undefined') ? TYPE_DEFS : [];
+  wrap.innerHTML = defs.map(t => {
+    const selected = iSelectedType === t.type;
+    const price = iTypePriceLabel(t.type);
+    const isCurrent = t.type === cur;
+    return `<div class="type-card ${selected ? 'selected' : ''}" onclick="iSelectType('${t.type}')">
+      <div class="type-radio"></div>
+      <div class="type-info">
+        <div class="type-name">${t.name}${isCurrent ? ' <span class="type-current">текущая</span>' : ''}</div>
+        <div class="type-desc">${t.desc}</div>
+        ${selected && price ? `<div class="type-key-status"><span class="key-pill ok"><i class="fas fa-wallet"></i> ${price}</span></div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  const hint = document.getElementById('i-model-type-hint');
+  if(hint) hint.textContent = iSelectedType && iSelectedType !== cur
+    ? 'После сохранения голосовой ассистент будет пересоздан на новой модели: база знаний, коннекторы, задачи и номера перенесутся автоматически. Выберите голос ниже.'
+    : 'Минуты связи при звонках оплачиваются с баланса телефонии.';
+}
+
+function iSelectType(type){
+  if(iSelectedType === type) return;
+  iSelectedType = type;
+  renderModelTypeCards();
+  const cur = agentData.assistant_type || 'gemini';
+  // Голосовые настройки — текущие, если вернулись на текущую модель, иначе по умолчанию для новой
+  const voiceState = type === cur
+    ? { voice: agentData.voice, cartesia_voice_id: agentData.cartesia_voice_id, voice_speed: agentData.voice_speed, fish_voice_id: agentData.fish_voice_id, fish_latency: agentData.fish_latency }
+    : {};
+  document.getElementById('i-voice-group').innerHTML = voiceControlHtml(type, voiceState, I_VOICE_IDS);
+}
+
 // ════════════════ INSTRUCTIONS MODAL ════════════════
 function openInstructionsModal(){
+  iSelectedType = agentData.assistant_type || 'gemini';
+  renderModelTypeCards();
+  if(typeof loadWizardTariffs === 'function') loadWizardTariffs().then(t => { iTariffs = t || {}; renderModelTypeCards(); });
   document.getElementById('i-name').value = agentData.name || '';
   document.getElementById('i-additional_instructions').value = agentData.additional_instructions || '';
   document.getElementById('i-webhook_url').value = agentData.webhook_url || '';
@@ -282,15 +333,25 @@ async function saveInstructions(){
     inbound_first_phrase: document.getElementById('i-inbound_first_phrase').value.trim() || null,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
-    ...readVoiceBody(agentData.assistant_type || 'gemini', I_VOICE_IDS),
+    ...readVoiceBody(iSelectedType || agentData.assistant_type || 'gemini', I_VOICE_IDS),
   };
+  const curType = agentData.assistant_type || 'gemini';
+  const typeChanged = !!iSelectedType && iSelectedType !== curType;
+  if(typeChanged){
+    const def = (typeof TYPE_DEFS !== 'undefined' && TYPE_DEFS.find(t => t.type === iSelectedType)) || { name: iSelectedType };
+    const ok = confirm(`Сменить голосовую модель на «${def.name}»?\n\nГолосовой ассистент будет пересоздан на новой модели. База знаний, коннекторы, запланированные звонки и номера перепривяжутся автоматически.`);
+    if(!ok){ btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Сохранить'; return; }
+    body.assistant_type = iSelectedType;
+  }
   try {
     const r = await apiFetch(API + '/', { method: 'PUT', body: JSON.stringify(body) });
     if(r && r.status === 200){
       agentData = await r.json();
       renderAgentHeader();
+      if(typeof renderDocsGrid === 'function') renderDocsGrid();
+      if(typeof loadPhoneNumbers === 'function' && typeChanged) { try { loadPhoneNumbers(); } catch(e) {} }
       closeInstructionsModal();
-      showToast('Инструкции сохранены', 'success');
+      showToast(typeChanged ? 'Голосовая модель изменена, настройки сохранены' : 'Инструкции сохранены', 'success');
     } else {
       const err = await r?.json().catch(() => ({}));
       showToast(errText(err.detail), 'error');

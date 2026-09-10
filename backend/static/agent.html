@@ -275,7 +275,6 @@
         <div class="doc-tab" data-tab="doc_how_we_talk">Как говорим</div>
         <div class="doc-tab" data-tab="doc_what_we_offer">Что предлагаем</div>
         <div class="doc-tab" data-tab="doc_rules_and_goals">Правила и цели</div>
-        <div class="doc-tab" data-tab="assistant">Ассистент</div>
       </div>
 
       <div class="doc-pane active" data-pane="doc_who_am_i"><div class="form-group"><label class="form-label">Кто мы — описание компании</label><textarea class="form-textarea" id="e-doc_who_am_i" rows="8"></textarea></div></div>
@@ -284,19 +283,6 @@
       <div class="doc-pane" data-pane="doc_what_we_offer"><div class="form-group"><label class="form-label">Что предлагаем — продукты и цены</label><textarea class="form-textarea" id="e-doc_what_we_offer" rows="8"></textarea></div></div>
       <div class="doc-pane" data-pane="doc_rules_and_goals"><div class="form-group"><label class="form-label">Правила и цели — KPI и политика</label><textarea class="form-textarea" id="e-doc_rules_and_goals" rows="8"></textarea></div></div>
 
-      <div class="doc-pane" data-pane="assistant">
-        <div class="form-group">
-          <label class="form-label">Тип голосового ассистента</label>
-          <select class="form-select" id="e-assistant_type">
-            <option value="gemini">Gemini Voice</option>
-            <option value="cascade">Cascade (бесплатно)</option>
-            <option value="fish">Fish Audio</option>
-            <option value="yandex">Yandex SpeechKit</option>
-            <option value="openai">OpenAI Realtime</option>
-          </select>
-          <div class="form-hint">Смена типа создаст нового голосового ассистента. Модели работают на ключах Voicyfy: минуты разговора списываются с кошелька по тарифу модели, связь — с баланса телефонии.</div>
-        </div>
-      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
@@ -351,6 +337,11 @@
           <div class="instr-section-title">Голосовой агент · живой звонок</div>
           <div class="instr-section-sub">Как агент ведёт себя в телефонном разговоре с клиентом: голос, тон, что говорить и чего избегать.</div>
         </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Голосовая модель</label>
+        <div id="i-model-type-group" class="model-type-cards"></div>
+        <div class="form-hint" id="i-model-type-hint"></div>
       </div>
       <div id="i-voice-group"></div>
       <div class="form-group">
