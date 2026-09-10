@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
+import SectionHead from './SectionHead';
+import { Reveal } from './Reveal';
 
 const CODE = `<!-- Voicyfy Voice Assistant -->
 <script>
@@ -15,7 +17,7 @@ const CODE = `<!-- Voicyfy Voice Assistant -->
 </script>
 <!-- End Voicyfy Widget -->`;
 
-// Виджет-демо подгружается, когда секция попадает в экран (как раньше)
+// Демо-виджет подгружается, когда секция попадает в экран
 function Integration() {
   const ref = useRef(null);
   const [loaded, setLoaded] = useState(false);
@@ -47,26 +49,28 @@ function Integration() {
   };
 
   return (
-    <section className="lp-section" id="integration" ref={ref}>
-      <div className="lp-container lp-integration">
-        <div className="lp-code card rev">
-          <div className="lp-code-head">
-            <span className="lp-code-file"><Icon name="code" className="ic-sm" />index.html</span>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={copy}>
-              <Icon name={copied ? 'check' : 'copy'} className="ic-sm" />{copied ? 'Скопировано' : 'Скопировать'}
-            </button>
-          </div>
-          <pre><code>{CODE}</code></pre>
-        </div>
-        <div className="lp-integration-copy rev d1">
-          <span className="lp-eyebrow">Интеграция</span>
-          <h2>Одна строка кода, и ассистент на вашем сайте</h2>
-          <p className="lp-lead">Вставьте код перед закрывающим тегом body. Голосовой виджет появится в углу страницы и будет разговаривать с посетителями. Попробуйте его прямо здесь, он в правом нижнем углу.</p>
-          <ol className="lp-mini-steps">
-            <li><span>1</span>Создайте ассистента в кабинете на OpenAI или Gemini</li>
-            <li><span>2</span>Напишите промпт и загрузите базу знаний</li>
-            <li><span>3</span>Скопируйте код виджета на вкладке «Встраивание»</li>
-          </ol>
+    <section className="sec sec-alt" id="integration" ref={ref}>
+      <div className="lp-container">
+        <SectionHead index="04" title="Виджет на сайт одной строкой" lead="Вставьте код перед закрывающим тегом body. Голосовой виджет появится в углу и будет разговаривать с посетителями. Такой же работает на этой странице, справа внизу." />
+        <div className="integ">
+          <Reveal className="code" y={20}>
+            <div className="code-head">
+              <span className="code-file"><Icon name="code" className="ic-sm" />index.html</span>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={copy}>
+                <Icon name={copied ? 'check' : 'copy'} className="ic-sm" />{copied ? 'Скопировано' : 'Скопировать'}
+              </button>
+            </div>
+            <pre><code>{CODE}</code></pre>
+          </Reveal>
+          <Reveal className="integ-text" x={16} y={0} delay={0.1}>
+            <dl className="facts">
+              <div><dt>Модели для виджета</dt><dd>OpenAI и Gemini, с прерываниями и вызовом функций</dd></div>
+              <div><dt>Где взять код</dt><dd>вкладка «Встраивание» у ассистента</dd></div>
+              <div><dt>Исходящие по событию</dt><dd>вызов API из вашей системы, документация в кабинете</dd></div>
+              <div><dt>Интеграции</dt><dd>Google Sheets, вебхуки, Telegram, свои функции</dd></div>
+            </dl>
+            <a href="/static/api-docs.html" className="lp-link">Документация API<Icon name="arrow-right" className="ic-sm" /></a>
+          </Reveal>
         </div>
       </div>
     </section>

@@ -1,15 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Lenis from 'lenis';
 import { useAuth } from './hooks/useAuth';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
-import ModelsStrip from './components/ModelsStrip';
-import HowItWorks from './components/HowItWorks';
-import Products from './components/Products';
-import Platform from './components/Platform';
+import ProductTour from './components/ProductTour';
 import AgentSection from './components/AgentSection';
+import Start from './components/Start';
 import Integration from './components/Integration';
 import Scenarios from './components/Scenarios';
-import TestCall from './components/TestCall';
 import Pricing from './components/Pricing';
 import Faq from './components/Faq';
 import FinalCta from './components/FinalCta';
@@ -19,6 +17,7 @@ import AuthModal from './components/AuthModal';
 function App() {
   const [activeTab, setActiveTab] = useState('register');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const lenisRef = useRef(null);
 
   useAuth();
 
@@ -29,17 +28,25 @@ function App() {
 
   const closeModal = useCallback(() => setIsModalOpen(false), []);
 
-  // Появление блоков при прокрутке
+  // Плавная прокрутка Lenis (выключена при prefers-reduced-motion)
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('on'); }),
-      { threshold: 0.08 }
-    );
-    document.querySelectorAll('.rev').forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const lenis = new Lenis({ lerp: 0.1, smoothWheel: true });
+    lenisRef.current = lenis;
+    let raf = 0;
+    const loop = (t) => { lenis.raf(t); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    return () => { cancelAnimationFrame(raf); lenis.destroy(); lenisRef.current = null; };
   }, []);
 
-  // Плавная прокрутка по якорям с учётом высоты шапки
+  // Пока открыта модалка, страница под ней не прокручивается
+  useEffect(() => {
+    const lenis = lenisRef.current;
+    if (!lenis) return;
+    if (isModalOpen) lenis.stop(); else lenis.start();
+  }, [isModalOpen]);
+
+  // Якоря: прокрутка с учётом высоты шапки
   useEffect(() => {
     const onClick = (e) => {
       const a = e.target.closest('a[href^="#"]');
@@ -49,8 +56,12 @@ function App() {
       const target = document.getElementById(id);
       if (!target) return;
       e.preventDefault();
-      const top = target.getBoundingClientRect().top + window.scrollY - 72;
-      window.scrollTo({ top, behavior: 'smooth' });
+      if (lenisRef.current) {
+        lenisRef.current.scrollTo(target, { offset: -72, duration: 1.1 });
+      } else {
+        const top = target.getBoundingClientRect().top + window.scrollY - 72;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
       history.replaceState(null, '', '#' + id);
     };
     document.addEventListener('click', onClick);
@@ -62,14 +73,11 @@ function App() {
       <Navbar onOpenModal={openModal} />
       <main>
         <Hero onOpenModal={openModal} />
-        <ModelsStrip />
-        <HowItWorks onOpenModal={openModal} />
-        <Products onOpenModal={openModal} />
-        <Platform />
+        <ProductTour />
         <AgentSection onOpenModal={openModal} />
+        <Start onOpenModal={openModal} />
         <Integration />
         <Scenarios />
-        <TestCall />
         <Pricing onOpenModal={openModal} />
         <Faq />
         <FinalCta onOpenModal={openModal} />

@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import Icon from './Icon';
 
 const LINKS = [
-  { href: '#platform', label: 'Возможности' },
+  { href: '#platform', label: 'Кабинет' },
   { href: '#agent', label: 'Агент' },
-  { href: '#integration', label: 'Интеграция' },
+  { href: '#how', label: 'Как начать' },
+  { href: '#integration', label: 'Виджет' },
   { href: '#pricing', label: 'Тарифы' },
   { href: '/static/prompts-wiki.html', label: 'База знаний' },
   { href: '/static/api-docs.html', label: 'API' },
