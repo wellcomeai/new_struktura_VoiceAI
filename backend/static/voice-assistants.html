@@ -706,7 +706,7 @@
 
   async function migrateModel(newType) {
     const old = state.current, oldType = old.type;
-    const ok = await VF.confirm({ title: 'Сменить голосовую модель?', html: `Ассистент будет пересоздан на модели <b>${esc(modelLabel(newType))}</b> с новым ID. Привязанные номера телефонии перепривяжутся автоматически.`, confirmText: 'Сменить модель' });
+    const ok = await VF.confirm({ title: 'Сменить голосовую модель?', html: `Ассистент будет пересоздан на модели <b>${esc(modelLabel(newType))}</b> с новым ID. Привязанные номера телефонии и тестовый номер перепривяжутся автоматически.`, confirmText: 'Сменить модель' });
     if (!ok) return;
     const p = PROVIDERS[newType];
     const payload = JSON.stringify(stripUndefined(buildPayload(newType, true)));
@@ -718,6 +718,13 @@
       else if (nr && nr.status === 404) numbersKnown = true;
     } catch (e) { numbersKnown = false; }
     if (!numbersKnown) throw new Error('Не удалось получить список номеров телефонии, смена модели отменена. Повторите попытку.');
+
+    // Тестовый номер (аренда номера Voicyfy): он не в «моих номерах», перепривязываем отдельно
+    let testLease = null;
+    try {
+      const tr = await api('/api/telephony/test-numbers/status');
+      if (tr && tr.ok && tr.data && tr.data.state === 'active' && tr.data.lease && String(tr.data.lease.assistant_id || '') === old.id) testLease = tr.data.lease;
+    } catch (e) { testLease = null; }
 
     let r = await api(p.create, { method: 'POST', body: payload });
     let oldDeleted = false;
@@ -738,6 +745,12 @@
     for (const n of numbers) {
       try {
         const br = await api('/api/telephony/bind-assistant', { method: 'POST', body: JSON.stringify({ phone_number_id: n.id, assistant_type: newType, assistant_id: newId, first_phrase: n.first_phrase || null }) });
+        if (br && br.ok) rebound++; else failed++;
+      } catch (e) { failed++; }
+    }
+    if (testLease) {
+      try {
+        const br = await api('/api/telephony/test-numbers/rebind', { method: 'POST', body: JSON.stringify({ assistant_type: newType, assistant_id: newId }) });
         if (br && br.ok) rebound++; else failed++;
       } catch (e) { failed++; }
     }

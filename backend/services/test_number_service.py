@@ -262,9 +262,83 @@ class TestNumberService:
             "next_free_in_seconds": next_free_in,
             "can_start": can_start and state in ("available", "busy"),
             "allowed_assistant_types": list(ALLOWED_ASSISTANT_TYPES),
-            "lease": my.to_dict() if my else None,
+            "lease": cls._lease_dict(db, my) if my else None,
             "last_lease": last.to_dict() if (last and not my) else None,
         }
+
+    @classmethod
+    def _lease_dict(cls, db: Session, lease: TestNumberLease) -> Dict[str, Any]:
+        """
+        Аренда для ЛК + флаг assistant_missing: ассистент удалён или пересоздан
+        с новым ID (смена модели), звонки на номер не обслуживаются, пока
+        пользователь не выберет другого ассистента (rebind).
+        """
+        data = lease.to_dict()
+        exists = load_voice_assistant(db, lease.assistant_type, lease.assistant_id, lease.user_id) is not None
+        data["assistant_missing"] = not exists
+        return data
+
+    @classmethod
+    async def rebind(cls, db: Session, user: User, assistant_type: str,
+                     assistant_id: uuid.UUID) -> TestNumberLease:
+        """
+        Сменить ассистента на активной аренде без траты попытки и сброса
+        таймера. Нужен после смены голосовой модели (ассистент пересоздаётся
+        с новым ID) или удаления ассистента.
+        """
+        assistant_type = (assistant_type or "").lower()
+        if assistant_type not in ALLOWED_ASSISTANT_TYPES:
+            raise TestNumberError(
+                "На тестовый номер можно посадить только голосового ассистента "
+                "(OpenAI, Gemini, Каскад, Fish Audio, Яндекс)", "bad_type")
+        lease = cls.active_lease_for_user(db, user.id)
+        if not lease:
+            raise TestNumberError("Активного тестового номера нет", "no_lease")
+        assistant = load_voice_assistant(db, assistant_type, assistant_id, user.id)
+        if not assistant:
+            raise TestNumberError("Ассистент не найден", "assistant_not_found")
+
+        from backend.api.telephony import resolve_scenario_keys
+        keys, allowed, billing_mode = resolve_scenario_keys(db, user, assistant_type, "[TEST-NUMBER]")
+        if not keys.available:
+            raise TestNumberError(
+                "Для этой модели нет ключа: добавьте свой API-ключ в настройках", "no_key")
+        if not allowed:
+            from backend.services.wallet_service import WalletService, TELEPHONY_START_MINUTES
+            _, balance, required = WalletService.precheck(db, user.id, assistant_type, TELEPHONY_START_MINUTES)
+            raise TestNumberError(
+                f"Пополните кошелёк: для этой модели нужно {required / 100:.0f} ₽, "
+                f"на балансе {balance / 100:.2f} ₽", "wallet")
+
+        phone = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.id == lease.phone_number_id
+        ).first() if lease.phone_number_id else None
+        if not phone:
+            raise TestNumberError("Номер аренды не найден", "phone_not_found")
+
+        if assistant_type != lease.assistant_type:
+            from backend.api.telephony import rebind_inbound_rule
+            ok = await rebind_inbound_rule(phone.child_account, phone, assistant_type, "[TEST-NUMBER]")
+            if not ok:
+                raise TestNumberError(
+                    "Не удалось переключить маршрутизацию номера, попробуйте позже", "rule_failed")
+
+        lease.assistant_type = assistant_type
+        lease.assistant_id = assistant.id
+        lease.assistant_name = getattr(assistant, "name", None)
+        phone.assistant_type = assistant_type
+        phone.assistant_id = assistant.id
+        phone.agent_config_id = None
+        phone.first_phrase = None
+        db.add(lease)
+        db.add(phone)
+        db.commit()
+        db.refresh(lease)
+        logger.info(
+            f"[TEST-NUMBER] 🔁 Lease rebound: {phone.phone_number} user {user.email} → "
+            f"{assistant_type}:{assistant.id}, billing={billing_mode}"
+        )
+        return lease
 
     # ------------------------------------------------------------------
     # Действия

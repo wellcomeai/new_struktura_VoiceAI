@@ -3444,6 +3444,7 @@
       let tnPoll = null;        // периодическая сверка с сервером
       let tnDeadline = 0;       // ms — конец аренды / ближайшее освобождение
       let tnSelectValue = '';
+      let tnRebindValue = '';
       let tnAssistants = null;  // кэш списка ассистентов
       let tnTariffs = {};
 
@@ -3488,6 +3489,7 @@
           return;
         }
         card.classList.remove('hidden');
+        tnAssistants = null;  // список ассистентов мог измениться (смена модели, удаление)
         renderTestNumber();
       }
 
@@ -3519,14 +3521,33 @@
               <div class="tn-muted">Позвоните на номер</div>
               <div class="tn-phone"><a href="tel:${tnTel(lease.phone_number)}" style="color:inherit;text-decoration:none;">${formatPhoneNumber(lease.phone_number)}</a></div>
               <div class="tn-muted" style="margin-top:.35rem;">Отвечает: <strong>${VF.esc(lease.assistant_name || '')}</strong> · ${VF.esc(TN_MODEL_NAMES[lease.assistant_type] || lease.assistant_type)}</div>
+              ${lease.assistant_missing ? `<div class="tn-hint" style="color:#b45309;margin-top:.35rem;"><i class="fas fa-triangle-exclamation"></i> Этот ассистент удалён или пересоздан на другой модели. Звонки не принимаются, пока не выберете ассистента ниже.</div>` : ''}
               <div class="tn-progress"><span id="tn-progress-bar" style="width:100%"></span></div>
               <div class="tn-timer" id="tn-timer">${tnMmss(lease.seconds_left)}</div>
               <div class="tn-muted">осталось до отключения</div>
               <div class="tn-actions">
+                <button class="btn btn-outline" id="tn-change-btn"><i class="fas fa-arrows-rotate"></i> Сменить ассистента</button>
                 <button class="btn btn-outline" id="tn-release-btn"><i class="fas fa-stop"></i> Отключить</button>
+              </div>
+              <div id="tn-rebind-panel" style="display:${lease.assistant_missing ? 'block' : 'none'};margin-top:.75rem;">
+                <div class="form-group" style="margin-bottom:.5rem;">
+                  <label>Новый ассистент</label>
+                  <div id="tn-rebind-select"></div>
+                </div>
+                <div class="tn-actions" style="margin-top:.25rem;">
+                  <button class="btn btn-primary" id="tn-rebind-btn" disabled><i class="fas fa-check"></i> Переключить</button>
+                </div>
+                <div class="tn-hint" id="tn-rebind-error" style="color:#dc2626;"></div>
               </div>
             </div>`;
           document.getElementById('tn-release-btn').addEventListener('click', releaseTestNumber);
+          document.getElementById('tn-change-btn').addEventListener('click', () => {
+            const panel = document.getElementById('tn-rebind-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            if (panel.style.display === 'block') loadAssistantsForTest('rebind');
+          });
+          document.getElementById('tn-rebind-btn').addEventListener('click', rebindTestNumber);
+          if (lease.assistant_missing) loadAssistantsForTest('rebind');
           tnTick = setInterval(() => {
             const left = Math.max(0, Math.round((tnDeadline - Date.now()) / 1000));
             const t = document.getElementById('tn-timer');
@@ -3593,17 +3614,24 @@
         loadAssistantsForTest();
       }
 
-      async function loadAssistantsForTest() {
-        const root = document.getElementById('tn-assistant-select');
+      async function loadAssistantsForTest(mode) {
+        const isRebind = mode === 'rebind';
+        const root = document.getElementById(isRebind ? 'tn-rebind-select' : 'tn-assistant-select');
         if (!root) return;
         const allowed = (tnStatus && tnStatus.allowed_assistant_types) || Object.keys(TN_SOURCES);
         const render = (options, placeholder) => {
-          tnSelectValue = '';
+          if (isRebind) tnRebindValue = ''; else tnSelectValue = '';
           VF.select(root, {
             groups: [{ label: null, options }],
             placeholder: placeholder || 'Выберите ассистента',
             search: options.length > 8,
             onChange: (value) => {
+              if (isRebind) {
+                tnRebindValue = value || '';
+                const btn = document.getElementById('tn-rebind-btn');
+                if (btn) btn.disabled = !tnRebindValue;
+                return;
+              }
               tnSelectValue = value || '';
               const btn = document.getElementById('tn-start-btn');
               if (btn) btn.disabled = !tnSelectValue;
@@ -3632,7 +3660,7 @@
           }
           if (!tnAssistants.length) {
             render([{ value: '', label: 'Нет ассистентов — создайте на странице «Голосовые ассистенты»', disabled: true }], 'Нет ассистентов');
-            const hint = document.getElementById('tn-assistant-hint');
+            const hint = document.getElementById(isRebind ? 'tn-rebind-error' : 'tn-assistant-hint');
             if (hint) hint.innerHTML = 'Сначала <a href="/static/voice-assistants.html">создайте голосового ассистента</a>, затем вернитесь сюда.';
             return;
           }
@@ -3675,6 +3703,26 @@
           if (btn) btn.disabled = false;
           // Пул мог измениться (например, номер заняли) — перечитаем состояние
           setTimeout(() => loadTestNumberStatus(true), 1500);
+        }
+      }
+
+      async function rebindTestNumber() {
+        const idx = tnRebindValue.indexOf(':');
+        if (idx < 0) return;
+        const assistant_type = tnRebindValue.slice(0, idx);
+        const assistant_id = tnRebindValue.slice(idx + 1);
+        const btn = document.getElementById('tn-rebind-btn');
+        const err = document.getElementById('tn-rebind-error');
+        if (btn) btn.disabled = true;
+        if (err) err.textContent = '';
+        try {
+          const res = await api.post(TN_API + '/rebind', { assistant_type, assistant_id });
+          showNotification(res.message || 'Ассистент переключён', 'success');
+          tnStatus = res.status;
+          renderTestNumber();
+        } catch (e) {
+          if (err) err.textContent = e.message || 'Не удалось сменить ассистента';
+          if (btn) btn.disabled = false;
         }
       }
 

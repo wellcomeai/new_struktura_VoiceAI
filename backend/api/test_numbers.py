@@ -10,6 +10,8 @@ API тестовых номеров телефонии.
   GET  /status            — состояние для ЛК (моя аренда, свободные номера, таймер)
   POST /start             — включить: {assistant_type, assistant_id}
   POST /release           — досрочно отключить (попытка считается использованной)
+  POST /rebind            — сменить ассистента на активной аренде: {assistant_type, assistant_id}
+                            (без траты попытки; после смены модели / удаления ассистента)
 
 Админка (is_admin):
   GET  /admin/pool                      — номера админов с флагом пула и арендой
@@ -100,6 +102,33 @@ async def start_test_number(
     return {
         "success": True,
         "message": f"Тестовый номер включён на {max(1, lease.duration_seconds // 60)} минут",
+        "lease": lease.to_dict(),
+        "status": TestNumberService.status(db, current_user),
+    }
+
+
+@router.post("/rebind")
+async def rebind_test_number(
+    request: StartTestNumberRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        assistant_uuid = uuid.UUID(request.assistant_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неверный ID ассистента")
+    try:
+        lease = await TestNumberService.rebind(db, current_user, request.assistant_type, assistant_uuid)
+    except TestNumberError as e:
+        db.rollback()
+        raise _bad_request(e)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[TEST-NUMBER] rebind failed for {current_user.email}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Не удалось сменить ассистента")
+    return {
+        "success": True,
+        "message": f"Тестовый номер теперь отвечает ассистентом «{lease.assistant_name or ''}»",
         "lease": lease.to_dict(),
         "status": TestNumberService.status(db, current_user),
     }
