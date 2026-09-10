@@ -45,6 +45,7 @@ from backend.api import (
     functions,
     voximplant_settings,
     telephony,
+    test_numbers,  # 🆕 Тестовые номера телефонии (аренда номера админа на N минут)
     llm_streaming,  # ✅ LLM Streaming + Agent Config API
     agent,  # ✅ v5.0: Voicyfy Agent API
     agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
@@ -56,6 +57,7 @@ from backend.api import (
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
+from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
 from backend.core.max_connection_supervisor import start_max_supervisor  # ✅ Постоянные соединения личного MAX агента (PyMax)
@@ -204,6 +206,7 @@ app.include_router(embeds.router, tags=["Embeds"])
 app.include_router(functions.router, prefix="/api/functions", tags=["Functions"])
 app.include_router(voximplant_settings.router, prefix="/api/users", tags=["Voximplant Settings"])
 app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"])
+app.include_router(test_numbers.router, tags=["Test Numbers"])  # 🆕 prefix /api/telephony/test-numbers встроен
 app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
 app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.0: Voicyfy Agent
 app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["Agent Telegram"])  # ✅ v2.2
@@ -882,6 +885,8 @@ def check_and_fix_all_missing_columns():
             'voximplant_phone_numbers': {
                 # 🆕 Привязка номера к автономному агенту (PostCall для входящих)
                 'agent_config_id': 'UUID NULL',
+                # 🆕 Тестовый пул: номер админа, доступный новым пользователям на N минут
+                'is_test_pool': 'BOOLEAN DEFAULT FALSE NOT NULL',
             },
             'agent_calls': {
                 # 🆕 Направление звонка: outbound / inbound (для UI агента)
@@ -1819,6 +1824,48 @@ def ensure_wallet_tables():
         logger.error(f"❌ ensure_wallet_tables error: {e}")
 
 
+def ensure_test_number_tables():
+    """
+    🆕 Тестовые номера телефонии: таблица аренд test_number_leases и
+    административные флаги. Колонку voximplant_phone_numbers.is_test_pool
+    добавляет check_and_fix_all_missing_columns(). Alembic не трогаем
+    (несколько head).
+
+    Заодно выставляет is_admin пользователям из BOOTSTRAP_ADMIN_EMAILS —
+    владелец тестового пула должен быть админом (иначе его номера нельзя
+    добавить в пул, а сценарии телефонии обходят шлагбаум кошелька).
+    """
+    try:
+        from sqlalchemy import inspect, text
+        from backend.models.test_number_lease import TestNumberLease
+
+        inspector = inspect(engine)
+        if not inspector.has_table('test_number_leases'):
+            TestNumberLease.__table__.create(bind=engine, checkfirst=True)
+            logger.info("✅ Created table test_number_leases")
+
+        emails = [e.strip().lower() for e in BOOTSTRAP_ADMIN_EMAILS if e and e.strip()]
+        if emails:
+            with engine.connect() as conn:
+                res = conn.execute(
+                    text("UPDATE users SET is_admin = TRUE "
+                         "WHERE lower(email) = ANY(:emails) AND COALESCE(is_admin, FALSE) = FALSE"),
+                    {"emails": emails},
+                )
+                conn.commit()
+                if res.rowcount:
+                    logger.info(f"✅ Granted is_admin to {res.rowcount} bootstrap admin(s)")
+    except Exception as e:
+        logger.error(f"❌ ensure_test_number_tables error: {e}")
+
+
+# Пользователи, которым при старте гарантированно выставляется is_admin.
+# Переопределяется переменной окружения BOOTSTRAP_ADMIN_EMAILS (через запятую).
+BOOTSTRAP_ADMIN_EMAILS = [
+    e for e in os.getenv("BOOTSTRAP_ADMIN_EMAILS", "well96well@gmail.com,shw00389@gmail.com").split(",")
+]
+
+
 def ensure_conversation_indexes():
     """
     Индексы для списка диалогов (/api/conversations/sessions).
@@ -2009,6 +2056,9 @@ async def startup_event():
                 # 🆕 Шаг 11.4 (v6.0): Таблицы единого кошелька и витрина тарифов
                 ensure_wallet_tables()
 
+                # 🆕 Шаг 11.5: Тестовые номера телефонии (аренды + bootstrap-админы)
+                ensure_test_number_tables()
+
                 # 🆕 Шаг 11.3: Устаревшие слаги моделей оркестратора → актуальные
                 ensure_agent_orchestrator_model_migration()
 
@@ -2099,6 +2149,10 @@ async def startup_event():
             # ✅ Запуск Task Scheduler
             asyncio.create_task(start_task_scheduler(check_interval=30))
             logger.info("✅ Task Scheduler started (check every 30s)")
+
+            # 🆕 Освобождение истёкших аренд тестовых номеров (каждые 15 сек)
+            asyncio.create_task(start_test_number_expirer(check_interval=15))
+            logger.info("✅ Test number expirer started (check every 15s)")
 
             # ✅ Запуск блокировщика истёкших подписок agent (каждые 5 мин)
             asyncio.create_task(start_subscription_blocker())

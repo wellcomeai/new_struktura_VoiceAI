@@ -1065,6 +1065,7 @@
         <div class="tab" data-tab="agents">Агенты</div>
         <div class="tab" data-tab="stats">Статистика</div>
         <div class="tab" data-tab="wallet">Кошелёк и тарифы</div>
+        <div class="tab" data-tab="test-numbers">Тестовые номера</div>
         <div class="tab" data-tab="user-details" style="display: none;">Детали пользователя</div>
       </div>
       
@@ -1602,6 +1603,109 @@
         });
         var walletTab=document.querySelector('.tab[data-tab="wallet"]');
         if(walletTab) walletTab.addEventListener('click', function(){ loadTariffs(); loadUsage(); });
+      })();
+      </script>
+
+      <!-- 🆕 ТЕСТОВЫЕ НОМЕРА ТЕЛЕФОНИИ: пул номеров админа для новых пользователей -->
+      <div class="tab-content" id="test-numbers-tab">
+        <div class="stats-section">
+          <h3 style="margin-bottom:.75rem;">Пул тестовых номеров</h3>
+          <p style="color:var(--text-gray);font-size:.9rem;margin-bottom:1rem;">
+            Здесь показаны номера, купленные в телефонии администраторами. Номер с включённым флагом «В пуле»
+            новые пользователи могут один раз включить на <span id="tn-lease-minutes">10</span> минут: к нему
+            привязывается их голосовой ассистент, работают только входящие звонки. Пока номер в пуле, его
+            собственная привязка ассистента не действует. Снять номер с пула можно в любой момент — активная
+            аренда при этом завершится.
+          </p>
+          <div class="table-container">
+            <table class="table" id="tn-pool-table">
+              <thead><tr><th>Номер</th><th>Владелец</th><th>В пуле</th><th>Сейчас</th><th></th></tr></thead>
+              <tbody id="tn-pool-body"><tr><td colspan="5">Загрузка…</td></tr></tbody>
+            </table>
+          </div>
+          <div id="tn-pool-msg" style="margin-top:.5rem;color:var(--text-gray);font-size:.9rem;"></div>
+        </div>
+
+        <div class="stats-section" style="margin-top:1.5rem;">
+          <h3 style="margin-bottom:.75rem;">Журнал аренд</h3>
+          <div class="table-container">
+            <table class="table" id="tn-leases-table">
+              <thead><tr><th>Пользователь</th><th>Номер</th><th>Ассистент</th><th>Начало</th><th>Статус</th></tr></thead>
+              <tbody id="tn-leases-body"><tr><td colspan="5">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <script>
+      (function(){
+        var API='/api/telephony/test-numbers';
+        function hdr(){ return {'Authorization':'Bearer '+localStorage.getItem('auth_token'),'Content-Type':'application/json'}; }
+        function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+        function fmtPhone(p){ var d=String(p||'').replace(/\D/g,''); if(d.length===11) return '+'+d[0]+' ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9); return p||'—'; }
+        function fmtDate(iso){ if(!iso) return '—'; var d=new Date(iso); return isNaN(d)?'—':d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+        function mmss(sec){ sec=Math.max(0,sec|0); return String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0'); }
+        function msg(t,isErr){ var el=document.getElementById('tn-pool-msg'); el.textContent=t||''; el.style.color=isErr?'#dc2626':'var(--text-gray)'; }
+
+        function loadPool(){
+          fetch(API+'/admin/pool',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            document.getElementById('tn-lease-minutes').textContent=d.lease_minutes||10;
+            var body=document.getElementById('tn-pool-body'); body.innerHTML='';
+            var rows=d.numbers||[];
+            if(!rows.length){ body.innerHTML='<tr><td colspan="5">Нет номеров: телефония администраторов пока без купленных номеров</td></tr>'; return; }
+            rows.forEach(function(n){
+              var tr=document.createElement('tr');
+              var now=n.lease ? ('Занят: '+esc(n.lease.user_email||'')+' · '+esc(n.lease.assistant_name||n.lease.assistant_type||'')+' · осталось '+mmss(n.lease.seconds_left))
+                              : (n.is_test_pool ? 'Свободен' : (n.assistant_type ? 'Привязан: '+esc(n.assistant_type) : 'Не привязан'));
+              var canPool = n.owner_is_admin && n.phone_source==='voximplant' && n.is_active;
+              tr.innerHTML='<td><strong>'+esc(fmtPhone(n.phone_number))+'</strong></td>'+
+                '<td>'+esc(n.owner_email)+(n.owner_is_admin?'':' <span style="color:#b45309;font-size:.8rem;">(не админ)</span>')+'</td>'+
+                '<td><label style="display:inline-flex;align-items:center;gap:.4rem;cursor:pointer;"><input type="checkbox" data-id="'+esc(n.id)+'" '+(n.is_test_pool?'checked':'')+(canPool?'':' disabled')+'> '+(n.is_test_pool?'В пуле':'Нет')+'</label></td>'+
+                '<td>'+now+'</td>'+
+                '<td>'+(n.lease?'<button class="btn btn-outline btn-sm" data-release="'+esc(n.lease.id)+'">Освободить</button>':'')+'</td>';
+              body.appendChild(tr);
+            });
+            body.querySelectorAll('input[type=checkbox]').forEach(function(cb){
+              cb.addEventListener('change', function(){
+                var id=this.getAttribute('data-id'), enabled=this.checked; var self=this;
+                fetch(API+'/admin/pool/'+id,{method:'PUT',headers:hdr(),body:JSON.stringify({is_test_pool:enabled})})
+                  .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+                  .then(function(res){ if(!res.ok){ self.checked=!enabled; msg('Ошибка: '+(res.d.detail||''),true); } else { msg(enabled?'Номер добавлен в пул':'Номер снят с пула'); } loadPool(); loadLeases(); })
+                  .catch(function(e){ self.checked=!enabled; msg('Ошибка: '+e.message,true); });
+              });
+            });
+            body.querySelectorAll('[data-release]').forEach(function(b){
+              b.addEventListener('click', function(){
+                var id=this.getAttribute('data-release');
+                fetch(API+'/admin/leases/'+id+'/release',{method:'POST',headers:hdr()})
+                  .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,d:d}; }); })
+                  .then(function(res){ msg(res.ok?'Аренда завершена':'Ошибка: '+(res.d.detail||''),!res.ok); loadPool(); loadLeases(); });
+              });
+            });
+          }).catch(function(e){ msg('Ошибка загрузки: '+e.message,true); });
+        }
+        function loadLeases(){
+          fetch(API+'/admin/leases?limit=50',{headers:hdr()}).then(function(r){return r.json();}).then(function(d){
+            var body=document.getElementById('tn-leases-body'); body.innerHTML='';
+            var rows=d.leases||[];
+            if(!rows.length){ body.innerHTML='<tr><td colspan="5">Аренд ещё не было</td></tr>'; return; }
+            rows.forEach(function(l){
+              var st = l.is_active ? ('Активна · осталось '+mmss(l.seconds_left)) :
+                       ({expired:'Истекла',user:'Отключена пользователем',admin:'Снята админом'}[l.release_reason]||'Завершена');
+              var tr=document.createElement('tr');
+              tr.innerHTML='<td>'+esc(l.user_email)+'</td><td>'+esc(fmtPhone(l.phone_number))+'</td>'+
+                '<td>'+esc(l.assistant_name||'')+' <span style="color:var(--text-gray);font-size:.8rem;">'+esc(l.assistant_type)+'</span></td>'+
+                '<td>'+fmtDate(l.started_at)+'</td><td>'+st+'</td>';
+              body.appendChild(tr);
+            });
+          }).catch(function(){});
+        }
+        var tab=document.querySelector('.tab[data-tab="test-numbers"]');
+        var timer=null;
+        if(tab) tab.addEventListener('click', function(){
+          loadPool(); loadLeases();
+          if(timer) clearInterval(timer);
+          timer=setInterval(function(){ if(tab.classList.contains('active')) { loadPool(); loadLeases(); } }, 30000);
+        });
       })();
       </script>
 

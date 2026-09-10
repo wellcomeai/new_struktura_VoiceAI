@@ -98,6 +98,9 @@ from .credit_package import CreditPackage
 from .voice_tariff import VoiceModelTariff
 from .wallet_transaction import WalletTransaction, WalletTransactionType
 
+# 🆕 Тестовые номера телефонии (аренда номера админа на несколько минут)
+from .test_number_lease import TestNumberLease
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -176,4 +179,5 @@ __all__ = [
     "VoiceModelTariff",
     "WalletTransaction",
     "WalletTransactionType",
+    "TestNumberLease",
 ]

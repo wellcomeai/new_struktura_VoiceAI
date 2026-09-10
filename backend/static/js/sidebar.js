@@ -19,7 +19,7 @@
   'use strict';
 
   var API = '/api';
-  var ADMIN_EMAILS = ['well96well@gmail.com'];
+  var ADMIN_EMAILS = ['well96well@gmail.com', 'shw00389@gmail.com'];
 
   var MENU = [
     { section: 'Основное' },

@@ -1574,6 +1574,27 @@
       opacity: 0.85;
       font-weight: 400;
     }
+    /* ===== 🆕 Тестовый номер (пул номеров админа для новых пользователей) ===== */
+    .test-number-card { border: 1px solid #c7d2fe; background: linear-gradient(180deg, #f5f7ff 0%, #ffffff 60%); }
+    .test-number-card .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+    .tn-badge { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; background: #eef2ff; color: #4338ca; }
+    .tn-badge.active { background: #dcfce7; color: #15803d; }
+    .tn-badge.busy { background: #fef3c7; color: #b45309; }
+    .tn-badge.used { background: #f1f5f9; color: #475569; }
+    .tn-body { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.25rem; align-items: start; }
+    @media (max-width: 800px) { .tn-body { grid-template-columns: 1fr; } }
+    .tn-steps { margin: .25rem 0 0 1.1rem; padding: 0; color: var(--text-gray); font-size: .9rem; line-height: 1.55; }
+    .tn-panel { background: #fff; border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md); padding: 1rem; }
+    .tn-phone { font-size: 1.75rem; font-weight: 800; letter-spacing: .02em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #1e293b; }
+    .tn-timer { font-size: 2.25rem; font-weight: 800; font-variant-numeric: tabular-nums; color: #15803d; line-height: 1; }
+    .tn-timer.warn { color: #b45309; }
+    .tn-progress { height: 6px; border-radius: 999px; background: #e2e8f0; overflow: hidden; margin: .75rem 0; }
+    .tn-progress > span { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width 1s linear; }
+    .tn-muted { color: var(--text-gray); font-size: .875rem; }
+    .tn-hint { font-size: .8rem; color: var(--text-gray); margin-top: .5rem; }
+    .tn-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
+    .tn-wait { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #b45309; }
+
   </style>
   <link rel="stylesheet" href="/static/css/voicyfy.css">
   <link rel="stylesheet" href="/static/css/voicyfy-legacy.css">
@@ -1631,6 +1652,20 @@
     <!-- Контейнер для содержимого -->
     <div class="content-container">
       
+      <!-- 🆕 Тестовый номер: доступен без подключения телефонии и верификации -->
+      <div id="test-number-card" class="card test-number-card hidden">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">🧪 Тестовый номер</h2>
+            <p class="card-description">Проверьте ассистента по телефону без покупки номера и верификации</p>
+          </div>
+          <span id="tn-state-badge" class="tn-badge">Загрузка…</span>
+        </div>
+        <div id="tn-content" class="tn-body">
+          <div class="tn-muted">Загрузка…</div>
+        </div>
+      </div>
+
       <!-- Секция: Телефония не подключена -->
       <div id="not-connected-section" class="card hidden">
         <div class="empty-state">
@@ -3392,9 +3427,277 @@
         if (e.target === this) this.classList.remove('show');
       });
 
+      // =====================================================================
+      // 🆕 ТЕСТОВЫЙ НОМЕР — аренда номера из пула админа на N минут
+      // =====================================================================
+      const TN_API = '/telephony/test-numbers';
+      const TN_MODEL_NAMES = { openai: 'OpenAI', gemini: 'Gemini', fish: 'Fish Audio', yandex: 'Яндекс', cascade: 'Каскад' };
+      const TN_SOURCES = {
+        gemini:  '/gemini-assistants',
+        cascade: '/grok-assistants/cascade',
+        fish:    '/fish-assistants',
+        yandex:  '/yandex-assistants',
+        openai:  '/assistants/',
+      };
+      let tnStatus = null;
+      let tnTick = null;        // посекундный таймер
+      let tnPoll = null;        // периодическая сверка с сервером
+      let tnDeadline = 0;       // ms — конец аренды / ближайшее освобождение
+      let tnSelectValue = '';
+      let tnAssistants = null;  // кэш списка ассистентов
+      let tnTariffs = {};
+
+      function tnMmss(sec) {
+        sec = Math.max(0, sec | 0);
+        return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+      }
+      function tnTel(phone) {
+        const d = String(phone || '').replace(/\D/g, '');
+        return d ? '+' + d : '';
+      }
+      function tnStopTimers() {
+        if (tnTick) { clearInterval(tnTick); tnTick = null; }
+        if (tnPoll) { clearInterval(tnPoll); tnPoll = null; }
+      }
+      function tnSetBadge(text, cls) {
+        const b = document.getElementById('tn-state-badge');
+        b.className = 'tn-badge' + (cls ? ' ' + cls : '');
+        b.textContent = text;
+      }
+      function tnPriceLabel(type) {
+        const t = tnTariffs[type];
+        if (!t) return '';
+        if (t.own_key) return 'на вашем API-ключе';
+        if (!t.price_rub_per_min) return 'бесплатно';
+        return t.price_rub_per_min + ' ₽/мин с кошелька';
+      }
+
+      async function loadTestNumberStatus(silent) {
+        const card = document.getElementById('test-number-card');
+        try {
+          tnStatus = await api.get(TN_API + '/status');
+        } catch (e) {
+          if (!silent) console.warn('Тестовый номер: статус недоступен', e);
+          card.classList.add('hidden');
+          tnStopTimers();
+          return;
+        }
+        if (!tnStatus || tnStatus.state === 'no_pool') {
+          card.classList.add('hidden');
+          tnStopTimers();
+          return;
+        }
+        card.classList.remove('hidden');
+        renderTestNumber();
+      }
+
+      function renderTestNumber() {
+        const st = tnStatus;
+        const box = document.getElementById('tn-content');
+        tnStopTimers();
+        const minutes = st.lease_minutes || 10;
+
+        const intro = `
+          <div>
+            <p class="tn-muted" style="margin:0 0 .5rem;">Мы даём один из наших номеров на <strong>${minutes} минут</strong>, чтобы вы могли позвонить своему ассистенту и услышать его в реальном звонке.</p>
+            <ol class="tn-steps">
+              <li>Создайте голосового ассистента на странице «Голосовые ассистенты»</li>
+              <li>Выберите его здесь и нажмите «Включить»</li>
+              <li>Позвоните на выданный номер с любого телефона</li>
+            </ol>
+            <p class="tn-hint">Работают только входящие звонки. Включить тестовый номер можно один раз, таймер идёт с момента включения. Минуты разговора оплачиваются как обычно: на вашем API-ключе — бесплатно, на ключе Voicyfy — с кошелька.</p>
+          </div>`;
+
+        if (st.state === 'active') {
+          const lease = st.lease;
+          tnDeadline = Date.now() + (lease.seconds_left || 0) * 1000;
+          const total = minutes * 60;
+          tnSetBadge('Включён', 'active');
+          box.innerHTML = intro + `
+            <div class="tn-panel">
+              <div class="tn-muted">Позвоните на номер</div>
+              <div class="tn-phone"><a href="tel:${tnTel(lease.phone_number)}" style="color:inherit;text-decoration:none;">${formatPhoneNumber(lease.phone_number)}</a></div>
+              <div class="tn-muted" style="margin-top:.35rem;">Отвечает: <strong>${VF.esc(lease.assistant_name || '')}</strong> · ${VF.esc(TN_MODEL_NAMES[lease.assistant_type] || lease.assistant_type)}</div>
+              <div class="tn-progress"><span id="tn-progress-bar" style="width:100%"></span></div>
+              <div class="tn-timer" id="tn-timer">${tnMmss(lease.seconds_left)}</div>
+              <div class="tn-muted">осталось до отключения</div>
+              <div class="tn-actions">
+                <button class="btn btn-outline" id="tn-release-btn"><i class="fas fa-stop"></i> Отключить</button>
+              </div>
+            </div>`;
+          document.getElementById('tn-release-btn').addEventListener('click', releaseTestNumber);
+          tnTick = setInterval(() => {
+            const left = Math.max(0, Math.round((tnDeadline - Date.now()) / 1000));
+            const t = document.getElementById('tn-timer');
+            if (!t) return;
+            t.textContent = tnMmss(left);
+            t.classList.toggle('warn', left <= 60);
+            const bar = document.getElementById('tn-progress-bar');
+            if (bar) bar.style.width = Math.max(0, Math.min(100, left / total * 100)) + '%';
+            if (left <= 0) { tnStopTimers(); loadTestNumberStatus(true); }
+          }, 1000);
+          tnPoll = setInterval(() => loadTestNumberStatus(true), 30000);
+          return;
+        }
+
+        if (st.state === 'used') {
+          const last = st.last_lease;
+          tnSetBadge('Использован', 'used');
+          const when = last && last.started_at ? new Date(last.started_at).toLocaleString('ru-RU', { day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+          box.innerHTML = intro + `
+            <div class="tn-panel">
+              <div style="font-weight:700;margin-bottom:.35rem;">Тестовый номер уже использован</div>
+              <div class="tn-muted">${last ? `${last.phone_number ? formatPhoneNumber(last.phone_number) : ''} · ${VF.esc(last.assistant_name || '')}${when ? ' · ' + when : ''}` : ''}</div>
+              <p class="tn-muted" style="margin:.75rem 0 0;">Чтобы принимать звонки постоянно, подключите телефонию и купите свой номер — это займёт несколько минут.</p>
+            </div>`;
+          return;
+        }
+
+        if (st.state === 'busy') {
+          tnDeadline = Date.now() + (st.next_free_in_seconds || 0) * 1000;
+          tnSetBadge('Все номера заняты', 'busy');
+          box.innerHTML = intro + `
+            <div class="tn-panel">
+              <div style="font-weight:700;margin-bottom:.35rem;">Сейчас все тестовые номера заняты</div>
+              <div class="tn-muted">Ближайший освободится через</div>
+              <div class="tn-wait" id="tn-wait">${tnMmss(st.next_free_in_seconds || 0)}</div>
+              <p class="tn-hint">Страница обновится автоматически. Всего тестовых номеров: ${st.pool_total}.</p>
+            </div>`;
+          tnTick = setInterval(() => {
+            const left = Math.max(0, Math.round((tnDeadline - Date.now()) / 1000));
+            const w = document.getElementById('tn-wait');
+            if (w) w.textContent = tnMmss(left);
+            if (left <= 0) { tnStopTimers(); setTimeout(() => loadTestNumberStatus(true), 3000); }
+          }, 1000);
+          tnPoll = setInterval(() => loadTestNumberStatus(true), 30000);
+          return;
+        }
+
+        // available
+        tnSetBadge(`Свободно: ${st.pool_free} из ${st.pool_total}`, '');
+        box.innerHTML = intro + `
+          <div class="tn-panel">
+            <div class="form-group" style="margin-bottom:.5rem;">
+              <label>Голосовой ассистент</label>
+              <div id="tn-assistant-select"></div>
+              <div class="tn-hint" id="tn-assistant-hint">Только голосовые ассистенты: OpenAI, Gemini, Каскад, Fish Audio, Яндекс.</div>
+            </div>
+            <div class="tn-actions">
+              <button class="btn btn-primary" id="tn-start-btn" disabled><i class="fas fa-play"></i> Включить на ${minutes} минут</button>
+            </div>
+            <div class="tn-hint" id="tn-error" style="color:#dc2626;"></div>
+          </div>`;
+        document.getElementById('tn-start-btn').addEventListener('click', startTestNumber);
+        loadAssistantsForTest();
+      }
+
+      async function loadAssistantsForTest() {
+        const root = document.getElementById('tn-assistant-select');
+        if (!root) return;
+        const allowed = (tnStatus && tnStatus.allowed_assistant_types) || Object.keys(TN_SOURCES);
+        const render = (options, placeholder) => {
+          tnSelectValue = '';
+          VF.select(root, {
+            groups: [{ label: null, options }],
+            placeholder: placeholder || 'Выберите ассистента',
+            search: options.length > 8,
+            onChange: (value) => {
+              tnSelectValue = value || '';
+              const btn = document.getElementById('tn-start-btn');
+              if (btn) btn.disabled = !tnSelectValue;
+              const hint = document.getElementById('tn-assistant-hint');
+              const type = tnSelectValue.split(':')[0];
+              if (hint && tnTariffs[type]) hint.textContent = `${TN_MODEL_NAMES[type] || type}: ${tnPriceLabel(type)}.`;
+            },
+          });
+        };
+        render([{ value: '', label: 'Загрузка…', disabled: true }], 'Загрузка…');
+        try {
+          if (!tnAssistants) {
+            const [lists, tariffsResp] = await Promise.all([
+              Promise.all(allowed.filter(t => TN_SOURCES[t]).map(async (type) => {
+                try {
+                  const data = await api.get(TN_SOURCES[type]);
+                  const rows = Array.isArray(data) ? data : (data.assistants || []);
+                  return rows.map(a => ({ type, id: a.id, name: a.name, is_active: a.is_active }));
+                } catch (e) { return []; }
+              })),
+              api.get('/wallet/tariffs/me').catch(() => null),
+            ]);
+            tnTariffs = {};
+            ((tariffsResp && tariffsResp.tariffs) || []).forEach(t => { tnTariffs[t.code] = t; });
+            tnAssistants = lists.flat().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ru'));
+          }
+          if (!tnAssistants.length) {
+            render([{ value: '', label: 'Нет ассистентов — создайте на странице «Голосовые ассистенты»', disabled: true }], 'Нет ассистентов');
+            const hint = document.getElementById('tn-assistant-hint');
+            if (hint) hint.innerHTML = 'Сначала <a href="/static/voice-assistants.html">создайте голосового ассистента</a>, затем вернитесь сюда.';
+            return;
+          }
+          render(tnAssistants.map(a => ({
+            value: `${a.type}:${a.id}`,
+            label: `${a.name}${a.is_active === false ? ' (выключен)' : ''}`,
+            sub: [TN_MODEL_NAMES[a.type] || a.type, tnPriceLabel(a.type)].filter(Boolean).join(' · '),
+            icon: window.VF ? VF.logo(a.type, { size: 18 }) : '',
+          })));
+        } catch (e) {
+          render([{ value: '', label: 'Ошибка загрузки', disabled: true }], 'Ошибка загрузки');
+        }
+      }
+
+      async function startTestNumber() {
+        const idx = tnSelectValue.indexOf(':');
+        if (idx < 0) return;
+        const assistant_type = tnSelectValue.slice(0, idx);
+        const assistant_id = tnSelectValue.slice(idx + 1);
+        const minutes = (tnStatus && tnStatus.lease_minutes) || 10;
+        const ok = await VF.confirm({
+          title: `Включить тестовый номер на ${minutes} минут?`,
+          message: 'Это можно сделать только один раз. Таймер начнётся сразу после включения, досрочное отключение попытку не возвращает.',
+          confirmText: 'Включить',
+          icon: 'phone',
+        });
+        if (!ok) return;
+        const btn = document.getElementById('tn-start-btn');
+        const err = document.getElementById('tn-error');
+        if (btn) btn.disabled = true;
+        if (err) err.textContent = '';
+        try {
+          const res = await api.post(TN_API + '/start', { assistant_type, assistant_id });
+          showNotification(res.message || 'Тестовый номер включён', 'success');
+          tnStatus = res.status;
+          renderTestNumber();
+        } catch (e) {
+          if (err) err.textContent = e.message || 'Не удалось включить тестовый номер';
+          if (btn) btn.disabled = false;
+          // Пул мог измениться (например, номер заняли) — перечитаем состояние
+          setTimeout(() => loadTestNumberStatus(true), 1500);
+        }
+      }
+
+      async function releaseTestNumber() {
+        const ok = await VF.confirm({
+          title: 'Отключить тестовый номер?',
+          message: 'Номер вернётся в общий пул. Повторно включить тестовый номер будет нельзя.',
+          confirmText: 'Отключить',
+          danger: true,
+        });
+        if (!ok) return;
+        try {
+          const res = await api.post(TN_API + '/release', {});
+          showNotification(res.message || 'Тестовый номер отключён', 'success');
+          tnStatus = res.status;
+          renderTestNumber();
+        } catch (e) {
+          showNotification(e.message || 'Ошибка отключения', 'error');
+          loadTestNumberStatus(true);
+        }
+      }
+
       // Инициализация
       loadUserInfo();
       loadTelephonyStatus();
+      loadTestNumberStatus();
 
       // Загрузить badge непрочитанных SMS после загрузки статуса
       setTimeout(updateSmsBadge, 1500);

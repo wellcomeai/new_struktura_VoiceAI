@@ -135,6 +135,69 @@ def get_scenario_key(assistant_type: str, direction: str) -> str:
     return f"{direction}_{assistant_type}"  # inbound_openai / outbound_gemini
 
 
+async def rebind_inbound_rule(child_account, phone_record, effective_type: str,
+                              log_prefix: str = "[TELEPHONY]") -> bool:
+    """
+    Пересоздать inbound-правило Voximplant номера под сценарий типа ассистента
+    (DELETE + AddRule). Используется привязкой ассистента (/bind-assistant) и
+    арендой тестового номера (services/test_number_service.py).
+
+    Возвращает True, если правило указывает на нужный сценарий (пересоздано
+    либо пересоздание не требовалось: у номера нет правила / у аккаунта нет
+    сценариев — тогда поведение как раньше, только лог). False — если
+    сценарий не найден или Voximplant отказал в удалении/создании правила.
+    """
+    if not (phone_record.vox_rule_id and child_account.vox_scenario_ids):
+        logger.warning(f"{log_prefix} ⚠️ No rule/scenarios to rebind for {phone_record.phone_number}")
+        return True
+
+    scenario_name = get_scenario_key(effective_type, "inbound")
+    raw_scenario_id = child_account.get_scenario_id(scenario_name)
+    if not raw_scenario_id:
+        logger.warning(f"{log_prefix} ⚠️ Scenario '{scenario_name}' not found in account")
+        return False
+
+    # Для cascade — добавляем vox-turn-taking первым в цепочке
+    # VoxEngine выполняет sequenced-сценарии по порядку:
+    # vox-turn-taking объявляет глобальный VoxTurnTaking,
+    # inbound_cascade его использует
+    if effective_type == "cascade":
+        tt_id = child_account.get_scenario_id("vox-turn-taking")
+        scenario_id = [int(tt_id), int(raw_scenario_id)] if tt_id else int(raw_scenario_id)
+    else:
+        scenario_id = int(raw_scenario_id)
+
+    service = get_voximplant_partner_service()
+
+    # Удаляем старый Rule
+    delete_result = await service.delete_rule(
+        child_account_id=child_account.vox_account_id,
+        child_api_key=child_account.vox_api_key,
+        rule_id=phone_record.vox_rule_id
+    )
+    if not delete_result.get("success"):
+        logger.error(f"{log_prefix} ❌ Failed to delete old rule: {delete_result.get('error')}")
+        return False
+    logger.info(f"{log_prefix} ✅ Old rule deleted: {phone_record.vox_rule_id}")
+
+    # Создаём новый Rule с правильным сценарием
+    phone_pattern = normalize_phone_number(phone_record.phone_number)
+    new_rule_result = await service.add_rule(
+        child_account_id=child_account.vox_account_id,
+        child_api_key=child_account.vox_api_key,
+        application_id=child_account.vox_application_id,
+        rule_name=f"inbound_{phone_pattern}",
+        rule_pattern=phone_pattern,
+        scenario_id=scenario_id
+    )
+    if not new_rule_result.get("success"):
+        logger.error(f"{log_prefix} ❌ Failed to create new rule: {new_rule_result.get('error')}")
+        return False
+    phone_record.vox_rule_id = str(new_rule_result.get("rule_id"))
+    logger.info(f"{log_prefix} ✅ New rule created: {phone_record.vox_rule_id} -> {scenario_name}")
+    return True
+
+
 def build_fish_tts_url(assistant_id: any) -> str:
     """
     URL прокси синтеза Fish для сценария Voximplant.
@@ -2123,57 +2186,7 @@ async def bind_assistant_to_number(
         # =====================================================================
         # Обновляем Rule в Voximplant (DELETE + RECREATE)
         # =====================================================================
-        if phone_record.vox_rule_id and child_account.vox_scenario_ids:
-            scenario_name = get_scenario_key(effective_type, "inbound")
-            raw_scenario_id = child_account.get_scenario_id(scenario_name)
-
-            if raw_scenario_id:
-                # Для cascade — добавляем vox-turn-taking первым в цепочке
-                # VoxEngine выполняет sequenced-сценарии по порядку:
-                # vox-turn-taking объявляет глобальный VoxTurnTaking,
-                # inbound_cascade его использует
-                if effective_type == "cascade":
-                    tt_id = child_account.get_scenario_id("vox-turn-taking")
-                    if tt_id:
-                        scenario_id = [int(tt_id), int(raw_scenario_id)]
-                    else:
-                        scenario_id = int(raw_scenario_id)
-                else:
-                    scenario_id = int(raw_scenario_id)
-
-                service = get_voximplant_partner_service()
-
-                # Удаляем старый Rule
-                delete_result = await service.delete_rule(
-                    child_account_id=child_account.vox_account_id,
-                    child_api_key=child_account.vox_api_key,
-                    rule_id=phone_record.vox_rule_id
-                )
-
-                if delete_result.get("success"):
-                    logger.info(f"[TELEPHONY] ✅ Old rule deleted: {phone_record.vox_rule_id}")
-
-                    # Создаём новый Rule с правильным сценарием
-                    phone_pattern = normalize_phone_number(phone_record.phone_number)
-
-                    new_rule_result = await service.add_rule(
-                        child_account_id=child_account.vox_account_id,
-                        child_api_key=child_account.vox_api_key,
-                        application_id=child_account.vox_application_id,
-                        rule_name=f"inbound_{phone_pattern}",
-                        rule_pattern=phone_pattern,
-                        scenario_id=scenario_id
-                    )
-                    
-                    if new_rule_result.get("success"):
-                        phone_record.vox_rule_id = str(new_rule_result.get("rule_id"))
-                        logger.info(f"[TELEPHONY] ✅ New rule created: {phone_record.vox_rule_id} -> {scenario_name}")
-                    else:
-                        logger.error(f"[TELEPHONY] ❌ Failed to create new rule: {new_rule_result.get('error')}")
-                else:
-                    logger.error(f"[TELEPHONY] ❌ Failed to delete old rule: {delete_result.get('error')}")
-            else:
-                logger.warning(f"[TELEPHONY] ⚠️ Scenario '{scenario_name}' not found in account")
+        await rebind_inbound_rule(child_account, phone_record, effective_type, "[TELEPHONY]")
         
         # Обновляем привязку в БД. Сохраняем РЕАЛЬНЫЙ голосовой тип/ID (чтобы
         # /config и сценарий работали как обычно), а привязку к агенту фиксируем
@@ -5449,14 +5462,41 @@ async def get_scenario_config(
             logger.warning(f"[TELEPHONY] Phone not found: {phone}")
             return ScenarioConfigResponse(success=False)
         
+        # 🆕 Тестовый пул: номер админа, выданный пользователю на несколько
+        # минут. Конфиг отдаём ТОЛЬКО по активной аренде: ассистент и
+        # пользователь (ключи, шлагбаум кошелька) — арендатора, а не владельца
+        # номера. Без аренды звонок не обслуживаем.
+        lease_user = None
+        if getattr(phone_record, "is_test_pool", False):
+            from backend.services.test_number_service import TestNumberService
+            lease = TestNumberService.active_lease_for_phone(db, phone_record.id)
+            if not lease:
+                logger.warning(f"[TELEPHONY] Test-pool number has no active lease: {phone}")
+                return ScenarioConfigResponse(success=False)
+            lease_user = db.query(User).filter(User.id == lease.user_id).first()
+            if not lease_user:
+                return ScenarioConfigResponse(success=False)
+            if (phone_record.assistant_id != lease.assistant_id
+                    or phone_record.assistant_type != lease.assistant_type):
+                # Самовосстановление: привязка номера должна совпадать с арендой
+                phone_record.assistant_type = lease.assistant_type
+                phone_record.assistant_id = lease.assistant_id
+                phone_record.agent_config_id = None
+                db.add(phone_record)
+                db.commit()
+            logger.info(
+                f"[TELEPHONY] 🧪 Test lease: {phone} → user {lease_user.email}, "
+                f"{lease.seconds_left}s left"
+            )
+
         if not phone_record.assistant_id or not phone_record.assistant_type:
             logger.warning(f"[TELEPHONY] No assistant bound: {phone}")
             return ScenarioConfigResponse(success=False)
-        
-        # Получаем пользователя
+
+        # Получаем пользователя (для тестового номера — арендатора)
         child_account = phone_record.child_account
-        user = db.query(User).filter(User.id == child_account.user_id).first()
-        
+        user = lease_user or db.query(User).filter(User.id == child_account.user_id).first()
+
         if not user:
             return ScenarioConfigResponse(success=False)
         

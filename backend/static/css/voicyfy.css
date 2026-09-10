@@ -321,8 +321,11 @@ body.vf {
 .vf-menu-empty { padding: 14px 10px; color: var(--vf-text-4); font-size: 13px; text-align: center; }
 .vf-menu-sep { height: 1px; background: var(--vf-border); margin: 6px 0; }
 
-/* ---------- Модалка и диалог подтверждения (VF.modal, VF.confirm) ---------- */
-.vf-backdrop { position: fixed; inset: 0; z-index: 100; background: rgba(15, 23, 42, .45); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; opacity: 0; transition: opacity var(--vf-normal); }
+/* ---------- Модалка и диалог подтверждения (VF.modal, VF.confirm) ----------
+   Слои общих диалогов/тостов выше страничных .modal-overlay (z-index: 1000),
+   иначе VF.confirm и тосты открываются ПОД модалкой страницы (например,
+   подтверждение покупки номера в телефонии). Портал VF.select — 1300. */
+.vf-backdrop { position: fixed; inset: 0; z-index: 1100; background: rgba(15, 23, 42, .45); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 16px; opacity: 0; transition: opacity var(--vf-normal); }
 .vf-backdrop.open { opacity: 1; }
 .vf-dialog { width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; background: var(--vf-surface); border-radius: var(--vf-r-lg); box-shadow: var(--vf-shadow-3); border: 1px solid var(--vf-border); transform: translateY(8px) scale(.985); opacity: 0; transition: transform var(--vf-normal), opacity var(--vf-normal); }
 .vf-backdrop.open .vf-dialog { transform: none; opacity: 1; }
@@ -337,7 +340,7 @@ body.vf {
 .vf-dialog-icon.warning { background: var(--vf-warning-soft); color: var(--vf-warning); }
 
 /* ---------- Тосты (VF.toast) ---------- */
-.vf-toasts { position: fixed; right: 20px; bottom: 20px; z-index: 120; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.vf-toasts { position: fixed; right: 20px; bottom: 20px; z-index: 1120; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .vf-toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; min-width: 280px; max-width: 420px; padding: 11px 12px 11px 14px; border-radius: var(--vf-r-md); background: #0f172a; color: #e7ecf5; box-shadow: var(--vf-shadow-3); font-size: 13.5px; transform: translateY(8px); opacity: 0; transition: transform var(--vf-normal), opacity var(--vf-normal); }
 .vf-toast.show { transform: none; opacity: 1; }
 .vf-toast .ic { flex: 0 0 auto; }
@@ -351,7 +354,7 @@ body.vf {
 .vf-toast .close:hover { color: #fff; background: rgba(255,255,255,.08); }
 
 /* ---------- Загрузчик страницы (VF.loader) ---------- */
-.vf-loader { position: fixed; inset: 0; z-index: 200; background: var(--vf-bg); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 18px; transition: opacity 260ms ease, visibility 260ms; }
+.vf-loader { position: fixed; inset: 0; z-index: 1200; background: var(--vf-bg); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 18px; transition: opacity 260ms ease, visibility 260ms; }
 .vf-loader.hide { opacity: 0; visibility: hidden; }
 .vf-loader .brand { font-family: var(--vf-font-display); font-weight: 800; font-size: 20px; letter-spacing: -0.03em; color: var(--vf-text); display: flex; align-items: center; gap: 10px; }
 .vf-wave { display: flex; align-items: center; gap: 4px; height: 28px; }
@@ -360,7 +363,7 @@ body.vf {
 @keyframes vf-wave { 0%, 100% { height: 8px; opacity: .55; } 50% { height: 26px; opacity: 1; } }
 .vf-loader .sub { font-size: 12.5px; color: var(--vf-text-4); }
 /* Тонкая полоса прогресса сверху для фоновых запросов */
-.vf-progress { position: fixed; top: 0; left: 0; height: 2px; width: 0; background: var(--vf-accent); z-index: 210; transition: width 300ms ease, opacity 300ms; box-shadow: 0 0 8px var(--vf-accent); }
+.vf-progress { position: fixed; top: 0; left: 0; height: 2px; width: 0; background: var(--vf-accent); z-index: 1210; transition: width 300ms ease, opacity 300ms; box-shadow: 0 0 8px var(--vf-accent); }
 .vf-progress.done { width: 100%; opacity: 0; }
 /* Спиннер для кнопок */
 .spin { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.35); border-top-color: currentColor; border-radius: 50%; animation: vf-spin .8s linear infinite; display: inline-block; }

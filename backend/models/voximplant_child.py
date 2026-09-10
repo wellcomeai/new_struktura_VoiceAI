@@ -11,6 +11,7 @@
 ✅ v1.3: Добавлено поле vox_rule_ids для исходящих звонков (outbound)
 ✅ v1.4: Добавлено поле enable_background_noise для фоновых шумов офиса
 ✅ v1.5: Добавлена поддержка SIP транков (vox_sip_registrations, phone_source, sip_provider, sip_registration_id)
+✅ v1.6: Флаг is_test_pool — номер в пуле тестовых номеров для новых пользователей
 """
 
 import uuid
@@ -370,6 +371,12 @@ class VoximplantPhoneNumber(Base, BaseModel):
     # =========================================================================
     
     is_active = Column(Boolean, default=True, nullable=False)
+
+    # 🆕 Тестовый пул: номер администратора, который новые пользователи могут
+    # один раз «включить» на несколько минут (см. models/test_number_lease.py).
+    # Пока номер в пуле, /config отвечает только по активной аренде, а не по
+    # собственной привязке assistant_type/assistant_id.
+    is_test_pool = Column(Boolean, default=False, nullable=False, server_default="false")
     
     # =========================================================================
     # ВРЕМЕННЫЕ МЕТКИ

@@ -68,6 +68,8 @@ class Settings(BaseSettings):
 
     # Кошелёк: приветственный грант новому аккаунту (в рублях) и лимиты сессий.
     WALLET_WELCOME_GRANT_RUB: int = int(os.getenv("WALLET_WELCOME_GRANT_RUB", "50"))
+    # Тестовые номера телефонии: сколько минут номер из пула отдаётся пользователю
+    TEST_NUMBER_LEASE_MINUTES: int = int(os.getenv("TEST_NUMBER_LEASE_MINUTES", "10"))
     WALLET_MIN_TOPUP_RUB: int = int(os.getenv("WALLET_MIN_TOPUP_RUB", "100"))
     WALLET_MAX_TOPUP_RUB: int = int(os.getenv("WALLET_MAX_TOPUP_RUB", "100000"))
     # Лимит одной сессии веб-виджета на серверном ключе

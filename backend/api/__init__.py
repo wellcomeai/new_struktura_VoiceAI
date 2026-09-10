@@ -42,6 +42,7 @@ from .llm_streaming import router as llm_streaming_router
 from .contacts import router as contacts_router
 from .functions import router as functions_router
 from .telephony import router as telephony_router
+from .test_numbers import router as test_numbers_router
 
 # Create a main API router
 api_router = APIRouter()
@@ -104,5 +105,6 @@ __all__ = [
     "llm_streaming_router",
     "contacts_router",
     "functions_router",
-    "telephony_router"
+    "telephony_router",
+    "test_numbers_router"
 ]
