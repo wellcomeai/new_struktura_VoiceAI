@@ -272,6 +272,23 @@
   // ---------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // Выход. Единый для всех страниц: снимаем токен, чистим кэш признака
+  // админа и уводим на лендинг текущего домена (не на прод-URL).
+  // Кнопки: #logout-button, #dropdown-logout или любой элемент с data-logout.
+  // ---------------------------------------------------------------------
+  function logout() {
+    try { localStorage.removeItem('auth_token'); } catch (e) { /* ignore */ }
+    try { sessionStorage.removeItem('vf_is_admin'); } catch (e) { /* ignore */ }
+    window.location.href = '/';
+  }
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('#logout-button, #dropdown-logout, [data-logout]') : null;
+    if (!el) return;
+    e.preventDefault();
+    logout();
+  });
+
   function init() {
     injectStyle();
     var nav = renderNav();
@@ -300,6 +317,7 @@
   }
 
   window.VoicyfySidebar = {
+    logout: logout,
     refreshBalance: refreshBalance,
     openTopupModal: openTopupModal,
     fmtRub: fmtRub,

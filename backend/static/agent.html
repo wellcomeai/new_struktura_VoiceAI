@@ -76,6 +76,7 @@
       <span class="sub-credits" id="sub-credits" title="Баланс кредитов"><i class="fas fa-coins" style="font-size:11px"></i> <span id="sub-credits-num">0</span></span>
       <button class="sub-action" id="sub-action" style="display:none" onclick="onSubAction()">Пополнить</button>
     </div>
+    <button class="icon-btn" type="button" title="Выйти" data-logout><i class="fas fa-right-from-bracket"></i></button>
     <div class="toggle-wrap">
       <span class="toggle-label" id="toggle-label">Неактивен</span>
       <label class="switch"><input type="checkbox" id="active-toggle"><span class="slider"></span></label>
@@ -718,6 +719,7 @@
 <!-- Voicyfy Agent — модульные скрипты. Классические (не ES-модули):
      общее глобальное состояние и функции. Порядок: core → фичи → init.
      Документация связок: /static/agent/CLAUDE.md -->
+<script src="/static/js/sidebar.js"></script><!-- общий выход (data-logout); сайдбара на странице нет -->
 <script src="/static/agent/core.js"></script>
 <script src="/static/agent/credits.js"></script>
 <script src="/static/agent/agent-switcher.js"></script>

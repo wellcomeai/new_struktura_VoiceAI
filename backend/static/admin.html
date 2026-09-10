@@ -1021,7 +1021,7 @@
     </div>
     <nav class="sidebar-nav" id="sidebar-nav"></nav>
     <div class="sidebar-footer">
-      <a href="https://voicyfy.ru" class="btn btn-ghost" style="width:100%;justify-content:flex-start;" id="logout-button"><svg class="ic"><use href="/static/icons/ui.svg#i-log-out"></use></svg> Выйти</a>
+      <a href="/" data-logout class="btn btn-ghost" style="width:100%;justify-content:flex-start;" id="logout-button"><svg class="ic"><use href="/static/icons/ui.svg#i-log-out"></use></svg> Выйти</a>
     </div>
   </aside>
   <script src="/static/js/sidebar.js"></script>
@@ -1049,7 +1049,7 @@
               <i class="fas fa-user"></i> Профиль
             </a>
             <div class="dropdown-divider"></div>
-            <a href="https://voicyfy.ru/static/index.html" class="dropdown-item" id="dropdown-logout">
+            <a href="/" data-logout class="dropdown-item" id="dropdown-logout">
               <i class="fas fa-sign-out-alt"></i> Выйти
             </a>
           </div>
@@ -2132,13 +2132,6 @@
       });
       
       // Выход из системы
-      if (dropdownLogout) {
-        dropdownLogout.addEventListener('click', function(e) {
-          e.preventDefault();
-          localStorage.removeItem('auth_token');
-          window.location.href = 'https://voicyfy.ru/static/index.html';
-        });
-      }
       
       // API клиент
       const api = {
@@ -3520,10 +3513,7 @@
       
       notificationClose.addEventListener('click', ui.hideNotification);
       
-      logoutButton.addEventListener('click', function() {
-        localStorage.removeItem('auth_token');
-        window.location.href = 'https://voicyfy.ru/static/index.html';
-      });
+      // Выход — общий обработчик в sidebar.js
       
       // Инициализация страницы
       async function init() {
