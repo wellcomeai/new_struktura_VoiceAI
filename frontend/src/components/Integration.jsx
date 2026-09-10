@@ -66,7 +66,7 @@ function Integration() {
   };
 
   return (
-    <section className="sec sec-alt sec-grid" id="integration" ref={ref}>
+    <section className="sec sec-tint tint-blue" id="integration" ref={ref}>
       <div className="lp-container">
         <SectionHead index="04" title="Виджет на сайт одной строкой" lead="Вставьте код перед закрывающим тегом body. Голосовой виджет появится в углу и будет разговаривать с посетителями. Такой же работает на этой странице, справа внизу." />
         <div className="integ">

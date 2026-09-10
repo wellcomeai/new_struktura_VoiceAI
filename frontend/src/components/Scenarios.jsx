@@ -11,7 +11,7 @@ const CASES = [
 
 function Scenarios() {
   return (
-    <section className="sec" id="cases">
+    <section className="sec sec-tint tint-sand" id="cases">
       <div className="lp-container">
         <SectionHead index="05" title="Где это работает" lead="Четыре задачи, с которых обычно начинают. Каждая настраивается словами в промпте, без программирования." />
         <Stagger as="ul" className="cases" stagger={0.1}>

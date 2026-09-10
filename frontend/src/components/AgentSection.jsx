@@ -14,7 +14,7 @@ const DAY = [
 
 function AgentSection({ onOpenModal }) {
   return (
-    <section className="sec sec-alt" id="agent">
+    <section className="sec sec-tint tint-lavender" id="agent">
       <div className="lp-container">
         <SectionHead index="02" title="Агент. Сотрудник, который звонит сам, всё помнит и доводит до результата" lead="Вы описываете бизнес пятью полями обычными словами и загружаете базу контактов. Дальше агент звонит, пишет, перезванивает и отчитывается вам в чате. Он не болеет, не уходит в отпуск и не забывает." />
 

@@ -76,7 +76,7 @@ function Hero({ onOpenModal }) {
         </div>
 
         <Stagger className="models" stagger={0.06} delay={0.45} amount={0.3}>
-          <Item as="span" className="models-label" x={-8} y={0}>Голосовые модели</Item>
+          <Item as="span" className="models-label" x={-8} y={0}>Голосовые модели<em>со своим ключом бесплатно</em></Item>
           {models.map((m) => (
             <Item as="span" key={m.code} className="models-item" y={8}>
               <ModelLogo code={m.code} size={18} wrap={false} />
@@ -84,7 +84,6 @@ function Hero({ onOpenModal }) {
               {m.price && <b>{m.price}</b>}
             </Item>
           ))}
-          <Item as="span" className="models-note" y={0}>Со своим ключом провайдера минуты бесплатны</Item>
         </Stagger>
       </div>
     </section>

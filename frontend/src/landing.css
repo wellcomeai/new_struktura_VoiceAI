@@ -41,7 +41,7 @@ html.lenis, html.lenis body { height: auto; }
 
 /* ---------- Глубина фона ---------- */
 .sec-grid { position: relative; }
-.sec-grid::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(var(--vf-border-strong) 1px, transparent 1px), linear-gradient(90deg, var(--vf-border-strong) 1px, transparent 1px), radial-gradient(circle, var(--vf-border-strong) 1.2px, transparent 1.6px); background-size: 48px 48px, 48px 48px, 48px 48px; background-position: 0 0, 0 0, 24px 24px; opacity: .6; -webkit-mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, #000 35%, transparent 85%); mask-image: radial-gradient(ellipse 90% 80% at 50% 40%, #000 35%, transparent 85%); }
+.sec-grid::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(var(--vf-border-strong) 1px, transparent 1px), linear-gradient(90deg, var(--vf-border-strong) 1px, transparent 1px), radial-gradient(circle, var(--vf-border-strong) 1.2px, transparent 1.6px); background-size: 48px 48px, 48px 48px, 48px 48px; background-position: 0 0, 0 0, 24px 24px; opacity: .6; -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 12%, #000 82%, transparent 100%), radial-gradient(ellipse 90% 90% at 50% 45%, #000 40%, transparent 90%); -webkit-mask-composite: source-in; mask-image: linear-gradient(180deg, transparent 0%, #000 12%, #000 82%, transparent 100%), radial-gradient(ellipse 90% 90% at 50% 45%, #000 40%, transparent 90%); mask-composite: intersect; }
 .sec-alt.sec-grid::before { opacity: .5; }
 .sec-grid > .lp-container { position: relative; }
 .stack { position: relative; }
@@ -56,8 +56,17 @@ html.lenis, html.lenis body { height: auto; }
 #wellcomeai-widget-container { transition: opacity .3s ease, transform .3s ease; }
 
 /* ---------- Секции ---------- */
-.sec { padding: 96px 0; border-top: 1px solid var(--vf-border); }
+.sec { padding: 96px 0; position: relative; }
 .sec-alt { background: var(--vf-surface-2); }
+/* Цветные секции: тон вплывает по краям, внутри два мягких пятна */
+.sec-tint { --tint: #f2f6ff; --wash1: rgba(37,99,235,.10); --wash1-pos: 12% 8%; --wash2: rgba(255,178,122,.14); --wash2-pos: 92% 92%; padding: 120px 0; }
+.sec-tint::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255,255,255,0) 0%, var(--tint) 14%, var(--tint) 86%, rgba(255,255,255,0) 100%); }
+.sec-tint::after { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(640px 420px at var(--wash1-pos), var(--wash1) 0%, transparent 70%), radial-gradient(560px 380px at var(--wash2-pos), var(--wash2) 0%, transparent 70%); -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 18%, #000 82%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0%, #000 18%, #000 82%, transparent 100%); }
+.sec-tint > .lp-container { position: relative; z-index: 1; }
+.tint-lavender { --tint: #f4f0fc; --wash1: rgba(124,58,237,.12); --wash1-pos: 10% 22%; --wash2: rgba(37,99,235,.11); --wash2-pos: 92% 80%; }
+.tint-blue { --tint: #f1f5fd; --wash1: rgba(37,99,235,.11); --wash1-pos: 88% 10%; --wash2: rgba(255,178,122,.14); --wash2-pos: 8% 92%; }
+.tint-sand { --tint: #fbf6ee; --wash1: rgba(255,178,122,.20); --wash1-pos: 10% 12%; --wash2: rgba(37,99,235,.07); --wash2-pos: 90% 90%; }
+.sec-tint + .sec, .sec + .sec-tint { padding-top: 72px; }
 .sh { display: grid; grid-template-columns: 96px 1fr; gap: 20px; align-items: start; margin-bottom: 52px; }
 .sh-index { font-family: var(--vf-font-mono); font-size: 13px; font-weight: 600; color: var(--vf-accent); padding-top: 12px; letter-spacing: .04em; }
 .sh-text { max-width: 760px; }
@@ -81,6 +90,8 @@ html.lenis, html.lenis body { height: auto; }
 
 /* ---------- Hero ---------- */
 .hero { padding: 56px 0 40px; }
+.hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(720px 520px at 82% 30%, rgba(37,99,235,.13) 0%, transparent 68%), radial-gradient(560px 420px at 6% 96%, rgba(255,178,122,.18) 0%, transparent 70%); }
+.hero.sec-grid::before { opacity: .42; }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 56px; align-items: center; }
 .hero-kicker { font-family: var(--vf-font-display); font-size: 11.5px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--vf-text-4); }
 .hero-lead { font-size: 17.5px; line-height: 1.6; color: var(--vf-text-2); max-width: 560px; }
@@ -101,7 +112,8 @@ html.lenis, html.lenis body { height: auto; }
 
 /* Модели с ценой за минуту: одна строка под hero */
 .models { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-top: 48px; border-top: 1px solid var(--vf-border); border-bottom: 1px solid var(--vf-border); }
-.models-label { font-family: var(--vf-font-display); font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--vf-text-4); padding: 16px 20px 16px 0; }
+.models-label { display: flex; flex-direction: column; gap: 3px; font-family: var(--vf-font-display); font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--vf-text-4); padding: 12px 20px 12px 0; }
+.models-label em { font-style: normal; font-family: var(--vf-font); font-size: 11.5px; text-transform: none; letter-spacing: 0; color: var(--vf-text-4); }
 .models-item { display: inline-flex; align-items: center; gap: 8px; padding: 16px 14px; border-left: 1px solid var(--vf-border); font-family: var(--vf-font-display); font-size: 12px; font-weight: 500; color: var(--vf-text); white-space: nowrap; }
 .models-item .logo { width: 18px; height: 18px; }
 .models-item b { font-weight: 600; color: var(--vf-text-3); font-variant-numeric: tabular-nums; }
@@ -298,35 +310,32 @@ html.lenis, html.lenis body { height: auto; }
 .cases p { font-size: 14.5px; line-height: 1.55; color: var(--vf-text-2); max-width: 640px; }
 
 /* ---------- Тарифы ---------- */
-.plans-card { border: 1px solid var(--vf-border); border-radius: 18px; background: var(--vf-surface); box-shadow: var(--vf-shadow-2); padding: 8px 24px 20px; }
+.plans-card { border: 1px solid var(--vf-border); border-radius: 18px; background: var(--vf-surface); box-shadow: var(--vf-shadow-2); padding: 4px 24px 8px; }
 .plans-wrap { overflow-x: auto; }
 .plans { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; min-width: 900px; }
-.plans th, .plans td { padding: 12px 12px; border-bottom: 1px solid var(--vf-border); text-align: center; vertical-align: middle; color: var(--vf-text-2); }
-.plans th { vertical-align: top; padding: 18px 10px 18px; }
+.plans th, .plans td { padding: 0 12px; height: 40px; border-bottom: 1px solid var(--vf-border); text-align: center; vertical-align: middle; color: var(--vf-text-2); font-size: 13.5px; }
+.plans tbody tr:last-child td { border-bottom: none; }
+.plans th { height: auto; vertical-align: top; padding: 14px 10px 12px; }
 .plans th.plans-feature { vertical-align: bottom; }
 .plans-what { font-family: var(--vf-font-display); font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--vf-text-4); }
 .plan-head { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .plan-head .chip { margin-bottom: 4px; }
 .chip-ghost { background: transparent; color: transparent; }
 .plan-head b { font-family: var(--vf-font-display); font-size: 17px; font-weight: 600; color: var(--vf-text); }
-.plan-desc { font-size: 12px; line-height: 1.4; color: var(--vf-text-3); min-height: 51px; max-width: 150px; }
-.plans-price { display: block; font-family: var(--vf-font-display); font-size: 22px; font-weight: 700; color: var(--vf-text); margin-top: 6px; letter-spacing: -0.01em; white-space: nowrap; }
-.plan-head small { font-size: 11.5px; color: var(--vf-text-4); margin-bottom: 10px; }
+.plan-desc { font-size: 11.5px; line-height: 1.35; color: var(--vf-text-3); min-height: 31px; max-width: 150px; }
+.plans-price { display: block; font-family: var(--vf-font-display); font-size: 19px; font-weight: 700; color: var(--vf-text); margin-top: 2px; letter-spacing: -0.01em; white-space: nowrap; }
+.plans-price small { font-family: var(--vf-font); font-size: 11px; font-weight: 500; color: var(--vf-text-4); margin-left: 4px; }
+.plan-head > small { display: none; }
+.plan-head .btn { margin-top: 8px; }
 .plan-head .btn { width: 100%; }
-.plans .plans-feature { text-align: left; color: var(--vf-text); font-weight: 500; padding-left: 0; }
-.plans td.plans-feature span { display: block; font-size: 14px; }
-.plans td.plans-feature small { display: block; font-size: 12px; color: var(--vf-text-4); margin-top: 1px; }
-.plans-group td { padding: 22px 12px 8px; border-bottom: 1px solid var(--vf-border); }
-.plans-group td.plans-feature { font-family: var(--vf-font-display); font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--vf-text-4); }
+.plans .plans-feature { text-align: left; color: var(--vf-text); font-weight: 500; padding-left: 0; white-space: nowrap; }
 .plans td.hot, .plans th.hot { background: var(--vf-accent-soft); }
 .plans td.agent, .plans th.agent { background: var(--lp-violet-soft); }
 .plans th.hot, .plans th.agent { border-radius: 12px 12px 0 0; }
+.plans tbody tr:last-child td.hot, .plans tbody tr:last-child td.agent { border-radius: 0 0 12px 12px; }
 .plans th.hot { box-shadow: inset 0 2px 0 var(--vf-accent); }
 .plans th.agent { box-shadow: inset 0 2px 0 var(--lp-violet); }
-.plans-cta td { border-bottom: none; padding-top: 16px; }
-.plans-cta td.hot, .plans-cta td.agent { border-radius: 0 0 12px 12px; }
-.plans-cta .btn { width: 100%; }
-.cell-yes { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--vf-success-soft); color: var(--vf-success); }
+.cell-yes { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--vf-success-soft); color: var(--vf-success); vertical-align: middle; }
 .cell-no { color: var(--vf-text-4); }
 .extra { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; margin-top: 56px; padding-top: 40px; border-top: 1px solid var(--vf-border); }
 .extra-col h3 { font-family: var(--vf-font-display); font-size: 15px; font-weight: 600; }
@@ -390,7 +399,6 @@ html.lenis, html.lenis body { height: auto; }
 
 /* ---------- Адаптив ---------- */
 @media (max-width: 1300px) {
-  .models-note { margin-left: 0; width: 100%; border-top: 1px solid var(--vf-border); padding: 12px 0; }
 }
 @media (max-width: 1100px) {
   .lp-nav-links { display: none; }
@@ -407,14 +415,14 @@ html.lenis, html.lenis body { height: auto; }
 @media (max-width: 900px) {
   .vf .lp h1 { font-size: 32px; }
   .vf .lp h2 { font-size: 24px; }
-  .sec { padding: 64px 0; }
+  .sec, .sec-tint { padding: 64px 0; }
+  .sec-tint + .sec, .sec + .sec-tint { padding-top: 56px; }
   .sh { grid-template-columns: 1fr; gap: 6px; margin-bottom: 36px; }
   .sh-index { padding-top: 0; }
   .hero { padding: 36px 0 32px; }
   .hero-grid { grid-template-columns: 1fr; }
   .hero-visual { justify-content: center; }
   .models { margin-top: 36px; }
-  .models-note { margin-left: 0; width: 100%; border-top: 1px solid var(--vf-border); padding: 12px 0; }
   .tour-row { grid-template-columns: 1fr; gap: 24px; padding: 40px 0; }
   .tour-text { position: static; }
   .tour-mock, .agent-mock { padding: 0 12px 12px 0; }

@@ -7,40 +7,30 @@ import { useTariffs, useWelcomeGrant } from '../hooks/useTariffs';
 
 // Тарифы таблицей, как в кабинете. Кнопки открывают регистрацию.
 const PLANS = [
-  { key: 'trial', name: 'Trial', desc: 'Все функции на три дня, карта не нужна', price: '0 ₽', period: '3 дня', cta: 'Начать бесплатно', primary: true, note: 'с него начинают' },
+  { key: 'trial', name: 'Trial', desc: 'Все функции, карта не нужна', price: '0 ₽', period: '3 дня', cta: 'Начать бесплатно', primary: true, note: 'с него начинают' },
   { key: 'voice', name: 'AI Voice', desc: 'Голосовой консультант на сайте', price: '1 490 ₽', period: 'в месяц', cta: 'Выбрать' },
   { key: 'start', name: 'Start', desc: 'Ассистенты на телефоне и на сайте', price: '2 990 ₽', period: 'в месяц', cta: 'Выбрать', hot: true, note: 'популярный' },
-  { key: 'profi', name: 'Profi', desc: 'Несколько направлений и много номеров', price: '5 990 ₽', period: 'в месяц', cta: 'Выбрать' },
+  { key: 'profi', name: 'Profi', desc: 'Несколько направлений и номеров', price: '5 990 ₽', period: 'в месяц', cta: 'Выбрать' },
   { key: 'agent', name: 'Agent', desc: 'Сотрудник, который звонит сам', price: '5 490 ₽', period: 'в месяц', cta: 'Выбрать', agent: true, note: 'автономный' },
 ];
 
 const YES = true;
 const NO = false;
 
-// Группы строк: [заголовок группы, строки]. Строка: [название, подсказка, ячейки]
-const GROUPS = [
-  ['Ассистенты и каналы', [
-    ['Голосовые ассистенты', 'одновременно активных', ['1', 'до 3', 'до 5', 'до 10', 'через агента']],
-    ['Автономные агенты', 'сами звонят и ведут клиентов', [NO, NO, NO, NO, 'до 3']],
-    ['Телефония и номера', 'покупка номеров, входящие и исходящие', [YES, NO, YES, YES, YES]],
-    ['Виджет на сайт', 'OpenAI и Gemini, одна строка кода', [YES, YES, YES, YES, YES]],
-    ['Тестовый номер', '10 минут, чтобы позвонить ассистенту', [YES, YES, YES, YES, YES]],
-  ]],
-  ['Данные и интеграции', [
-    ['CRM и воронка', 'карточки клиентов из разговоров', [YES, NO, YES, YES, YES]],
-    ['База знаний', 'прайсы и инструкции любым файлом', [YES, YES, YES, YES, YES]],
-    ['Функции и вебхуки', 'Google Sheets, Telegram, свои функции', [YES, YES, YES, YES, YES]],
-    ['Диалоги и записи', 'расшифровка и запись каждого звонка', [YES, YES, YES, YES, YES]],
-  ]],
-  ['Агент', [
-    ['Telegram, MAX и SMS', 'агент пишет клиентам от вашего имени', [NO, NO, NO, NO, YES]],
-    ['Кредиты агента', 'около 20 кредитов за звонок', [NO, NO, NO, NO, '20 000 в месяц']],
-    ['Чат с агентом', 'команды словами, отчёты в Telegram', [NO, NO, NO, NO, YES]],
-  ]],
-  ['Сервис', [
-    ['Поддержка', 'чат в Telegram', ['чат', 'чат', 'приоритетная', 'VIP', 'приоритетная']],
-    ['Подарочные рубли на кошельке', 'на первые разговоры', ['welcome', NO, NO, NO, NO]],
-  ]],
+// Строки сравнения: [название, ячейки]
+const ROWS = [
+  ['Голосовые ассистенты', ['1', 'до 3', 'до 5', 'до 10', 'через агента']],
+  ['Автономные агенты', [NO, NO, NO, NO, 'до 3']],
+  ['Телефония и номера', [YES, NO, YES, YES, YES]],
+  ['Виджет на сайт', [YES, YES, YES, YES, YES]],
+  ['Тестовый номер на 10 минут', [YES, YES, YES, YES, YES]],
+  ['CRM и воронка', [YES, NO, YES, YES, YES]],
+  ['База знаний', [YES, YES, YES, YES, YES]],
+  ['Функции, вебхуки, Google Sheets', [YES, YES, YES, YES, YES]],
+  ['Telegram, MAX и SMS от агента', [NO, NO, NO, NO, YES]],
+  ['Кредиты агента', [NO, NO, NO, NO, '20 000 в месяц']],
+  ['Подарочные рубли на кошельке', ['welcome', NO, NO, NO, NO]],
+  ['Поддержка', ['чат', 'чат', 'приоритетная', 'VIP', 'приоритетная']],
 ];
 
 function Cell({ v, welcome }) {
@@ -56,7 +46,7 @@ function Pricing({ onOpenModal }) {
   const models = useTariffs();
   const welcome = useWelcomeGrant();
   return (
-    <section className="sec sec-alt sec-grid" id="pricing">
+    <section className="sec sec-tint tint-blue" id="pricing">
       <div className="lp-container">
         <SectionHead index="06" title="Тарифы" lead="Подписка открывает функции и лимит ассистентов. Минуты голоса, связь и кредиты агента считаются отдельно на любом тарифе, ниже видно как." />
         <Reveal className="plans-card" y={20}>
@@ -64,15 +54,14 @@ function Pricing({ onOpenModal }) {
             <table className="plans">
               <thead>
                 <tr>
-                  <th className="plans-feature"><span className="plans-what">Что входит</span></th>
+                  <th className="plans-feature" />
                   {PLANS.map((p) => (
                     <th key={p.key} className={colClass(p)}>
                       <div className="plan-head">
                         <span className={`chip ${p.hot ? 'chip-accent' : p.agent ? 'chip-violet' : p.primary ? 'chip-success' : 'chip-ghost'}`}>{p.note || ' '}</span>
                         <b>{p.name}</b>
                         <span className="plan-desc">{p.desc}</span>
-                        <span className="plans-price">{p.price}</span>
-                        <small>{p.period}</small>
+                        <span className="plans-price">{p.price}<small>{p.period === '3 дня' ? '/ 3 дня' : '/ мес'}</small></span>
                         <button type="button" className={`btn${p.primary || p.hot ? ' btn-primary' : ''}`} onClick={() => onOpenModal('register')}>{p.cta}</button>
                       </div>
                     </th>
@@ -80,28 +69,12 @@ function Pricing({ onOpenModal }) {
                 </tr>
               </thead>
               <tbody>
-                {GROUPS.map(([group, rows]) => (
-                  <React.Fragment key={group}>
-                    <tr className="plans-group">
-                      <td className="plans-feature">{group}</td>
-                      {PLANS.map((p) => <td key={p.key} className={colClass(p)} />)}
-                    </tr>
-                    {rows.map(([label, hint, cells]) => (
-                      <tr key={label}>
-                        <td className="plans-feature"><span>{label}</span><small>{hint}</small></td>
-                        {cells.map((v, i) => <td key={PLANS[i].key} className={colClass(PLANS[i])}><Cell v={v} welcome={welcome} /></td>)}
-                      </tr>
-                    ))}
-                  </React.Fragment>
+                {ROWS.map(([label, cells]) => (
+                  <tr key={label}>
+                    <td className="plans-feature">{label}</td>
+                    {cells.map((v, i) => <td key={PLANS[i].key} className={colClass(PLANS[i])}><Cell v={v} welcome={welcome} /></td>)}
+                  </tr>
                 ))}
-                <tr className="plans-cta">
-                  <td className="plans-feature" />
-                  {PLANS.map((p) => (
-                    <td key={p.key} className={colClass(p)}>
-                      <button type="button" className={`btn${p.primary || p.hot ? ' btn-primary' : ''}`} onClick={() => onOpenModal('register')}>{p.cta}</button>
-                    </td>
-                  ))}
-                </tr>
               </tbody>
             </table>
           </div>
