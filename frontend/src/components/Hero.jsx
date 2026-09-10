@@ -3,7 +3,7 @@ import Icon from './Icon';
 import CallCard from './CallCard';
 import ModelLogo from './ModelLogo';
 import { Stagger, Item } from './Reveal';
-import { useTariffs } from '../hooks/useTariffs';
+import { useTariffs, useWelcomeGrant } from '../hooks/useTariffs';
 
 export const PHONE = '+79311071031';
 export const PHONE_DISPLAY = '+7 931 10-710-31';
@@ -15,6 +15,7 @@ function Hero({ onOpenModal }) {
   const [popover, setPopover] = useState(false);
   const [copied, setCopied] = useState(false);
   const models = useTariffs();
+  const welcome = useWelcomeGrant();
 
   const handleCallClick = (e) => {
     if (isMobile()) return;
@@ -64,6 +65,7 @@ function Hero({ onOpenModal }) {
             </Item>
             <Item as="dl" className="hero-facts" y={12}>
               <div><dt>Пробный период</dt><dd>3 дня, без карты</dd></div>
+              <div><dt>На кошельке</dt><dd>{welcome} ₽ в подарок для теста</dd></div>
               <div><dt>Первый звонок</dt><dd>тестовый номер на 10 минут</dd></div>
               <div><dt>Оплата</dt><dd>посекундно, по тарифу модели</dd></div>
             </Item>

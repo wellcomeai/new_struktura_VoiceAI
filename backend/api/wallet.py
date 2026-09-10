@@ -119,7 +119,10 @@ async def list_tariffs(
 ):
     """Витрина моделей (без авторизации — цены не секрет)."""
     rows = TariffService.get_all(db, enabled_only=True)
-    return {"tariffs": [_tariff_payload(t, None) for t in rows]}
+    return {
+        "tariffs": [_tariff_payload(t, None) for t in rows],
+        "welcome_grant_rub": int(getattr(settings, "WALLET_WELCOME_GRANT_RUB", 0) or 0),
+    }
 
 
 @router.get("/tariffs/me")

@@ -42,9 +42,7 @@ function Integration() {
 
     const isOpen = () => {
       const c = document.getElementById(WIDGET_ID);
-      if (!c) return false;
-      const exp = c.querySelector('.wellcomeai-widget-expanded');
-      return /\b(active|open|expanded|show)\b/.test((c.className || '') + ' ' + (exp ? exp.className : ''));
+      return !!(c && c.classList.contains('active'));
     };
     let visible = false;
     const apply = () => {
