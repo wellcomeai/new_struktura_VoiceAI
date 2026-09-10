@@ -59,13 +59,12 @@ html.lenis, html.lenis body { height: auto; }
 .sec { padding: 96px 0; position: relative; }
 .sec-alt { background: var(--vf-surface-2); }
 /* Цветные секции: тон вплывает по краям, внутри два мягких пятна */
-.sec-tint { --tint: #f2f6ff; --wash1: rgba(37,99,235,.10); --wash1-pos: 12% 8%; --wash2: rgba(255,178,122,.14); --wash2-pos: 92% 92%; padding: 120px 0; }
+.sec-tint { --tint: #f2f6ff; padding: 120px 0; }
 .sec-tint::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255,255,255,0) 0%, var(--tint) 14%, var(--tint) 86%, rgba(255,255,255,0) 100%); }
-.sec-tint::after { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; background: radial-gradient(640px 420px at var(--wash1-pos), var(--wash1) 0%, transparent 70%), radial-gradient(560px 380px at var(--wash2-pos), var(--wash2) 0%, transparent 70%); -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 18%, #000 82%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0%, #000 18%, #000 82%, transparent 100%); }
 .sec-tint > .lp-container { position: relative; z-index: 1; }
-.tint-lavender { --tint: #f4f0fc; --wash1: rgba(124,58,237,.12); --wash1-pos: 10% 22%; --wash2: rgba(37,99,235,.11); --wash2-pos: 92% 80%; }
-.tint-blue { --tint: #f1f5fd; --wash1: rgba(37,99,235,.11); --wash1-pos: 88% 10%; --wash2: rgba(255,178,122,.14); --wash2-pos: 8% 92%; }
-.tint-sand { --tint: #fbf6ee; --wash1: rgba(255,178,122,.20); --wash1-pos: 10% 12%; --wash2: rgba(37,99,235,.07); --wash2-pos: 90% 90%; }
+.tint-lavender { --tint: #f4f0fc; }
+.tint-blue { --tint: #f1f5fd; }
+.tint-sand { --tint: #fbf6ee; }
 .sec-tint + .sec, .sec + .sec-tint { padding-top: 72px; }
 .sh { display: grid; grid-template-columns: 96px 1fr; gap: 20px; align-items: start; margin-bottom: 52px; }
 .sh-index { font-family: var(--vf-font-mono); font-size: 13px; font-weight: 600; color: var(--vf-accent); padding-top: 12px; letter-spacing: .04em; }
@@ -90,7 +89,6 @@ html.lenis, html.lenis body { height: auto; }
 
 /* ---------- Hero ---------- */
 .hero { padding: 56px 0 40px; }
-.hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(720px 520px at 82% 30%, rgba(37,99,235,.13) 0%, transparent 68%), radial-gradient(560px 420px at 6% 96%, rgba(255,178,122,.18) 0%, transparent 70%); }
 .hero.sec-grid::before { opacity: .42; }
 .hero-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 56px; align-items: center; }
 .hero-kicker { font-family: var(--vf-font-display); font-size: 11.5px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--vf-text-4); }
