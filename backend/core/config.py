@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     WALLET_WELCOME_GRANT_RUB: int = int(os.getenv("WALLET_WELCOME_GRANT_RUB", "50"))
     # Тестовые номера телефонии: сколько минут номер из пула отдаётся пользователю
     TEST_NUMBER_LEASE_MINUTES: int = int(os.getenv("TEST_NUMBER_LEASE_MINUTES", "10"))
+    # Белый список тестовых номеров (только цифры, через запятую). В пул и в
+    # админский список попадают только они, остальные номера админов не показываем.
+    TEST_NUMBER_ALLOWED: str = os.getenv(
+        "TEST_NUMBER_ALLOWED", "79330916441,79863319928,79330916186"
+    )
     WALLET_MIN_TOPUP_RUB: int = int(os.getenv("WALLET_MIN_TOPUP_RUB", "100"))
     WALLET_MAX_TOPUP_RUB: int = int(os.getenv("WALLET_MAX_TOPUP_RUB", "100000"))
     # Лимит одной сессии веб-виджета на серверном ключе

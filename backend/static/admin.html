@@ -1611,7 +1611,7 @@
         <div class="stats-section">
           <h3 style="margin-bottom:.75rem;">Пул тестовых номеров</h3>
           <p style="color:var(--text-gray);font-size:.9rem;margin-bottom:1rem;">
-            Здесь показаны номера, купленные в телефонии администраторами. Номер с включённым флагом «В пуле»
+            Здесь показаны только номера из списка тестовых (задаётся на сервере, TEST_NUMBER_ALLOWED). Номер с включённым флагом «В пуле»
             новые пользователи могут один раз включить на <span id="tn-lease-minutes">10</span> минут: к нему
             привязывается их голосовой ассистент, работают только входящие звонки. Пока номер в пуле, его
             собственная привязка ассистента не действует. Снять номер с пула можно в любой момент — активная
@@ -1672,7 +1672,7 @@
             document.getElementById('tn-lease-minutes').textContent=d.lease_minutes||10;
             var body=document.getElementById('tn-pool-body'); body.innerHTML='';
             var rows=d.numbers||[];
-            if(!rows.length){ body.innerHTML='<tr><td colspan="5">Нет номеров: телефония администраторов пока без купленных номеров</td></tr>'; return; }
+            if(!rows.length){ body.innerHTML='<tr><td colspan="5">Нет номеров: ни один номер из списка тестовых не куплен в телефонии администратора</td></tr>'; return; }
             rows.forEach(function(n){
               var tr=document.createElement('tr');
               var now=n.lease ? ('Занят: '+esc(n.lease.user_email||'')+' · '+esc(n.lease.assistant_name||n.lease.assistant_type||'')+' · осталось '+mmss(n.lease.seconds_left))
