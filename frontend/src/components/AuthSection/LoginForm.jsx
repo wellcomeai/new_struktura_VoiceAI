@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import api from '../../utils/api';
 import InlineNotification from '../InlineNotification';
+import Icon from '../Icon';
+import PasswordField from './PasswordField';
 
 function LoginForm({ onSwitchToRegister }) {
   const [email, setEmail] = useState('');
@@ -31,23 +33,43 @@ function LoginForm({ onSwitchToRegister }) {
 
   return (
     <form onSubmit={handleSubmit} className="lp-form">
-      <InlineNotification notification={notification} />
-      <div className="field">
-        <label className="label" htmlFor="login-email">Email</label>
-        <input type="email" id="login-email" className="input" placeholder="your@email.com" required autoComplete="email"
-          value={email} onChange={(e) => setEmail(e.target.value)} />
+      <div className="lp-auth-head">
+        <h2 className="lp-auth-title">Вход в кабинет</h2>
+        <p className="lp-auth-sub">Войдите, чтобы продолжить работу с ассистентами</p>
       </div>
-      <div className="field">
-        <label className="label" htmlFor="login-password">Пароль</label>
-        <input type="password" id="login-password" className="input" placeholder="••••••••" required autoComplete="current-password"
-          value={password} onChange={(e) => setPassword(e.target.value)} />
+
+      <div className="lp-auth-fields">
+        <div className="field">
+          <label className="label" htmlFor="login-email">Email</label>
+          <div className="input-wrap lp-auth-input">
+            <Icon name="mail" className="ic-sm" />
+            <input type="email" id="login-email" className="input" placeholder="you@company.com" required autoComplete="email"
+              value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="login-password">Пароль</label>
+          <PasswordField
+            id="login-password"
+            placeholder="••••••••"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+
+        <InlineNotification notification={notification} />
+
+        <button type="submit" className="btn btn-primary btn-lg lp-form-submit" disabled={isLoading}>
+          {isLoading
+            ? <><span className="spin" /> Входим...</>
+            : <>Войти <Icon name="arrow-right" /></>}
+        </button>
       </div>
-      <button type="submit" className="btn btn-primary btn-lg lp-form-submit" disabled={isLoading}>
-        {isLoading ? 'Входим...' : 'Войти'}
-      </button>
+
       <p className="lp-form-hint">
         Нет аккаунта?{' '}
-        <a href="#register" onClick={(e) => { e.preventDefault(); onSwitchToRegister(); }}>Зарегистрироваться</a>
+        <a href="#register" onClick={(e) => { e.preventDefault(); onSwitchToRegister(); }}>Создать бесплатно</a>
       </p>
     </form>
   );
