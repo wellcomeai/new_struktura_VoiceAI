@@ -18,8 +18,8 @@ const LOGIN_POINTS = [
   { icon: 'wallet', text: 'Кошелёк и тарифы моделей' },
 ];
 
-const MODELS = ['openai', 'gemini', 'yandex', 'fish'];
-const MODEL_NAMES = { openai: 'OpenAI', gemini: 'Gemini', yandex: 'Яндекс', fish: 'Fish Audio' };
+const MODELS = ['openai', 'gemini', 'yandex', 'fish', 'cascade'];
+const MODEL_NAMES = { openai: 'OpenAI', gemini: 'Gemini', yandex: 'Яндекс', fish: 'Fish Audio', cascade: 'Каскад' };
 
 function BrandRegister() {
   return (

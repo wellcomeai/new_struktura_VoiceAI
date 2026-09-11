@@ -403,6 +403,7 @@ html.lenis, html.lenis body { height: auto; }
 .lp-auth-model { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 9px 0 7px; border-radius: 8px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); font-size: 12px; font-weight: 500; color: rgba(255,255,255,.9); white-space: nowrap; }
 .lp-auth-model .logo { display: block; }
 .lp-auth-model-openai .logo { filter: invert(1); }
+.lp-auth-model-cascade .logo { filter: brightness(1.9); }
 
 /* Правая панель */
 .lp-auth-pane { position: relative; display: flex; flex-direction: column; min-width: 0; padding: 30px 40px 28px; }
