@@ -23,8 +23,13 @@ LOG_LEVEL = logging.DEBUG if (settings.DEBUG or FORCE_DEBUG) else logging.INFO
 
 LOG_DIR = os.path.join(os.getcwd(), "logs")
 
+# Файл логов пишем только вне прода (или по LOG_TO_FILE=true). На Render диск
+# эфемерный, а синхронная запись каждой строки из event loop тормозила запросы;
+# stdout Render собирает сам.
+LOG_TO_FILE = os.getenv("LOG_TO_FILE", "false").lower() == "true" or not settings.PRODUCTION
+
 # Ensure log directory exists
-if not os.path.exists(LOG_DIR):
+if LOG_TO_FILE and not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
 class JsonFormatter(logging.Formatter):
@@ -75,12 +80,13 @@ def setup_logging(force_debug: bool = False):
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
     
-    # File handler (JSON format for processing)
-    log_file = os.path.join(LOG_DIR, f"wellcomeai_{time.strftime('%Y%m%d')}.log")
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(effective_log_level)
-    file_handler.setFormatter(JsonFormatter())
-    root_logger.addHandler(file_handler)
+    # File handler (JSON format for processing) — только вне прода, см. LOG_TO_FILE
+    if LOG_TO_FILE:
+        log_file = os.path.join(LOG_DIR, f"wellcomeai_{time.strftime('%Y%m%d')}.log")
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(effective_log_level)
+        file_handler.setFormatter(JsonFormatter())
+        root_logger.addHandler(file_handler)
     
     # Disable propagation for some noisy loggers
     for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:

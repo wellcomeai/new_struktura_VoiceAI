@@ -57,6 +57,7 @@ from backend.api import (
 from backend.models.base import create_tables
 from backend.db.session import engine
 from backend.core.scheduler import start_subscription_checker
+from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware
 from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
@@ -133,40 +134,46 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+# Сжатие ответов и кэш статики (backend/core/http_optimizations.py).
+# GZip добавлен последним, значит снаружи всех остальных middleware.
+app.add_middleware(StaticCacheHeadersMiddleware)
+app.add_middleware(
+    SelectiveGZipMiddleware,
+    minimum_size=1024,
+    compresslevel=6,
+    exclude_paths=("/api/llm/stream",),  # потоковый ответ LLM отдаём без буферизации
+)
+
 # Resource monitoring middleware (optional, requires psutil)
+# Раньше читал /proc дважды на каждый запрос и вызывал полный gc.collect() при RSS > 500 МБ,
+# то есть почти на каждом запросе на инстансе Render. Теперь замер раз в MEMORY_CHECK_EVERY
+# запросов и без принудительной сборки мусора в пути запроса.
 if PSUTIL_AVAILABLE:
+    MEMORY_CHECK_EVERY = int(os.getenv("MEMORY_CHECK_EVERY", "200"))
+    _memory_check_counter = 0
+    _psutil_process = psutil.Process()
+
     @app.middleware("http")
     async def monitor_resources(request: Request, call_next):
-        """Monitor memory usage for each request"""
-        # Пропускаем health checks и статику
-        if request.url.path in ["/health", "/api/health"] or request.url.path.startswith("/static") or request.url.path.startswith("/embed"):
-            return await call_next(request)
-        
-        try:
-            # Проверяем память перед запросом
-            process = psutil.Process()
-            memory_before = process.memory_info().rss / 1024 / 1024  # MB
-            
-            response = await call_next(request)
-            
-            # Проверяем память после запроса
-            memory_after = process.memory_info().rss / 1024 / 1024  # MB
-            memory_diff = memory_after - memory_before
-            
-            # Логируем если использование памяти высокое
-            if memory_after > 500:  # 500 MB
-                logger.warning(f"High memory usage: {memory_after:.2f} MB (diff: {memory_diff:.2f} MB)")
-                # Принудительная сборка мусора
-                gc.collect()
-            
-            # Добавляем заголовок с информацией о памяти (только в development)
-            if not settings.PRODUCTION:
-                response.headers["X-Memory-Usage"] = f"{memory_after:.2f} MB"
-            
+        """Periodically log memory usage (every MEMORY_CHECK_EVERY requests)"""
+        global _memory_check_counter
+        response = await call_next(request)
+
+        path = request.url.path
+        if path in ["/health", "/api/health"] or path.startswith("/static") or path.startswith("/embed"):
             return response
-        except Exception as e:
-            logger.error(f"Error in resource monitoring: {e}")
-            return await call_next(request)
+
+        _memory_check_counter += 1
+        if _memory_check_counter % MEMORY_CHECK_EVERY == 0:
+            try:
+                memory_mb = _psutil_process.memory_info().rss / 1024 / 1024
+                if memory_mb > 500:
+                    logger.warning(f"High memory usage: {memory_mb:.2f} MB")
+                if not settings.PRODUCTION:
+                    response.headers["X-Memory-Usage"] = f"{memory_mb:.2f} MB"
+            except Exception as e:
+                logger.error(f"Error in resource monitoring: {e}")
+        return response
 else:
     logger.warning("psutil not available - memory monitoring disabled")
 

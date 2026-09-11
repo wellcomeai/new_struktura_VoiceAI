@@ -5,7 +5,6 @@ from typing import Generator
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool
 
 from backend.core.config import settings
 from backend.core.logging import get_logger
@@ -17,13 +16,23 @@ DATABASE_URL = os.getenv("DATABASE_URL", settings.DATABASE_URL)
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL environment variable is not set")
 
+# Пул соединений. Раньше стоял NullPool: каждый Depends(get_db) открывал новое
+# TCP+TLS соединение к Postgres (20-60 мс на запрос, у части эндпоинтов 2-3 раза).
+# pool_size держится постоянно, max_overflow открывается по требованию и закрывается
+# при возврате, поэтому долгие голосовые сессии не упираются в лимит.
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "25"))
+DB_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+
 try:
-    # Create SQLAlchemy engine with SSL and no connection pooling
     engine = create_engine(
         DATABASE_URL,
         echo=settings.DEBUG,
-        pool_pre_ping=True,                          # Detect and refresh stale DB connections
-        poolclass=NullPool,                          # Disable pooling so each checkout is a fresh connection
+        pool_pre_ping=True,                          # Проверка соединения перед выдачей из пула
+        pool_size=DB_POOL_SIZE,
+        max_overflow=DB_MAX_OVERFLOW,
+        pool_timeout=30,
+        pool_recycle=DB_POOL_RECYCLE,                # Переоткрывать соединения старше 30 минут
         connect_args={"sslmode": "require"}          # Adjust sslmode as needed (e.g. 'disable' in dev)
     )
 

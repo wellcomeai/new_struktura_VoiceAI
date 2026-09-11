@@ -53,7 +53,7 @@
   // Загрузчик страницы
   // ------------------------------------------------------------------
   var loader = (function () {
-    var el = null, shownAt = 0, MIN_MS = 450, hidden = false;
+    var el = null, shownAt = 0, MIN_MS = 250, hidden = false;
     function ensure() {
       if (el || hidden) return el;
       el = document.createElement('div');
@@ -646,9 +646,31 @@
   if (document.documentElement.hasAttribute('data-vf-loader')) {
     if (document.body) loader.ensure(); else document.addEventListener('DOMContentLoaded', function () { loader.ensure(); });
     setTimeout(function () { loader.hide(); }, 6000);
-    // Старые страницы не вызывают VF.ready(): прячем загрузчик после полной загрузки окна
+    // Страницы без VF.ready() (data-vf-loader="auto"): прячем загрузчик, когда DOM готов
+    // и завершились первые запросы к API. Раньше ждали window.load, то есть шрифты,
+    // картинки и favicon, и держали заставку на 1-2 с дольше, чем грузились данные.
     if (document.documentElement.getAttribute('data-vf-loader') === 'auto') {
-      window.addEventListener('load', function () { setTimeout(function () { loader.hide(); }, 250); });
+      var inflight = 0, seen = 0, domReady = false, done = false;
+      var finish = function () { if (!done) { done = true; loader.hide(); } };
+      var settle = function () {
+        // Ждём, пока страница запустит свои первые запросы и они вернутся
+        if (done || !domReady || inflight > 0) return;
+        if (seen === 0) { setTimeout(function () { if (seen === 0) finish(); else settle(); }, 300); return; }
+        setTimeout(function () { if (inflight === 0) finish(); }, 80);
+      };
+      if (typeof window.fetch === 'function') {
+        var origFetch = window.fetch;
+        window.fetch = function () {
+          inflight++; seen++;
+          var p = origFetch.apply(this, arguments);
+          var onDone = function () { inflight--; settle(); };
+          p.then(onDone, onDone);
+          return p;  // вызывающий код получает оригинальный промис и сам обрабатывает ошибки
+        };
+      }
+      document.addEventListener('DOMContentLoaded', function () { domReady = true; setTimeout(settle, 0); });
+      // Страховка на случай страниц без fetch: по load прячем, только если запросов в полёте нет
+      window.addEventListener('load', function () { setTimeout(function () { if (inflight === 0) finish(); }, 250); });
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initShell); else initShell();
