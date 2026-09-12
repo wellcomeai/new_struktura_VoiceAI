@@ -53,6 +53,14 @@
   <div class="bar">
     <select id="assistant"><option value="">— загрузка ассистентов —</option></select>
     <input type="text" id="assistantId" placeholder="или вставьте UUID ассистента">
+    <select id="voice" title="Голос gpt-live-1">
+      <option value="">голос: как у ассистента / по умолчанию</option>
+      <option value="quartz">Quartz</option><option value="ripple">Ripple</option><option value="vesper">Vesper</option>
+      <option value="willow">Willow</option><option value="stone">Stone</option><option value="gleam">Gleam</option>
+      <option value="meridian">Meridian</option><option value="bossa">Bossa</option><option value="tempo">Tempo</option>
+      <option value="beacon">Beacon</option><option value="delta">Delta</option><option value="cinder">Cinder</option>
+      <option value="marin">Marin</option><option value="cedar">Cedar</option>
+    </select>
     <button id="btnStart">▶ Старт</button>
     <button id="btnStop" class="danger" disabled>■ Стоп</button>
     <button id="btnFlush" class="secondary" title="Сбросить очередь воспроизведения (отладка перебиваний)">⏭ Сброс буфера</button>
@@ -276,7 +284,8 @@
     try { await startMic(); } catch (e) { log('Микрофон недоступен: ' + e.message, 'err'); $('btnStart').disabled = false; return; }
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws/live/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`);
+    const voice = $('voice').value;
+    ws = new WebSocket(`${proto}://${location.host}/ws/live/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}` + (voice ? `&voice=${encodeURIComponent(voice)}` : ''));
     $('dotWs').className = 'dot warn';
     ws.onopen = () => { log('WS открыт, ждём session.started…', 'sys'); };
     ws.onclose = ev => {

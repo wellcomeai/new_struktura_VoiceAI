@@ -23,11 +23,12 @@ async def live_websocket(
     websocket: WebSocket,
     assistant_id: str,
     token: Optional[str] = Query(None),
+    voice: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     logger.info(f"[LIVE-WS] connection for assistant {assistant_id}")
     try:
-        await handle_live_connection(websocket, assistant_id, db, token)
+        await handle_live_connection(websocket, assistant_id, db, token, voice=voice)
     except WebSocketDisconnect:
         logger.info(f"[LIVE-WS] client disconnected (assistant {assistant_id})")
     except Exception as e:

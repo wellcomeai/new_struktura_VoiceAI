@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
     FISH_API_KEY: Optional[str] = os.getenv("FISH_API_KEY")
     CARTESIA_API_KEY: Optional[str] = os.getenv("CARTESIA_API_KEY")
+
+    # 🧪 GPT-Live (gpt-live-1), экспериментальный виджет /ws/live/{id}
+    LIVE_DELEGATION_MODEL: str = os.getenv("LIVE_DELEGATION_MODEL", "gpt-5.6-terra")   # бэкенд-модель delegation.responses
+    LIVE_DEFAULT_VOICE: str = os.getenv("LIVE_DEFAULT_VOICE", "marin")                # голос, если у ассистента голос Realtime
+    LIVE_VOICE_INSTRUCTIONS_MAX_CHARS: int = int(os.getenv("LIVE_VOICE_INSTRUCTIONS_MAX_CHARS", "6000"))
     YANDEX_API_KEY: Optional[str] = os.getenv("YANDEX_API_KEY")
     YANDEX_FOLDER_ID: Optional[str] = os.getenv("YANDEX_FOLDER_ID")
 
