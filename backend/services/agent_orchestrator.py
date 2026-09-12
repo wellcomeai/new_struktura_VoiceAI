@@ -1275,6 +1275,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             "user_id": str(agent_call.user_id),
             "user": user,
             "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
+            # Привязка уведомлений к событию (журнал agent_telegram_notifications)
+            "agent_call_id": agent_call.id,
+            "agent_contact_id": agent_contact.id if agent_contact else None,
+            "notification_source": call_direction,
         }
 
         messages: List[Dict[str, Any]] = [
@@ -1514,6 +1518,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "user_id": str(agent_call.user_id),
                 "user": user,
                 "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
+                # Привязка уведомлений к событию (журнал agent_telegram_notifications)
+                "agent_call_id": agent_call.id,
+                "agent_contact_id": agent_contact.id if agent_contact else None,
+                "notification_source": call_direction,
             }
 
             post_call_decision = None

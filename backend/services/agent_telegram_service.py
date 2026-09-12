@@ -365,8 +365,13 @@ class AgentTelegramService:
         return result is True or bool(result)
 
     @staticmethod
-    async def _send_chunk(token: str, chat_id: str, text: str, parse_mode: Optional[str]) -> bool:
-        """Отправляет один кусок. При сбое HTML-парсинга — повтор без parse_mode (plain)."""
+    async def _send_chunk_result(
+        token: str, chat_id: str, text: str, parse_mode: Optional[str]
+    ) -> Optional[dict]:
+        """
+        Отправляет один кусок и возвращает result от Telegram (Message) или None.
+        При сбое HTML-парсинга — повтор без parse_mode (plain).
+        """
         payload = {
             "chat_id": chat_id,
             "text": text,
@@ -376,17 +381,42 @@ class AgentTelegramService:
             payload["parse_mode"] = parse_mode
         result = await AgentTelegramService._call(token, "sendMessage", payload)
         if result is not None:
-            return True
+            return result
         # Fallback: Telegram отклонил разметку — шлём как обычный текст
         if parse_mode:
             plain = strip_html_tags(text)
-            result = await AgentTelegramService._call(token, "sendMessage", {
+            return await AgentTelegramService._call(token, "sendMessage", {
                 "chat_id": chat_id,
                 "text": plain,
                 "disable_web_page_preview": True,
             })
-            return result is not None
-        return False
+        return None
+
+    @staticmethod
+    async def _send_chunk(token: str, chat_id: str, text: str, parse_mode: Optional[str]) -> bool:
+        """Отправляет один кусок. True, если Telegram принял сообщение."""
+        return (await AgentTelegramService._send_chunk_result(token, chat_id, text, parse_mode)) is not None
+
+    @staticmethod
+    async def send_message_ids(
+        token: str, chat_id: str, text: str, parse_mode: str = "HTML"
+    ) -> List[int]:
+        """
+        Как send_message, но возвращает message_id каждого отправленного куска
+        (пустой список — ничего не доставлено). Нужен, чтобы потом узнать
+        уведомление по reply_to_message, когда владелец на него отвечает.
+        """
+        if not token or not chat_id or not text:
+            return []
+        ids: List[int] = []
+        for chunk in _split_for_telegram(text):
+            result = await AgentTelegramService._send_chunk_result(token, chat_id, chunk, parse_mode)
+            if result is not None:
+                try:
+                    ids.append(int(result.get("message_id")))
+                except (TypeError, ValueError):
+                    pass
+        return ids
 
     @staticmethod
     async def send_message(token: str, chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
@@ -516,24 +546,129 @@ class AgentTelegramService:
     async def send_to_all_chats(agent_config: AgentConfig, text: str) -> dict:
         """
         Шлёт text во все chat_id из agent_config.telegram_chat_ids параллельно.
-        Возвращает {"sent": int, "failed": int, "total": int}.
+        Возвращает {"sent": int, "failed": int, "total": int, "deliveries": [...]},
+        где deliveries — chat_id и message_id успешно доставленных сообщений.
         """
         if not agent_config.telegram_enabled or not agent_config.has_telegram_bot():
-            return {"sent": 0, "failed": 0, "total": 0}
+            return {"sent": 0, "failed": 0, "total": 0, "deliveries": []}
 
         chat_ids = agent_config.get_telegram_chat_ids_list()
         if not chat_ids:
-            return {"sent": 0, "failed": 0, "total": 0}
+            return {"sent": 0, "failed": 0, "total": 0, "deliveries": []}
 
         token = agent_config.telegram_bot_token
         results = await asyncio.gather(
-            *[AgentTelegramService.send_message(token, cid, text) for cid in chat_ids],
+            *[AgentTelegramService.send_message_ids(token, cid, text) for cid in chat_ids],
             return_exceptions=True,
         )
 
-        sent = sum(1 for r in results if r is True)
+        # deliveries: [{"chat_id": ..., "message_ids": [...]}] — только успешные
+        deliveries = [
+            {"chat_id": cid, "message_ids": r}
+            for cid, r in zip(chat_ids, results)
+            if isinstance(r, list) and r
+        ]
+        sent = len(deliveries)
         total = len(chat_ids)
-        return {"sent": sent, "failed": total - sent, "total": total}
+        return {"sent": sent, "failed": total - sent, "total": total, "deliveries": deliveries}
+
+
+def _fmt_dt(dt) -> str:
+    try:
+        return dt.strftime("%d.%m.%Y %H:%M UTC") if dt else "—"
+    except Exception:
+        return "—"
+
+
+def build_reply_context(
+    agent: AgentConfig,
+    chat_id: str,
+    reply_to: Optional[dict],
+    db: Session,
+) -> Optional[str]:
+    """
+    Если владелец ответил (reply) на сообщение бота — собрать контекстный блок
+    для оркестратора: о каком звонке/контакте было уведомление и его текст.
+
+    Ищем запись в agent_telegram_notifications по (agent, chat_id, message_id).
+    Если записи нет (старое уведомление, тестовое сообщение, обычный ответ
+    бота в чате) — отдаём хотя бы процитированный текст, чтобы модель
+    понимала, на что отвечают. Если reply не на сообщение бота — None.
+    """
+    if not reply_to or not isinstance(reply_to, dict):
+        return None
+    sender = reply_to.get("from") or {}
+    if not sender.get("is_bot"):
+        return None
+
+    quoted = (reply_to.get("text") or reply_to.get("caption") or "").strip()
+    reply_msg_id = reply_to.get("message_id")
+
+    notif = None
+    if reply_msg_id is not None:
+        try:
+            from backend.models.agent_telegram_notification import AgentTelegramNotification
+            notif = db.query(AgentTelegramNotification).filter(
+                AgentTelegramNotification.agent_config_id == agent.id,
+                AgentTelegramNotification.chat_id == str(chat_id),
+                AgentTelegramNotification.message_id == int(reply_msg_id),
+            ).first()
+        except Exception as e:
+            logger.warning(f"[AGENT-TG] reply context lookup failed: {e}")
+            notif = None
+
+    if notif is None:
+        if not quoted:
+            return None
+        return (
+            "[КОНТЕКСТ: владелец отвечает на твоё предыдущее сообщение в этом чате]\n"
+            f"Процитированное сообщение:\n«{quoted}»\n"
+            "[КОНЕЦ КОНТЕКСТА]"
+        )
+
+    lines = [
+        f"[КОНТЕКСТ: владелец отвечает на уведомление агента от {_fmt_dt(notif.created_at)}]"
+    ]
+
+    contact = notif.agent_contact
+    if contact is not None:
+        parts = [contact.name or "Без имени", contact.phone or ""]
+        if contact.company:
+            parts.append(contact.company)
+        lines.append(f"Контакт: {', '.join(p for p in parts if p)} (agent_contact_id: {contact.id})")
+
+    call = notif.agent_call
+    if call is not None:
+        direction = "исходящий" if (call.direction or "outbound") == "outbound" else "входящий"
+        src = (notif.source or "").lower()
+        if src.startswith("sms"):
+            kind = "входящее SMS"
+        elif src.startswith("telegram"):
+            kind = "сообщение в Telegram"
+        elif src.startswith("max"):
+            kind = "сообщение в MAX"
+        else:
+            kind = f"{direction} звонок"
+        details = [
+            f"Событие: {kind}",
+            f"agent_call_id: {call.id}",
+            f"статус: {call.status or '—'}",
+        ]
+        if call.post_call_decision:
+            details.append(f"решение PostCall: {call.post_call_decision}")
+        if call.duration_seconds:
+            details.append(f"длительность: {call.duration_seconds} с")
+        details.append(f"время: {_fmt_dt(call.completed_at or call.started_at or call.created_at)}")
+        lines.append("; ".join(details))
+
+    lines.append(f"Текст уведомления:\n«{(notif.text or quoted).strip()}»")
+    lines.append(
+        "Отвечай по существу этого события. Для действий используй указанные "
+        "agent_contact_id / agent_call_id (get_contact_details, get_call_transcript, "
+        "create_agent_task, update_contact_memory, append_contact_note и т.д.)."
+    )
+    lines.append("[КОНЕЦ КОНТЕКСТА]")
+    return "\n".join(lines)
 
 
 async def process_telegram_message(
@@ -543,6 +678,7 @@ async def process_telegram_message(
     from_user: dict,
     message: dict,
     db: Session,
+    reply_context: Optional[str] = None,
 ) -> None:
     """
     Обрабатывает входящее текстовое сообщение в чат-режиме:
@@ -550,7 +686,13 @@ async def process_telegram_message(
     2. Обновляет метаданные отправителя.
     3. Вызывает ChatOrchestrator.run_telegram.
     4. Отправляет ответ обратно в Telegram.
+
+    reply_context — контекстный блок из build_reply_context (ответ владельца
+    на уведомление). Приклеивается перед текстом сообщения и вместе с ним
+    попадает в историю чата, чтобы следующие реплики тоже видели привязку.
     """
+    if reply_context:
+        text = f"{reply_context}\n\nСообщение владельца: {text}"
     # 1. Найти или создать историю чата
     history_row = db.query(AgentTelegramChatHistory).filter(
         AgentTelegramChatHistory.agent_config_id == agent.id,

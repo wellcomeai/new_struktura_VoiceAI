@@ -65,6 +65,8 @@ from .agent_connector import AgentConnector
 
 # ✅ НОВОЕ v2.2: Telegram-интеграция агента
 from .agent_telegram_chat_history import AgentTelegramChatHistory
+# Журнал уведомлений бота агента (контекст для ответов reply_to_message)
+from .agent_telegram_notification import AgentTelegramNotification
 
 # ✅ НОВОЕ: Личный Telegram-аккаунт агента (MTProto, коннектор Telegram)
 from .agent_telegram_account import (
@@ -158,6 +160,7 @@ __all__ = [
     "AgentConnector",
     # ✅ НОВОЕ v2.2: Telegram-интеграция агента
     "AgentTelegramChatHistory",
+    "AgentTelegramNotification",
     # ✅ НОВОЕ: Личный Telegram-аккаунт агента
     "AgentTelegramAccount",
     "AgentTelegramDialog",

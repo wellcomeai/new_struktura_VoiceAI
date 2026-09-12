@@ -1828,17 +1828,26 @@ async def fn_get_agent_stats(args: dict, user_id: str, agent_config_id: str, db:
     }
 
 
-async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, db: Session) -> dict:
+async def fn_send_telegram_notification(
+    args: dict, agent_config: AgentConfig, db: Session, context: Optional[dict] = None
+) -> dict:
     """
     v2.2: Шлёт во все chat_id из agent_config.telegram_chat_ids.
     Использует бота агента (agent_configs.telegram_bot_token), а не юзера.
+
+    Каждое доставленное сообщение записывается в agent_telegram_notifications
+    вместе с agent_call_id / agent_contact_id из context — чтобы при ответе
+    владельца на уведомление (reply в Telegram) webhook мог восстановить,
+    о каком звонке и контакте речь.
     """
     from backend.services.agent_telegram_service import (
         AgentTelegramService,
         markdown_to_telegram_html,
     )
+    from backend.models.agent_telegram_notification import AgentTelegramNotification
 
     message = args["message"]
+    context = context or {}
 
     if not agent_config or not agent_config.has_telegram_bot():
         return {"ok": False, "error": "telegram_bot_not_configured"}
@@ -1858,6 +1867,26 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
         f"[AGENT-TOOLS] Telegram notification: sent={result['sent']} "
         f"failed={result['failed']} total={result['total']} (agent {agent_config.id})"
     )
+
+    # Журнал уведомлений: одна строка на каждый доставленный message_id.
+    # Ошибка записи не должна ломать сам факт отправки — только лог.
+    try:
+        for delivery in result.get("deliveries") or []:
+            for mid in delivery.get("message_ids") or []:
+                db.add(AgentTelegramNotification(
+                    agent_config_id=agent_config.id,
+                    chat_id=str(delivery["chat_id"]),
+                    message_id=int(mid),
+                    agent_call_id=context.get("agent_call_id") or None,
+                    agent_contact_id=context.get("agent_contact_id") or None,
+                    source=(context.get("notification_source") or "chat")[:30],
+                    text=message,
+                ))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[AGENT-TOOLS] Failed to log telegram notification: {e}", exc_info=True)
+
     return {
         "ok": result["sent"] > 0,
         "sent": result["sent"],
@@ -2737,7 +2766,7 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, agent_config_id, db)
         elif tool_name == "send_telegram_notification":
-            result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
+            result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db, context)
         elif tool_name == "send_sms":
             agent_config = context.get("agent_config")
             if agent_config is None and agent_config_id:

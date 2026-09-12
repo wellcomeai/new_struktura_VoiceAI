@@ -25,6 +25,7 @@ from backend.models.agent_config import AgentConfig
 from backend.services.agent_telegram_service import (
     AgentTelegramService,
     process_telegram_message,
+    build_reply_context,
     generate_webhook_secret,
     build_webhook_url,
 )
@@ -425,6 +426,18 @@ async def telegram_webhook(
         # 7. Отправитель
         from_user = message.get("from", {}) or {}
 
+        # 7a. Ответ (reply) на уведомление бота → восстановить контекст
+        #     звонка/контакта из журнала agent_telegram_notifications
+        reply_context = None
+        try:
+            reply_context = build_reply_context(
+                agent, chat_id, message.get("reply_to_message"), db,
+            )
+        except Exception as e:
+            logger.warning(f"[AGENT-TG] build_reply_context failed: {e}")
+        if reply_context:
+            logger.info(f"[AGENT-TG] Reply-to-notification context attached (chat {chat_id}, agent {agent.id})")
+
         # 8. Обработать
         logger.info(f"[AGENT-TG] Incoming message from chat {chat_id} (agent {agent.id}): {text[:80]!r}")
         await process_telegram_message(
@@ -434,6 +447,7 @@ async def telegram_webhook(
             from_user=from_user,
             message=message,
             db=db,
+            reply_context=reply_context,
         )
 
     except Exception as e:
