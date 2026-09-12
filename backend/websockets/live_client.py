@@ -414,6 +414,8 @@ class OpenAILiveClient:
                     # Вложенное событие бэкенда (delegation.responses)
                     async for extra in self._handle_backend_event(event):
                         yield extra
+                elif etype == "error":
+                    await self._handle_error_event(event)
 
                 yield event
 
@@ -462,10 +464,12 @@ class OpenAILiveClient:
                     "name": call.get("name"), "arguments": call.get("arguments"),
                     "result": result, "ts": time.time(),
                 })
+                # ВАЖНО: у response.* событий нет поля delegation_id (строгая схема,
+                # иначе "Unknown parameter: 'delegation_id'" и бэкенд зависает в
+                # ожидании результата). delegation_id принимают только session.*.append.
                 await self._send({
                     "type": "response.item.create",
                     "event_id": _short_id("fnres_"),
-                    "delegation_id": delegation_id or None,
                     "item": {
                         "type": "function_call_output",
                         "call_id": call.get("call_id"),
@@ -483,8 +487,26 @@ class OpenAILiveClient:
             await self._send({
                 "type": "response.create",
                 "event_id": _short_id("cont_"),
-                "delegation_id": delegation_id or None,
             })
+
+    async def _handle_error_event(self, event: Dict[str, Any]) -> None:
+        """
+        Ошибка от Live на одно из наших событий. Если отклонён результат функции
+        или продолжение бэкенда (fnres_/cont_), делегирование зависнет: бэкенд
+        ждёт output, голосовая модель ждёт бэкенд и молчит. Логируем громко и
+        просим голосовую модель сказать клиенту, что проверить не удалось.
+        """
+        err = event.get("error") or {}
+        client_event_id = str(err.get("client_event_id") or event.get("client_event_id") or "")
+        logger.error(
+            f"[LIVE-CLIENT] error event: code={err.get('code')} message={err.get('message')} "
+            f"client_event_id={client_event_id or '-'}"
+        )
+        if client_event_id.startswith(("fnres_", "cont_")):
+            await self.append_instructions(
+                "Результат последнего действия не удалось передать. Не жди его: коротко скажи "
+                "клиенту, что проверить сейчас не получилось, и предложи повторить или уточнить."
+            )
 
     async def _execute_call(self, call: Dict[str, Any]) -> Dict[str, Any]:
         name = call.get("name") or ""
