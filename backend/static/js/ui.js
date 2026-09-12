@@ -21,6 +21,44 @@
   'use strict';
 
   var SPRITE = '/static/icons/ui.svg';
+
+  // ------------------------------------------------------------------
+  // Общий кэш коротких GET-запросов профиля и кошелька.
+  // Сайдбар и каждая страница при загрузке запрашивают одно и то же
+  // (/users/me, /wallet/balance, ...), settings — трижды. Одинаковые GET
+  // в течение TTL получают клон одного ответа; параллельные — один запрос.
+  // Любой не-GET запрос к /api/ сбрасывает кэш, чтобы после оплаты или
+  // правки профиля страница видела свежие данные. Логику страниц не меняет.
+  // ------------------------------------------------------------------
+  (function () {
+    if (typeof global.fetch !== 'function') return;
+    var SHARED = ['/api/users/me', '/api/wallet/balance', '/api/wallet/tariffs/me',
+                  '/api/subscriptions/my-subscription', '/api/subscriptions/assistants-usage', '/api/users/api-key'];
+    var TTL = 5000, cache = {};
+    var origFetch = global.fetch;
+    function keyOf(input) {
+      var u = typeof input === 'string' ? input : (input && input.url) || '';
+      try { var url = new URL(u, global.location.href); return url.pathname + url.search; } catch (e) { return u; }
+    }
+    global.fetch = function (input, init) {
+      var method = ((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      var k = keyOf(input);
+      if (method !== 'GET' && method !== 'HEAD') {
+        if (k.indexOf('/api/') === 0) cache = {};
+        return origFetch.apply(this, arguments);
+      }
+      if (SHARED.indexOf(k) === -1) return origFetch.apply(this, arguments);
+      var hit = cache[k];
+      if (hit && Date.now() - hit.t < TTL) return hit.p.then(function (r) { return r.clone(); });
+      var p = origFetch.apply(this, arguments).then(function (r) {
+        if (!r.ok) delete cache[k];  // ошибки не кэшируем
+        return r;
+      }, function (e) { delete cache[k]; throw e; });
+      cache[k] = { t: Date.now(), p: p };
+      return p.then(function (r) { return r.clone(); });
+    };
+    global.VF_INVALIDATE_SHARED = function () { cache = {}; };
+  })();
   var MODEL_LOGOS = {
     openai: { file: 'openai.svg', name: 'OpenAI' },
     gemini: { file: 'gemini-color.svg', mono: 'gemini.svg', name: 'Gemini' },

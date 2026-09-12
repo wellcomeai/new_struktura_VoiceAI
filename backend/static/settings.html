@@ -2599,6 +2599,9 @@
       // Инициализация страницы
       async function initializePage() {
         if (!checkAuth()) return;
+        // Прогрев: независимые запросы уходят параллельно, обработка ниже — в прежнем порядке
+        api.get('/subscriptions/my-subscription').catch(function () {});
+        api.get('/users/api-key').catch(function () {});
         await loadUserData();
         await loadSubscriptionForAccess();
         await loadApiKeyStatus();

@@ -4104,6 +4104,10 @@
         updatePaymentModalUI();
         updateExpiredModalUI();
         
+        // Прогрев: независимые запросы уходят параллельно, а обработка ниже
+        // остаётся в прежнем порядке (общий кэш GET в ui.js отдаст тот же ответ)
+        api.get('/subscriptions/my-subscription').catch(function () {});
+
         // 1. Загружаем данные пользователя (ошибка не блокирует дальнейшую инициализацию)
         await loadUserData();
 
