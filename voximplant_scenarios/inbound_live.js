@@ -18,13 +18,18 @@
  *     (запись → R2, Telegram, списание по длительности — как раньше);
  *   - hangup_call пока не поддерживается.
  *
+ * Pre-answer: сокет и сессия Live поднимаются ещё на гудках (config → WS →
+ * call_started → live.started), и только по live.started отвечаем на звонок и
+ * привязываем медиа. Так абонент не слышит 2-3 с тишины после ответа.
+ * Приветствие сервер отправляет, когда Voximplant начал слать нам медиа.
+ *
  * Сценарий рассчитан на номера, привязанные к OpenAI-ассистенту
  * (assistant_type === "openai" в /api/telephony/config).
  */
 
 var LIVE_WS_BASE     = "wss://voicyfy.ru/ws/live/telephony/";
 var SUMMARY_WAIT_MS  = 4000;   // ждём транскрипт от сервера после Disconnected
-var WS_REOPEN_MAX    = 0;      // сессия Live привязана к сокету — переоткрывать нечего
+var ANSWER_TIMEOUT_MS = 6000;  // pre-answer: если live.started не пришёл — отвечаем всё равно
 
 // ============================================================================
 // БИЛЛИНГ
@@ -61,6 +66,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var callAnswered = false;
     var isHangingUp = false;
     var liveSessionId = null;
+    var answerTimer = null;
+    var tAlert = Date.now();
 
     // Транскрипт от сервера (приходит в call_summary при завершении)
     var summaryDialog = null;
@@ -141,6 +148,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
         if (event && event.cost !== undefined)     call_cost = event.cost;
         if (event && event.duration !== undefined) call_duration = event.duration;
+        if (answerTimer) { clearTimeout(answerTimer); answerTimer = null; }
 
         // Просим сервер закрыть сессию Live и отдать транскрипт
         if (ws && wsOpen) {
@@ -183,6 +191,25 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         (CONFIG.functions ? CONFIG.functions.length : 0) + ", first_phrase: " + (CONFIG.first_phrase ? "yes" : "no"));
 
     // =========================================================================
+    // ОТВЕТ НА ЗВОНОК (pre-answer: по live.started или по таймауту)
+    // =========================================================================
+    function answerCall(reason) {
+        if (callAnswered || isHangingUp) return;
+        if (answerTimer) { clearTimeout(answerTimer); answerTimer = null; }
+        callAnswered = true;
+        call.answer();
+        Logger.write("[Call] Answered (" + reason + ", +" + (Date.now() - tAlert) + "ms от CallAlerting)");
+        attachMedia();
+
+        try {
+            call.record({ stereo: false, lossless: false, hd_audio: true });
+            Logger.write("🎙️ Recording started");
+        } catch (recordError) {
+            Logger.write("⚠️ Recording failed: " + recordError);
+        }
+    }
+
+    // =========================================================================
     // WEBSOCKET К СЕРВЕРУ
     // =========================================================================
     function attachMedia() {
@@ -207,8 +234,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         ws.addEventListener(WebSocketEvents.OPEN, function() {
             wsOpen = true;
             Logger.write("[Live] ✅ socket open");
-            // Данные звонка — до медиа. system_prompt из конфига несёт карточку
-            // звонящего: сервер отдаёт её бэкенд-модели, голосовому слою — только имя.
+            // Данные звонка — до ответа: сервер сразу поднимает сессию Live.
+            // system_prompt из конфига несёт карточку звонящего: сервер отдаёт её
+            // бэкенд-модели, голосовому слою — только имя.
             ws.send(JSON.stringify({
                 type: "call_started",
                 call_id: call_id,
@@ -217,9 +245,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 called_number: called_number,
                 first_phrase: CONFIG.first_phrase || null,
                 system_prompt: CONFIG.system_prompt || null,
-                session_history_id: call_session_history_id ? String(call_session_history_id) : null
+                session_history_id: call_session_history_id ? String(call_session_history_id) : null,
+                audio: { encoding: "PCM16", sampleRate: 16000 }
             }));
-            attachMedia();
+            attachMedia();   // если звонок уже отвечен по таймауту
         });
 
         ws.addEventListener(WebSocketEvents.MEDIA_STARTED, function(ev) {
@@ -239,6 +268,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 liveSessionId = msg.session_id;
                 Logger.write("[Live] 🎙 session " + msg.session_id + " voice=" + msg.voice +
                     " backend=" + msg.backend_model + " functions=" + (msg.functions || []).join(","));
+                answerCall("live.started");
             } else if (msg.type === "function_call") {
                 Logger.write("🔧 FUNCTION CALL: " + msg.name + " " + JSON.stringify(msg.arguments));
             } else if (msg.type === "function_result") {
@@ -273,24 +303,17 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         });
     }
 
-    openSocket();
-
-    // =========================================================================
-    // ОТВЕТ НА ЗВОНОК + ЗАПИСЬ
-    // =========================================================================
-    callAnswered = true;
-    call.answer();
     call.addEventListener(CallEvents.Disconnected, callEndHandler);
     call.addEventListener(CallEvents.Failed, callEndHandler);
-    Logger.write("[Call] Answered");
-    attachMedia();
+    openSocket();
 
-    try {
-        call.record({ stereo: false, lossless: false, hd_audio: true });
-        Logger.write("🎙️ Recording started");
-    } catch (recordError) {
-        Logger.write("⚠️ Recording failed: " + recordError);
-    }
+    // Pre-answer: ждём live.started (обычно ~3 с от CallAlerting), абонент
+    // слышит гудки. Потолок — ANSWER_TIMEOUT_MS, дальше отвечаем всё равно.
+    answerTimer = setTimeout(function() {
+        Logger.write("⚠️ live.started не пришёл за " + ANSWER_TIMEOUT_MS + "ms — отвечаем по таймауту");
+        answerCall("timeout");
+    }, ANSWER_TIMEOUT_MS);
+
     call.addEventListener(CallEvents.RecordStarted, function(event) {
         if (event.url) { record_url = event.url; Logger.write("🎙️ RecordStarted: " + record_url); }
     });
@@ -298,5 +321,5 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (event.url) record_url = event.url;
     });
 
-    Logger.write("🎉 READY (GPT-Live v0.1) — session " + call_session_history_id);
+    Logger.write("🎉 READY (GPT-Live v0.1, pre-answer) — session " + call_session_history_id);
 });

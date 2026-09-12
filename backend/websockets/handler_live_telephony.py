@@ -8,7 +8,9 @@ call.sendMediaTo(ws) → нам, ws.sendMediaTo(call) → в трубку. Се�
 
 Протокол (сценарий → сервер):
   {type:"call_started", call_id, caller_number, called_number, chat_id,
-   first_phrase, system_prompt, session_history_id}   — до медиа
+   first_phrase, system_prompt, session_history_id,
+   audio:{encoding:"PCM16", sampleRate:16000}}        — ещё до ответа на звонок:
+   по нему сразу поднимаем сессию Live (2 с уходят на гудки, а не на тишину)
   {event:"start", start:{mediaFormat:{encoding:"PCM16", sampleRate:16000}}}
   {event:"media", media:{payload:<base64>}}
   {event:"stop"} / {type:"call_ended"}
@@ -95,7 +97,8 @@ class LiveTelephonyBridge:
         self.vox_encoding = "PCM16"
         self.vox_rate = 16000
         self.in_state = None            # состояние audioop.ratecv
-        self.stream_in_started = False
+        self.stream_in_started = False  # Voximplant прислал StartEvent = медиа привязано
+        self.greeted = False
 
         # Исходящее аудио в Voximplant
         self.out_queue: asyncio.Queue = asyncio.Queue()
@@ -221,17 +224,41 @@ class LiveTelephonyBridge:
         self.first_phrase = (data.get("first_phrase") or "").strip() or None
         self.config_prompt = (data.get("system_prompt") or "").strip() or None
         self.session_history_id = data.get("session_history_id")
+        audio = data.get("audio") or {}
+        self.vox_encoding = str(audio.get("encoding") or self.vox_encoding).upper()
+        self.vox_rate = int(audio.get("sampleRate") or self.vox_rate)
         self.log(f"call_started: from={self.caller_number} to={self.called_number} call_id={self.call_id} "
-                 f"first_phrase={'yes' if self.first_phrase else 'no'} config_prompt={len(self.config_prompt or '')} chars")
+                 f"first_phrase={'yes' if self.first_phrase else 'no'} config_prompt={len(self.config_prompt or '')} chars "
+                 f"audio={self.vox_encoding}@{self.vox_rate}")
+        # Pre-answer: сессию Live поднимаем сразу, пока абонент слышит гудки.
+        # Сценарий ответит на звонок по нашему live.started.
+        if self.live is None:
+            asyncio.create_task(self._connect_live())
 
     async def _on_stream_start(self, data: Dict[str, Any]):
         fmt = (data.get("start") or {}).get("mediaFormat") or {}
-        self.vox_encoding = str(fmt.get("encoding") or "PCM16").upper()
-        self.vox_rate = int(fmt.get("sampleRate") or 16000)
+        enc = str(fmt.get("encoding") or "PCM16").upper()
+        rate = int(fmt.get("sampleRate") or 16000)
+        if self.live is not None and (enc, rate) != (self.vox_encoding, self.vox_rate):
+            self.log(f"Voximplant format {enc}@{rate} differs from call_started {self.vox_encoding}@{self.vox_rate}; "
+                     f"converting", "warning")
+        self.vox_encoding, self.vox_rate = enc, rate
         self.stream_in_started = True
-        self.log(f"stream start from Voximplant: {self.vox_encoding} @ {self.vox_rate} Hz")
+        self.log(f"stream start from Voximplant: {enc} @ {rate} Hz (media attached)")
         if self.live is None:
+            # Сценарий без pre-answer (старый порядок) — поднимаем сессию здесь
             await self._connect_live()
+        await self._maybe_greet()
+
+    async def _maybe_greet(self):
+        """Приветствие — только когда и сессия Live готова, и медиа в звонок привязано."""
+        if self.greeted or self.live is None or not self.live.is_connected or not self.stream_in_started:
+            return
+        self.greeted = True
+        greeting = self.first_phrase or (getattr(self.assistant, "greeting_message", None) or "").strip()
+        if greeting:
+            await self.live.say_greeting(greeting)
+            self.log(f"greeting requested: \"{greeting[:60]}\"")
 
     async def _on_media(self, data: Dict[str, Any]):
         if self.live is None or not self.live.is_connected:
@@ -307,11 +334,7 @@ class LiveTelephonyBridge:
         })
         asyncio.create_task(self._pump_live_events())
         asyncio.create_task(self._pump_out_audio())
-
-        greeting = self.first_phrase or (getattr(self.assistant, "greeting_message", None) or "").strip()
-        if greeting:
-            await self.live.say_greeting(greeting)
-            self.log(f"greeting requested: \"{greeting[:60]}\"")
+        await self._maybe_greet()
 
     async def _pump_live_events(self):
         try:
