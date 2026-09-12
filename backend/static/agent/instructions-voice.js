@@ -248,8 +248,9 @@ function renderModelTypeCards(){
     const selected = iSelectedType === t.type;
     const price = iTypePriceLabel(t.type);
     const isCurrent = t.type === cur;
+    const logo = (window.VF && VF.logo) ? `<div class="type-logo">${VF.logo(t.type, { size: 18 })}</div>` : '';
     return `<div class="type-card ${selected ? 'selected' : ''}" onclick="iSelectType('${t.type}')">
-      <div class="type-radio"></div>
+      <div class="type-radio"></div>${logo}
       <div class="type-info">
         <div class="type-name">${t.name}${isCurrent ? ' <span class="type-current">текущая</span>' : ''}</div>
         <div class="type-desc">${t.desc}</div>

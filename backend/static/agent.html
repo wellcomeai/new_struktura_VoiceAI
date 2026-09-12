@@ -345,85 +345,99 @@
   </div>
 </div>
 
-<!-- MODAL: Настройки агента -->
+<!-- MODAL: Настройки агента (широкая: разделы слева, содержимое справа; agent/settings-layout.js) -->
 <div class="modal-overlay hidden" id="instructions-modal-overlay">
-  <div class="modal">
+  <div class="modal modal-settings">
     <div class="modal-header">
-      <div class="modal-title">Настройки агента</div>
+      <div class="modal-title"><i class="fas fa-sliders"></i> Настройки агента</div>
       <button class="modal-close" onclick="closeInstructionsModal()"><i class="fas fa-times"></i></button>
     </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Имя агента</label>
-        <input type="text" class="form-input" id="i-name">
-      </div>
+    <div class="settings-body">
+      <nav class="settings-nav" id="settings-nav" aria-label="Разделы настроек">
+        <button type="button" class="settings-nav-item active" data-section="general"><i class="fas fa-microphone-lines"></i><span><b>Основное</b><small>Имя, голосовая модель и голос</small></span></button>
+        <button type="button" class="settings-nav-item" data-section="orchestrator"><i class="fas fa-brain"></i><span><b>Оркестратор</b><small>Модель, инструкции, вебхук</small></span></button>
+        <button type="button" class="settings-nav-item" data-section="calls"><i class="fas fa-phone"></i><span><b>Звонки</b><small>Номер, первая фраза, поведение</small></span></button>
+        <button type="button" class="settings-nav-item" data-section="api"><i class="fas fa-plug"></i><span><b>Публичный API</b><small>Приём заявок извне</small></span></button>
+      </nav>
+      <div class="modal-body settings-content" id="settings-content">
 
-      <!-- ─── СЕКЦИЯ 1: ОРКЕСТРАТОР (текстовый чат-агент) ─── -->
-      <div class="instr-section-head">
-        <i class="fas fa-brain"></i>
-        <div>
-          <div class="instr-section-title">Оркестратор · текстовый чат-агент</div>
-          <div class="instr-section-sub">Мозг-планировщик: ведёт CRM, планирует звонки, готовит стратегию каждого звонка и анализирует результат. В живом телефонном разговоре эти инструкции НЕ используются.</div>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Модель оркестратора</label>
-        <select class="form-select" id="i-orchestrator_model"></select>
-        <div class="form-hint" id="i-model-desc"></div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Инструкции для оркестратора</label>
-        <textarea class="form-textarea" id="i-additional_instructions" rows="5"
-                  placeholder="Например: «перед обзвоном новых контактов всегда проверяй дубли», «не планируй звонки в выходные»."></textarea>
-        <div class="form-hint">Правила планирования и работы с контактами, которые не вписываются в документы компании.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">URL вебхука</label>
-        <input type="url" class="form-input" id="i-webhook_url"
-               placeholder="https://n8n.example.com/webhook/abc123">
-        <div class="form-hint">Оркестратор сможет отправлять события (заявки, лиды, результаты звонков) в n8n / Make / Zapier или любой HTTP endpoint через функцию send_webhook. Оставьте пустым, чтобы отключить.</div>
-      </div>
+        <!-- ─── РАЗДЕЛ: ОСНОВНОЕ ─── -->
+        <section class="settings-section active" data-section="general">
+          <div class="settings-section-head">
+            <h3>Основное</h3>
+            <p>Как агента зовут и каким голосом он говорит с клиентами по телефону.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Имя агента</label>
+            <input type="text" class="form-input" id="i-name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Голосовая модель</label>
+            <div id="i-model-type-group" class="model-type-cards"></div>
+            <div class="form-hint" id="i-model-type-hint"></div>
+          </div>
+          <div id="i-voice-group"></div>
+        </section>
 
-      <!-- ─── СЕКЦИЯ 2: ГОЛОСОВОЙ АГЕНТ (живой звонок) ─── -->
-      <div class="instr-section-head">
-        <i class="fas fa-microphone-lines"></i>
-        <div>
-          <div class="instr-section-title">Голосовой агент · живой звонок</div>
-          <div class="instr-section-sub">Как агент ведёт себя в телефонном разговоре с клиентом: голос, тон, что говорить и чего избегать.</div>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Голосовая модель</label>
-        <div id="i-model-type-group" class="model-type-cards"></div>
-        <div class="form-hint" id="i-model-type-hint"></div>
-      </div>
-      <div id="i-voice-group"></div>
-      <div class="form-group">
-        <label class="form-label">Номер для исходящих (Caller ID)</label>
-        <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Первая фраза для входящих звонков</label>
-        <textarea class="form-textarea" id="i-inbound_first_phrase" rows="2"
-                  placeholder="Например: «Здравствуйте, {name}! Чем могу помочь?»"></textarea>
-        <div class="form-hint">С чего агент начинает разговор, когда звонят ему. Подставьте <code>{name}</code> — вместо неё подставится имя из карточки контакта, если звонящий есть в базе агента (для незнакомых номеров переменная просто убирается). Оставьте пустым — будет использовано приветствие по умолчанию.</div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Инструкции для голосового агента</label>
-        <textarea class="form-textarea" id="i-voice_additional_instructions" rows="5"
-                  placeholder="Например: «говори коротко, не дави», «если спросят про цену — назови диапазон», «не упоминай конкурентов»."></textarea>
-        <div class="form-hint">Правила поведения именно в живом разговоре. Добавляются к промпту голосового агента.</div>
-      </div>
+        <!-- ─── РАЗДЕЛ: ОРКЕСТРАТОР (текстовый чат-агент) ─── -->
+        <section class="settings-section" data-section="orchestrator">
+          <div class="settings-section-head">
+            <h3>Оркестратор · текстовый чат-агент</h3>
+            <p>Мозг-планировщик: ведёт CRM, планирует звонки, готовит стратегию каждого звонка и анализирует результат. В живом телефонном разговоре эти инструкции не используются.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Модель оркестратора</label>
+            <select class="form-select" id="i-orchestrator_model"></select>
+            <div class="form-hint" id="i-model-desc"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Инструкции для оркестратора</label>
+            <textarea class="form-textarea" id="i-additional_instructions" rows="6"
+                      placeholder="Например: «перед обзвоном новых контактов всегда проверяй дубли», «не планируй звонки в выходные»."></textarea>
+            <div class="form-hint">Правила планирования и работы с контактами, которые не вписываются в документы компании.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">URL вебхука</label>
+            <input type="url" class="form-input" id="i-webhook_url"
+                   placeholder="https://n8n.example.com/webhook/abc123">
+            <div class="form-hint">Оркестратор сможет отправлять события (заявки, лиды, результаты звонков) в n8n / Make / Zapier или любой HTTP endpoint через функцию send_webhook. Оставьте пустым, чтобы отключить.</div>
+          </div>
+        </section>
 
-      <!-- ─── СЕКЦИЯ 3: ПУБЛИЧНЫЙ API (приём заявок извне) ─── -->
-      <div class="instr-section-head">
-        <i class="fas fa-plug"></i>
-        <div>
-          <div class="instr-section-title">Публичный API · приём заявок извне</div>
-          <div class="instr-section-sub">Шлите заявки с формы сайта или из вашей CRM по секретному ключу — агент сам решит, что с ними делать (создаст контакт, поставит звонок, ответит). Запросы — только со своего сервера (server-to-server).</div>
-        </div>
+        <!-- ─── РАЗДЕЛ: ЗВОНКИ (живой разговор) ─── -->
+        <section class="settings-section" data-section="calls">
+          <div class="settings-section-head">
+            <h3>Звонки · живой разговор</h3>
+            <p>Как агент ведёт себя в телефонном разговоре с клиентом: с какого номера звонит, с чего начинает и чего избегает.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Номер для исходящих (Caller ID)</label>
+            <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Первая фраза для входящих звонков</label>
+            <textarea class="form-textarea" id="i-inbound_first_phrase" rows="2"
+                      placeholder="Например: «Здравствуйте, {name}! Чем могу помочь?»"></textarea>
+            <div class="form-hint">С чего агент начинает разговор, когда звонят ему. Подставьте <code>{name}</code> — вместо неё подставится имя из карточки контакта, если звонящий есть в базе агента (для незнакомых номеров переменная просто убирается). Оставьте пустым — будет использовано приветствие по умолчанию.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Инструкции для голосового агента</label>
+            <textarea class="form-textarea" id="i-voice_additional_instructions" rows="6"
+                      placeholder="Например: «говори коротко, не дави», «если спросят про цену — назови диапазон», «не упоминай конкурентов»."></textarea>
+            <div class="form-hint">Правила поведения именно в живом разговоре. Добавляются к промпту голосового агента.</div>
+          </div>
+        </section>
+
+        <!-- ─── РАЗДЕЛ: ПУБЛИЧНЫЙ API (приём заявок извне) ─── -->
+        <section class="settings-section" data-section="api">
+          <div class="settings-section-head">
+            <h3>Публичный API · приём заявок извне</h3>
+            <p>Шлите заявки с формы сайта или из вашей CRM по секретному ключу — агент сам решит, что с ними делать (создаст контакт, поставит звонок, ответит). Запросы — только со своего сервера (server-to-server).</p>
+          </div>
+          <div id="i-public-access"><div class="form-hint">Загрузка…</div></div>
+        </section>
+
       </div>
-      <div id="i-public-access"><div class="form-hint">Загрузка…</div></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeInstructionsModal()">Отмена</button>
@@ -795,6 +809,7 @@
 <script src="/static/agent/presence.js"></script>
 <script src="/static/agent/motion.js"></script>
 <script src="/static/agent/panels.js"></script>
+<script src="/static/agent/settings-layout.js"></script>
 <script src="/static/agent/init.js"></script>
 </body>
 </html>

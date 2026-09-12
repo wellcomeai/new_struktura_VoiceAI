@@ -105,8 +105,9 @@ function drawStep0(c){
       keyHtml += `<div class="type-key-status"><span class="key-pill ok"><i class="fas fa-wallet"></i> ${price}</span></div>`;
       keyHtml += `<div class="form-hint" style="margin-top:8px">Минуты связи при звонках оплачиваются с баланса телефонии.</div>`;
     }
+    const logo = (window.VF && VF.logo) ? `<div class="type-logo">${VF.logo(t.type, { size: 18 })}</div>` : '';
     return `<div class="type-card ${selected?'selected':''}" onclick="selectType('${t.type}')">
-      <div class="type-radio"></div>
+      <div class="type-radio"></div>${logo}
       <div class="type-info"><div class="type-name">${t.name}</div><div class="type-desc">${t.desc}</div>${keyHtml}</div>
     </div>`;
   }).join('');

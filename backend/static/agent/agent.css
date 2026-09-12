@@ -521,7 +521,41 @@ input[type=range] { accent-color: var(--vf-accent); }
 .voice-pv-txt b { font-size: 12.5px; font-weight: 600; }
 .voice-pv-txt span { font-size: 11.5px; color: var(--vf-text-3); }
 
-/* Модалка настроек: секции */
+/* Широкая модалка настроек: разделы слева, содержимое справа */
+.modal-settings { max-width: 1040px; height: 86vh; }
+.settings-body { flex: 1; min-height: 0; display: flex; border-top: 1px solid var(--vf-border); }
+.settings-nav { width: 232px; flex: 0 0 auto; padding: 12px 10px; border-right: 1px solid var(--vf-border); background: var(--vf-surface-2); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.settings-nav-item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; border: none; border-radius: var(--vf-r-sm); background: transparent; text-align: left; cursor: pointer; color: var(--vf-text-2); transition: background var(--vf-fast), color var(--vf-fast); }
+.settings-nav-item i { width: 18px; margin-top: 2px; font-size: 13px; color: var(--vf-text-4); text-align: center; flex: 0 0 auto; }
+.settings-nav-item span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.settings-nav-item b { font-size: 13px; font-weight: 600; color: var(--vf-text); }
+.settings-nav-item small { font-size: 11.5px; color: var(--vf-text-4); line-height: 1.35; }
+.settings-nav-item:hover { background: var(--vf-surface-3); }
+.settings-nav-item.active { background: var(--vf-surface); box-shadow: var(--vf-shadow-1); }
+.settings-nav-item.active i, .settings-nav-item.active b { color: var(--vf-accent); }
+.settings-content { padding: 22px 26px 26px; }
+.settings-section { display: none; max-width: 680px; }
+.settings-section.active { display: block; animation: msgIn .18s ease; }
+.settings-section-head { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--vf-border); }
+.settings-section-head h3 { font-size: 16px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 4px; }
+.settings-section-head p { font-size: 12.5px; color: var(--vf-text-3); line-height: 1.5; }
+.settings-section .form-group { margin-bottom: 18px; }
+@media (max-width: 860px) {
+  .modal-settings { height: 94vh; }
+  .settings-body { flex-direction: column; }
+  .settings-nav { width: auto; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--vf-border); padding: 8px; }
+  .settings-nav-item { flex: 0 0 auto; padding: 7px 10px; }
+  .settings-nav-item small { display: none; }
+  .settings-content { padding: 16px; }
+}
+/* Логотип провайдера в карточке выбора голосовой модели (настройки и мастер) */
+.type-logo { flex: 0 0 auto; margin-top: -2px; }
+.type-logo .logo-wrap { width: 32px; height: 32px; border-radius: 9px; }
+.type-logo .logo { width: 18px; height: 18px; }
+.type-badge .logo { width: 13px; height: 13px; margin-right: 5px; }
+.agent-dd-item .type-badge .logo { margin-right: 4px; }
+
+/* Модалка настроек: секции (устаревшая разметка секций внутри одного скролла) */
 .instr-section-head { display: flex; gap: 11px; align-items: flex-start; margin: 20px 0 14px; padding: 11px 13px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); border-radius: var(--vf-r-sm); }
 .instr-section-head > i { font-size: 15px; color: var(--vf-accent); margin-top: 2px; flex: 0 0 auto; }
 .instr-section-title { font-size: 13.5px; font-weight: 700; }

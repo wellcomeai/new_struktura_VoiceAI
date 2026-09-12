@@ -53,7 +53,7 @@ function renderAgentSwitcher(){
     return `<div class="agent-dd-item ${active?'active':''}" data-id="${esc(String(a.id))}">
       <div class="agent-dd-avatar">${letter}</div>
       <div class="agent-dd-name">${esc(a.name||'Агент')}</div>
-      <span class="type-badge">${esc(type)}</span>
+      <span class="type-badge">${(window.VF && VF.logo) ? VF.logo(a.assistant_type, { bare:true, size:13 }) : ''}${esc(type)}</span>
       ${active?'<i class="fas fa-check agent-dd-check"></i>':''}
     </div>`;
   }).join('');
