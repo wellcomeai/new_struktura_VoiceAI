@@ -344,7 +344,7 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .msg.user { align-self: center; flex-direction: row; justify-content: flex-end; }
 .msg.user .msg-avatar { display: none; }
 .msg-avatar { width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
-.msg.assistant .msg-avatar { background: var(--vf-surface); border: 1px solid var(--vf-border); box-shadow: var(--vf-shadow-1); overflow: hidden; padding: 4px; }
+.msg.assistant .msg-avatar { background: transparent; border: none; box-shadow: none; padding: 2px; }
 .msg-avatar img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .msg-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
 .msg.assistant .msg-body { max-width: calc(100% - 38px); }
