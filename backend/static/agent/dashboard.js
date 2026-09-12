@@ -58,8 +58,8 @@ function closeDrawer(){
 function showDashboard(){
   document.getElementById('loading-screen').classList.add('hidden');
   document.getElementById('wizard-overlay').classList.add('hidden');
-  document.getElementById('top-nav').style.display='flex';
-  document.getElementById('main-layout').style.display='flex';
+  document.getElementById('top-nav').style.display='grid';
+  document.getElementById('main-layout').style.display='grid';
   document.getElementById('app-footer').style.display='flex';
 
   renderAgentHeader();

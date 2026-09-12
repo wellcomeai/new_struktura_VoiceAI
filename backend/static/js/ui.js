@@ -622,7 +622,20 @@
     'download': 'download', 'upload': 'upload', 'external-link-alt': 'external-link', 'bell': 'bell', 'envelope': 'mail', 'question-circle': 'circle-help',
     'play': 'play', 'sliders-h': 'sliders-horizontal', 'layer-group': 'layers', 'tag': 'tag', 'map-marker-alt': 'map-pin', 'chart-line': 'trending-up',
     'volume-up': 'volume-2', 'image': 'image', 'bookmark': 'bookmark', 'folder': 'folder', 'file': 'file', 'puzzle-piece': 'puzzle', 'magic': 'sparkles',
-    'pencil-alt': 'pencil', 'money-bill': 'banknote', 'comment-dots': 'message-circle', 'phone-incoming': 'phone-incoming'
+    'pencil-alt': 'pencil', 'money-bill': 'banknote', 'comment-dots': 'message-circle', 'phone-incoming': 'phone-incoming',
+    // Имена Font Awesome 6 (страница агента): маппинг на те же символы спрайта
+    'xmark': 'x', 'circle-xmark': 'circle-x', 'circle-check': 'circle-check', 'circle-info': 'info', 'circle-exclamation': 'circle-alert',
+    'circle-question': 'circle-help', 'triangle-exclamation': 'triangle-alert', 'trash-can': 'trash-2', 'right-from-bracket': 'log-out',
+    'arrow-right-long': 'arrow-right', 'clock-rotate-left': 'history', 'rotate-right': 'refresh-cw', 'list-check': 'square-check',
+    'list-ol': 'list', 'calendar-check': 'calendar', 'calendar-days': 'calendar', 'calendar-day': 'calendar', 'calendar-week': 'calendar',
+    'cloud-arrow-up': 'upload', 'file-import': 'upload', 'file-lines': 'file-text', 'magnifying-glass': 'search', 'microphone-lines': 'mic',
+    'note-sticky': 'sticky-note', 'pen-to-square': 'square-pen', 'user-pen': 'square-pen', 'shield-halved': 'shield-check', 'sliders': 'sliders-horizontal',
+    'gear': 'settings', 'link-slash': 'unlink', 'stream': 'columns-2', 'folder-open': 'folder', 'chart-pie': 'chart-column', 'chart-line': 'trending-up',
+    'magnifying-glass-chart': 'search', 'id-card': 'contact-round', 'user-plus': 'user-check', 'users-rectangle': 'users', 'lightbulb': 'sparkles',
+    'bullseye': 'circle', 'flag': 'bookmark', 'building': 'building', 'box-open': 'inbox', 'comment-sms': 'message-square', 'compass': 'globe',
+    'forward': 'arrow-right', 'circle-pause': 'circle-minus', 'pause-circle': 'circle-minus', 'mug-hot': 'hourglass', 'arrows-turn-right': 'route',
+    'quote-left': 'message-square', 'user-minus': 'circle-minus', 'ban': 'circle-x', 'clone': 'copy', 'person-walking': 'activity', 'shuffle': 'route',
+    'venus': 'user', 'mars': 'user', 'circle-half-stroke': 'circle', 'wand-magic-sparkles': 'wand-2'
   };
   function faName(el) {
     var cl = el.classList;

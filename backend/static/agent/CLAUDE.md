@@ -17,6 +17,16 @@ Fish — половинный каскад на ключах пользоват�
 Эта папка (`backend/static/agent/`) содержит результат разбиения исходного
 монолитного `agent.html` (~3700 строк) на стили + доменные скрипты.
 
+**v7 (ветка 1209-disign-agent-v1): интерфейс на дизайн-системе Voicyfy.**
+`agent.html` подключает `/static/css/voicyfy.css` (токены `--vf-*`) и `/static/js/ui.js`
+(мост Font Awesome → Lucide, работает автоматически для `<i class="fas fa-…">`),
+затем `agent.css`, который переопределяет старые переменные (`--blue`, `--muted`,
+`--bg`…) через токены — инлайн-стили в JS продолжают работать. Страница осознанно
+живёт **без общего сайдбара ЛК** (отдельное окно, логотип ведёт на дашборд).
+Раскладка — CSS-grid «панель «Работа» | чат | панель «Агент»», панели сворачиваются
+(см. `panels.js`). `<body>` намеренно без класса `vf`, чтобы `ui.js` не подменял
+нативные `<select>` на VF.select (скрипты читают/пишут их напрямую).
+
 - **Прод-URL:** `https://voicyfy.ru/static/agent.html`
 - **Как раздаётся:** статикой через `app.mount("/static", StaticFiles(...))` в `app.py`.
   Отдельного backend-роута для самой страницы нет — это чистый фронтенд.
@@ -40,7 +50,8 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
    Дубликат → `SyntaxError: redeclaration` и вся страница падает.
 2. **Каждая функция определяется один раз.** Имена — глобальные, коллизии молча
    перетирают друг друга.
-3. **Порядок подключения:** `core.js` первым, `init.js` последним. Между ними
+3. **Порядок подключения:** `core.js` первым, `init.js` последним (`presence.js`,
+   `motion.js`, `panels.js` — перед `init.js`, они оборачивают глобальные функции). Между ними
    порядок не критичен (функции вызываются в runtime, не на загрузке), но менять
    без нужды не стоит. Список и порядок — в конце `agent.html`.
 4. Любую новую глобальную переменную состояния клади в файл её домена (или в
@@ -57,6 +68,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | `credits.js` | Кредиты и подписка оркестратора | `loadCredits`, `renderCreditsBadge`, `onSubAction`, `openCreditsModal`, `purchasePackage`, `subscribeAgent`, `openBillingModal`, `submitRobokassaForm` | `/api/credits/*` |
 | `agent-switcher.js` | Мультиагент (v3.1) | `initAgents`, `renderAgentSwitcher`, dropdown, `loadCurrentAgent`, `selectAgent`, `openNewAgentWizard`, `showDashboard`, `renderAgentHeader`, `renderDocsGrid`, `deleteAgent` | `/api/agent` (`/list`, `/`, `/create`) |
 | `dashboard.js` | Раскладка/drawer + дашборд | `applyLayout`, `openDrawer`, `closeDrawer`, `_collectMigrations`, `loadStats`, `loadRecentCalls`, `loadTasks` | `/api/agent/stats`, `/calls`, `/tasks` |
+| `panels.js` | Сворачиваемые панели «Работа» (слева: статистика, задачи, звонки, история) и «Агент» (справа: карточка агента, документы, база данных, коннекторы, Telegram-бот, кредиты). Любой элемент с `data-panel="left\|right"` (язычки `.handle` на краях чата, кнопки `.panel-btn` в топбаре, кнопки в шапках панелей) переключает панель; клавиши `[` `]`; состояние в `localStorage.agent_panels_v1`; на мобильной раскладке открывает drawer. Оборачивает `renderAgentHeader`, чтобы обновлять букву-аватар `#nav-agent-avatar`. Грузится после `motion.js`, перед `init.js` | `applyPanels`, `togglePanel`, состояние `panelsState`, константа `PANELS_STORAGE_KEY` | — |
 | `tasks-calendar.js` | Календарь задач (модалка) | `openTasksCalendar`, `tcalDeleteAllTasks`, `tcalDeleteDayTasks`, семейство `_tcal*` | `/api/agent/tasks` (GET/DELETE bulk), `/tasks/{id}` |
 | `chat.js` | Чат с оркестратором (стриминг) + голосовой ввод (STT) | `sendMessage`, `handleStreamEvent`, `createStreamingBubble`, `addAgentBubble`, `newChat`, `renderWelcome`, `suggestionClick`, `showTyping`, `toggleRecording`, `onRecordingStop` (запись с микрофона → распознанный текст в поле ввода) | `/api/agent/chat`, `/chat/stream`, `/chat/clear`, `/transcribe` |
 | `instructions-voice.js` | Edit-модалка + инструкции + выбор голоса | `openEditModal`, `saveEdit`, `openInstructionsModal`, `saveInstructions`, `voiceControlHtml`, `readVoiceBody`, `loadModels`, `loadPhoneNumbers`, `fillCallerIdSelect`, `toggleActive` | `/api/agent/` (PUT), `/orchestrator-models`, `/phone-numbers` |
@@ -145,4 +157,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
   не должна ругаться на `redeclaration`/`is not defined`).
 - Открыть `/static/agent.html`, проверить: загрузка дашборда, переключение
   агентов, чат, открытие основных модалок (звонки, контакты, воронка, импорт,
-  настройки, telegram), wizard создания.
+  настройки, telegram), wizard создания, сворачивание панелей (язычки, `[` `]`),
+  мобильный drawer (< 1100px).
+- Правила раскладки: `showDashboard()` включает `#top-nav` и `#main-layout` через
+  `style.display='grid'` — не менять на `flex`, иначе сетка колонок сломается.
