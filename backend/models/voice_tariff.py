@@ -100,4 +100,12 @@ DEFAULT_TARIFFS = [
         "price_kopeks_per_min": 600, "channels": "telephony", "sort_order": 90,
         "is_enabled": False,
     },
+    {
+        # 🧪 GPT-Live (gpt-live-1): $0.05/мин голос + токены бэкенд-модели.
+        # Скрыт из витрины, пока идёт тест на /static/live-test.html.
+        "code": "openai-live", "name": "OpenAI Live", "badge": "Тест",
+        "description": "GPT-Live-1: full-duplex голос, экспериментально",
+        "price_kopeks_per_min": 900, "channels": "widget", "sort_order": 55,
+        "is_enabled": False,
+    },
 ]
