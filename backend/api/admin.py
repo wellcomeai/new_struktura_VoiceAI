@@ -183,7 +183,7 @@ class AdminPasswordResetRequest(BaseModel):
 
 
 @router.get("/users", response_model=List[Dict[str, Any]])
-async def get_all_users(
+def get_all_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     search: Optional[str] = None,
@@ -248,7 +248,7 @@ async def get_all_users(
             total_assistants = openai_count + gemini_count + grok_count
             
             # Check subscription status
-            subscription_status_info = await UserService.check_subscription_status(db, str(user.id))
+            subscription_status_info = UserService.check_subscription_status(db, str(user.id))
             
             # Format user data
             user_data = {
@@ -286,7 +286,7 @@ async def get_all_users(
 
 
 @router.get("/users/{user_id}", response_model=Dict[str, Any])
-async def get_user_details(
+def get_user_details(
     user_id: str = Path(..., description="User ID"),
     current_user: User = Depends(check_admin_access),
     db: Session = Depends(get_db)
@@ -299,10 +299,10 @@ async def get_user_details(
     """
     try:
         # Get user with validation
-        user = await UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
         
         # Get subscription details
-        subscription_status = await UserService.check_subscription_status(db, user_id)
+        subscription_status = UserService.check_subscription_status(db, user_id)
         
         # ✅ v2.0: Получаем ВСЕ типы ассистентов
         
@@ -423,7 +423,7 @@ async def get_user_details(
 
 
 @router.get("/plans", response_model=List[Dict[str, Any]])
-async def get_admin_plans(
+def get_admin_plans(
     current_user: User = Depends(check_admin_access),
     db: Session = Depends(get_db)
 ):
@@ -480,7 +480,7 @@ async def get_admin_plans(
 
 
 @router.post("/users/{user_id}/subscription", response_model=Dict[str, Any])
-async def update_user_subscription(
+def update_user_subscription(
     user_id: str = Path(..., description="User ID"),
     request: SubscriptionUpdateRequest = ...,  # ✅ v2.2: Body вместо Query
     current_user: User = Depends(check_admin_access),
@@ -496,7 +496,7 @@ async def update_user_subscription(
     """
     try:
         # Get user with validation
-        user = await UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
 
         grid = get_admin_plan_grid()
         entry = grid.get(request.plan_code)
@@ -550,7 +550,7 @@ async def update_user_subscription(
         db.commit()
 
         # Log subscription event
-        await SubscriptionService.log_subscription_event(
+        SubscriptionService.log_subscription_event(
             db=db,
             user_id=str(user.id),
             action="admin_update",
@@ -566,7 +566,7 @@ async def update_user_subscription(
 
         # Return updated subscription info
         db.refresh(user)
-        subscription_status = await UserService.check_subscription_status(db, user_id)
+        subscription_status = UserService.check_subscription_status(db, user_id)
 
         return {
             "success": True,
@@ -601,7 +601,7 @@ async def update_user_subscription(
 
 
 @router.get("/stats", response_model=Dict[str, Any])
-async def get_admin_statistics(
+def get_admin_statistics(
     current_user: User = Depends(check_admin_access),
     db: Session = Depends(get_db)
 ):
@@ -999,7 +999,7 @@ def _build_orchestrator_stats(db: Session, now: datetime) -> Dict[str, Any]:
 
 
 @router.get("/agent-usage", response_model=Dict[str, Any])
-async def get_agent_usage(
+def get_agent_usage(
     search: Optional[str] = Query(None, description="Поиск по email/имени/компании"),
     activity_filter: Optional[str] = Query(
         None, description="active_7d | inactive_7d | trial | low_balance"
@@ -1182,7 +1182,7 @@ async def get_agent_usage(
 
 
 @router.get("/users/{user_id}/agent-usage", response_model=Dict[str, Any])
-async def get_user_agent_usage(
+def get_user_agent_usage(
     user_id: str = Path(..., description="User ID"),
     current_user: User = Depends(check_admin_access),
     db: Session = Depends(get_db)
@@ -1194,7 +1194,7 @@ async def get_user_agent_usage(
     Admin only.
     """
     try:
-        user = await UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
 
         now = datetime.now(timezone.utc)
         today_start = _msk_day_start_utc(now)
@@ -1401,7 +1401,7 @@ async def get_user_agent_usage(
 
 
 @router.post("/users/{user_id}/reset-password", response_model=Dict[str, Any])
-async def admin_reset_password(
+def admin_reset_password(
     user_id: str = Path(..., description="User ID"),
     request: AdminPasswordResetRequest = ...,
     current_user: User = Depends(check_admin_access),
@@ -1415,7 +1415,7 @@ async def admin_reset_password(
     import hashlib
 
     try:
-        user = await UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
 
         if len(request.new_password) < 6:
             raise HTTPException(

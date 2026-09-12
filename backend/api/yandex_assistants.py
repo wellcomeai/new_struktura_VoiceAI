@@ -176,7 +176,7 @@ def assistant_to_response(assistant: YandexAssistantConfig) -> "YandexAssistantR
     )
 
 
-async def verify_assistant_access(
+def verify_assistant_access(
     assistant_id: str,
     user_id: str,
     db: Session,
@@ -218,7 +218,7 @@ async def verify_assistant_access(
 # ============================================================================
 
 @router.get("/options")
-async def get_yandex_options(
+def get_yandex_options(
     current_user: User = Depends(get_current_user)
 ):
     """Get available models and voices for Yandex assistants (for UI dropdowns)."""
@@ -234,7 +234,7 @@ async def get_yandex_options(
 # ============================================================================
 
 @router.get("/api-keys", response_model=YandexApiKeysStatus)
-async def get_api_keys_status(
+def get_api_keys_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -248,7 +248,7 @@ async def get_api_keys_status(
 
 
 @router.put("/api-keys", response_model=YandexApiKeysStatus)
-async def update_api_keys(
+def update_api_keys(
     keys_data: YandexApiKeysUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -293,7 +293,7 @@ async def update_api_keys(
 # ============================================================================
 
 @router.get("")
-async def get_yandex_assistants(
+def get_yandex_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -332,14 +332,14 @@ async def get_yandex_assistants(
 
 
 @router.get("/{assistant_id}", response_model=YandexAssistantResponse)
-async def get_yandex_assistant(
+def get_yandex_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Get a specific Yandex assistant by ID."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -359,7 +359,7 @@ async def get_yandex_assistant(
 
 
 @router.post("", response_model=YandexAssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_yandex_assistant(
+def create_yandex_assistant(
     assistant_data: YandexAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit проверяет активность подписки + общий лимит
@@ -415,7 +415,7 @@ async def create_yandex_assistant(
 
 
 @router.put("/{assistant_id}", response_model=YandexAssistantResponse)
-async def update_yandex_assistant(
+def update_yandex_assistant(
     assistant_id: str,
     assistant_data: YandexAssistantUpdate,
     db: Session = Depends(get_db),
@@ -425,7 +425,7 @@ async def update_yandex_assistant(
     try:
         logger.info(f"[YANDEX-API] Updating assistant {assistant_id} for user {current_user.id}")
 
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -463,7 +463,7 @@ async def update_yandex_assistant(
 
 
 @router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_yandex_assistant(
+def delete_yandex_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -472,7 +472,7 @@ async def delete_yandex_assistant(
     try:
         logger.info(f"[YANDEX-API] Deleting assistant {assistant_id} for user {current_user.id}")
 
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -500,7 +500,7 @@ async def delete_yandex_assistant(
 # ============================================================================
 
 @router.get("/{assistant_id}/conversations")
-async def get_yandex_conversations(
+def get_yandex_conversations(
     assistant_id: str,
     limit: int = 50,
     offset: int = 0,
@@ -509,7 +509,7 @@ async def get_yandex_conversations(
 ):
     """Get conversation history for a Yandex assistant."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,

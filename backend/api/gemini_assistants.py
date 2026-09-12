@@ -119,7 +119,7 @@ class EmbedCodeResponse(BaseModel):
 # HELPER FUNCTIONS
 # ============================================================================
 
-async def verify_assistant_access(
+def verify_assistant_access(
     assistant_id: str,
     user_id: str,
     db: Session,
@@ -202,7 +202,7 @@ def build_assistant_response(assistant: GeminiAssistantConfig) -> GeminiAssistan
 # ============================================================================
 
 @router.get("", response_model=List[GeminiAssistantResponse])
-async def get_gemini_assistants(
+def get_gemini_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -239,7 +239,7 @@ async def get_gemini_assistants(
 
 
 @router.get("/{assistant_id}", response_model=GeminiAssistantResponse)
-async def get_gemini_assistant(
+def get_gemini_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -256,7 +256,7 @@ async def get_gemini_assistant(
     try:
         logger.info(f"[GEMINI-API] Fetching assistant {assistant_id} for user {current_user.id}")
         
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -276,7 +276,7 @@ async def get_gemini_assistant(
 
 
 @router.post("", response_model=GeminiAssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_gemini_assistant(
+def create_gemini_assistant(
     assistant_data: GeminiAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit проверяет активность подписки + общий лимит
@@ -344,7 +344,7 @@ async def create_gemini_assistant(
 
 
 @router.put("/{assistant_id}", response_model=GeminiAssistantResponse)
-async def update_gemini_assistant(
+def update_gemini_assistant(
     assistant_id: str,
     assistant_data: GeminiAssistantUpdate,
     db: Session = Depends(get_db),
@@ -363,7 +363,7 @@ async def update_gemini_assistant(
     try:
         logger.info(f"[GEMINI-API] Updating assistant {assistant_id} for user {current_user.id}")
         
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -401,7 +401,7 @@ async def update_gemini_assistant(
 
 
 @router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_gemini_assistant(
+def delete_gemini_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -418,7 +418,7 @@ async def delete_gemini_assistant(
     try:
         logger.info(f"[GEMINI-API] Deleting assistant {assistant_id} for user {current_user.id}")
 
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -483,7 +483,7 @@ async def delete_gemini_assistant(
 
 
 @router.get("/{assistant_id}/embed-code", response_model=EmbedCodeResponse)
-async def get_gemini_embed_code(
+def get_gemini_embed_code(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -500,7 +500,7 @@ async def get_gemini_embed_code(
     try:
         logger.info(f"[GEMINI-API] Getting embed code for assistant {assistant_id}")
         
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -576,7 +576,7 @@ async def verify_gemini_google_sheet(
         
         # Verify assistant access
         if assistant_id != "new":
-            await verify_assistant_access(
+            verify_assistant_access(
                 assistant_id=assistant_id,
                 user_id=str(current_user.id),
                 db=db,

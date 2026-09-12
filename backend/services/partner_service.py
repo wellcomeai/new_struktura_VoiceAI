@@ -355,7 +355,7 @@ class PartnerService:
             # ШАГ 10: Логирование события
             logger.info(f"📋 STEP 10: Logging subscription event")
             
-            await SubscriptionService.log_subscription_event(
+            SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=str(partner.user_id),
                 action="partner_commission_earned",

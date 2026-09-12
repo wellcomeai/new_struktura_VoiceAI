@@ -135,7 +135,7 @@ def count_user_assistants(db: Session, user_id: Any) -> int:
     return get_assistants_breakdown(db, user_id)["total"]
 
 
-async def get_assistants_usage(db: Session, user) -> Dict[str, Any]:
+def get_assistants_usage(db: Session, user) -> Dict[str, Any]:
     """
     Расход лимита ассистентов для UI: сколько занято, сколько доступно,
     можно ли создавать ещё.
@@ -169,7 +169,7 @@ async def get_assistants_usage(db: Session, user) -> Dict[str, Any]:
             "breakdown": breakdown,
         }
 
-    subscription_status = await UserService.check_subscription_status(db, str(user.id))
+    subscription_status = UserService.check_subscription_status(db, str(user.id))
     is_active = bool(subscription_status.get("active"))
 
     if user.email in SPECIAL_ASSISTANT_LIMITS:

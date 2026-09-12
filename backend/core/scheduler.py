@@ -86,7 +86,7 @@ async def check_expired_subscriptions():
                         
                         # Log the expiration event
                         from backend.services.subscription_service import SubscriptionService
-                        await SubscriptionService.log_subscription_event(
+                        SubscriptionService.log_subscription_event(
                             db=db,
                             user_id=str(user.id),
                             action="expire",

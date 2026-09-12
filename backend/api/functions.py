@@ -18,7 +18,7 @@ router = APIRouter()
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/public/catalog", response_model=List[Dict[str, Any]])
-async def get_public_functions_catalog():
+def get_public_functions_catalog():
     """
     Публичный каталог доступных функций (без авторизации).
     
@@ -51,7 +51,7 @@ async def get_public_functions_catalog():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @router.get("/", response_model=List[Dict[str, Any]])
-async def get_functions(
+def get_functions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -71,7 +71,7 @@ async def get_functions(
         )
 
 @router.get("/openai-format", response_model=List[Dict[str, Any]])
-async def get_functions_openai_format(
+def get_functions_openai_format(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

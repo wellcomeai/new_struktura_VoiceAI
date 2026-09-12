@@ -35,7 +35,7 @@ PRIVILEGED_UNLIMITED_EMAILS = {
 }
 
 
-async def get_current_user(
+def get_current_user(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ) -> User:
@@ -89,7 +89,7 @@ def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 
-async def get_current_user_flexible(
+def get_current_user_flexible(
     request: Request,
     db: Session = Depends(get_db)
 ) -> User:
@@ -126,7 +126,7 @@ async def get_current_user_flexible(
     if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
         token_data = decode_jwt_token(token)  # кидает 401 на невалидном токене
-        return await get_current_user(user_id=token_data["sub"], db=db)
+        return get_current_user(user_id=token_data["sub"], db=db)
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -134,7 +134,7 @@ async def get_current_user_flexible(
     )
 
 
-async def get_assistant_by_id(
+def get_assistant_by_id(
     assistant_id: str,
     db: Session = Depends(get_db)
 ) -> AssistantConfig:
@@ -184,7 +184,7 @@ async def get_assistant_by_id(
         )
 
 
-async def check_admin_access(
+def check_admin_access(
     current_user: User = Depends(get_current_user)
 ) -> User:
     """
@@ -208,7 +208,7 @@ async def check_admin_access(
     return current_user
 
 
-async def check_subscription_active(
+def check_subscription_active(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> User:
@@ -232,7 +232,7 @@ async def check_subscription_active(
         return current_user
     
     # Check subscription status
-    subscription_status = await UserService.check_subscription_status(db, str(current_user.id), user=current_user)
+    subscription_status = UserService.check_subscription_status(db, str(current_user.id), user=current_user)
     
     if not subscription_status["active"]:
         logger.warning(f"User {current_user.id} attempted to access protected resource with inactive subscription")
@@ -249,7 +249,7 @@ async def check_subscription_active(
     return current_user
 
 
-async def check_subscription_active_for_assistants(
+def check_subscription_active_for_assistants(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> User:
@@ -274,7 +274,7 @@ async def check_subscription_active_for_assistants(
         return current_user
     
     # Проверяем статус подписки
-    subscription_status = await UserService.check_subscription_status(db, str(current_user.id), user=current_user)
+    subscription_status = UserService.check_subscription_status(db, str(current_user.id), user=current_user)
     
     if not subscription_status["active"]:
         logger.warning(f"User {current_user.id} blocked from using assistants - subscription expired")
@@ -301,7 +301,7 @@ async def check_subscription_active_for_assistants(
     return current_user
 
 
-async def enforce_assistant_limit(db: Session, current_user: User) -> User:
+def enforce_assistant_limit(db: Session, current_user: User) -> User:
     """
     Проверить, что пользователь может создать ещё одного ассистента.
 
@@ -327,7 +327,7 @@ async def enforce_assistant_limit(db: Session, current_user: User) -> User:
         return current_user
 
     # Get subscription status
-    subscription_status = await UserService.check_subscription_status(db, str(current_user.id), user=current_user)
+    subscription_status = UserService.check_subscription_status(db, str(current_user.id), user=current_user)
     
     # Сначала проверяем активность подписки - СТРОГАЯ ПРОВЕРКА
     if not subscription_status["active"]:
@@ -379,15 +379,15 @@ async def enforce_assistant_limit(db: Session, current_user: User) -> User:
     return current_user
 
 
-async def check_assistant_limit(
+def check_assistant_limit(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> User:
     """Лимит ассистентов для эндпоинтов кабинета (авторизация только по JWT)."""
-    return await enforce_assistant_limit(db, current_user)
+    return enforce_assistant_limit(db, current_user)
 
 
-async def check_assistant_limit_flexible(
+def check_assistant_limit_flexible(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_flexible)
 ) -> User:
@@ -395,10 +395,10 @@ async def check_assistant_limit_flexible(
     Лимит ассистентов для эндпоинтов, открытых во внешний API: авторизация
     по персональному API-ключу (`X-Api-Key`) ИЛИ по JWT кабинета.
     """
-    return await enforce_assistant_limit(db, current_user)
+    return enforce_assistant_limit(db, current_user)
 
 
-async def check_subscription_or_show_popup(
+def check_subscription_or_show_popup(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> User:

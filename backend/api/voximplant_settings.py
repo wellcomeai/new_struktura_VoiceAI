@@ -197,7 +197,7 @@ class WebhookConfigResponse(BaseModel):
 # ============================================================================
 
 @router.get("/voximplant-settings", response_model=VoximplantConfigResponse)
-async def get_voximplant_settings(
+def get_voximplant_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -235,7 +235,7 @@ async def get_voximplant_settings(
 
 
 @router.put("/voximplant-settings", response_model=VoximplantConfigResponse)
-async def update_voximplant_settings(
+def update_voximplant_settings(
     config: VoximplantConfigUpdate,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -290,7 +290,7 @@ async def update_voximplant_settings(
 
 
 @router.delete("/voximplant-settings", response_model=VoximplantConfigDeleteResponse)
-async def delete_voximplant_settings(
+def delete_voximplant_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -329,7 +329,7 @@ async def delete_voximplant_settings(
 
 
 @router.post("/voximplant-settings/test")
-async def test_voximplant_settings(
+def test_voximplant_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -381,7 +381,7 @@ async def test_voximplant_settings(
 # ============================================================================
 
 @router.get("/telegram-settings", response_model=TelegramConfigResponse)
-async def get_telegram_settings(
+def get_telegram_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -427,7 +427,7 @@ async def get_telegram_settings(
 
 
 @router.put("/telegram-settings", response_model=TelegramConfigResponse)
-async def update_telegram_settings(
+def update_telegram_settings(
     config: TelegramConfigUpdate,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -496,7 +496,7 @@ async def update_telegram_settings(
 
 
 @router.delete("/telegram-settings")
-async def delete_telegram_settings(
+def delete_telegram_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -609,7 +609,7 @@ async def test_telegram_settings(
 # ============================================================================
 
 @router.get("/webhook-settings", response_model=WebhookConfigResponse)
-async def get_webhook_settings(
+def get_webhook_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -639,7 +639,7 @@ async def get_webhook_settings(
 
 
 @router.put("/webhook-settings", response_model=WebhookConfigResponse)
-async def update_webhook_settings(
+def update_webhook_settings(
     config: WebhookConfigUpdate,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -690,7 +690,7 @@ async def update_webhook_settings(
 
 
 @router.delete("/webhook-settings")
-async def delete_webhook_settings(
+def delete_webhook_settings(
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
 ):

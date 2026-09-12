@@ -34,7 +34,7 @@ class CreateEmbedRequest(BaseModel):
 # ==================================================================================
 
 @router.post("/")
-async def create_embed_config(
+def create_embed_config(
     request: CreateEmbedRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -76,7 +76,7 @@ async def create_embed_config(
 
 
 @router.get("/user/me")
-async def get_my_embed_configs(
+def get_my_embed_configs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -96,7 +96,7 @@ async def get_my_embed_configs(
 
 
 @router.delete("/{embed_code}")
-async def delete_embed_config(
+def delete_embed_config(
     embed_code: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -117,7 +117,7 @@ async def delete_embed_config(
 
 
 @router.patch("/{embed_code}")
-async def update_embed_config(
+def update_embed_config(
     embed_code: str,
     is_active: Optional[bool] = None,
     custom_name: Optional[str] = None,
@@ -149,7 +149,7 @@ async def update_embed_config(
 # ==================================================================================
 
 @router.get("/embed/{embed_code}", response_class=HTMLResponse)
-async def serve_embed_page(
+def serve_embed_page(
     embed_code: str,
     db: Session = Depends(get_db)
 ):

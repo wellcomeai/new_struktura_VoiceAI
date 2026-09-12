@@ -136,7 +136,7 @@ async def async_save_dialog_to_db(assistant_id: str, user_message: str, assistan
         log_to_render(f"   User: {user_message[:50]}...")
         log_to_render(f"   Assistant: {assistant_message[:50]}...")
         
-        result = await ConversationService.save_conversation(
+        result = ConversationService.save_conversation(
             db=db,
             assistant_id=assistant_id,
             user_message=user_message,
@@ -534,7 +534,7 @@ async def handle_websocket_connection_new(
                 
                 if not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
-                    subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                    subscription_status = UserService.check_subscription_status(db, str(user.id))
                     
                     log_to_render(f"💳 Subscription check:")
                     log_to_render(f"   Active: {subscription_status.get('active')}")

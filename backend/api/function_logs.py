@@ -45,7 +45,7 @@ async def get_user_function_statistics(
     )
 
 @router.get("/logs", response_model=List[Dict[str, Any]])
-async def get_function_logs(
+def get_function_logs(
     function_name: Optional[str] = Query(None, description="Фильтр по имени функции"),
     assistant_id: Optional[str] = Query(None, description="Фильтр по ID ассистента"),
     limit: int = Query(50, ge=1, le=500, description="Лимит записей"),

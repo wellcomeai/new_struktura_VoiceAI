@@ -25,7 +25,7 @@ class UserService:
     """Service for user operations"""
     
     @staticmethod
-    async def get_user_by_id(db: Session, user_id: str) -> User:
+    def get_user_by_id(db: Session, user_id: str) -> User:
         """
         Get user by ID
         
@@ -49,7 +49,7 @@ class UserService:
         return user
     
     @staticmethod
-    async def get_user_profile(db: Session, user_id: str) -> UserResponse:
+    def get_user_profile(db: Session, user_id: str) -> UserResponse:
         """
         Get user profile information
         
@@ -60,7 +60,7 @@ class UserService:
         Returns:
             UserResponse with user profile information
         """
-        user = await UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
         
         return UserResponse(
             id=str(user.id),
@@ -102,7 +102,7 @@ class UserService:
         )
 
     @staticmethod
-    async def get_user_details(db: Session, user_id: str) -> UserDetailResponse:
+    def get_user_details(db: Session, user_id: str) -> UserDetailResponse:
         """
         Get detailed user information including usage stats
         
@@ -113,7 +113,7 @@ class UserService:
         Returns:
             UserDetailResponse with detailed user information
         """
-        user = await UserService.get_user_by_id(db, user_id)
+        user = UserService.get_user_by_id(db, user_id)
         
         # Count user's assistants
         total_assistants = db.query(AssistantConfig).filter(
@@ -171,7 +171,7 @@ class UserService:
         )
     
     @staticmethod
-    async def update_user(db: Session, user_id: str, user_data: UserUpdate) -> UserResponse:
+    def update_user(db: Session, user_id: str, user_data: UserUpdate) -> UserResponse:
         """
         Update user information
         
@@ -187,7 +187,7 @@ class UserService:
             HTTPException: If update fails
         """
         try:
-            user = await UserService.get_user_by_id(db, user_id)
+            user = UserService.get_user_by_id(db, user_id)
             
             # Update only provided fields - совместимость с Pydantic v1 и v2
             if hasattr(user_data, 'dict'):
@@ -296,7 +296,7 @@ class UserService:
             )
     
     @staticmethod
-    async def deactivate_user(db: Session, user_id: str) -> bool:
+    def deactivate_user(db: Session, user_id: str) -> bool:
         """
         Deactivate a user account
         
@@ -308,7 +308,7 @@ class UserService:
             True if deactivation was successful
         """
         try:
-            user = await UserService.get_user_by_id(db, user_id)
+            user = UserService.get_user_by_id(db, user_id)
             
             user.is_active = False
             db.commit()
@@ -325,7 +325,7 @@ class UserService:
             )
     
     @staticmethod
-    async def add_usage_tokens(db: Session, user_id: str, token_count: int) -> None:
+    def add_usage_tokens(db: Session, user_id: str, token_count: int) -> None:
         """
         Add usage tokens to a user's account
         
@@ -335,7 +335,7 @@ class UserService:
             token_count: Number of tokens to add
         """
         try:
-            user = await UserService.get_user_by_id(db, user_id)
+            user = UserService.get_user_by_id(db, user_id)
             
             user.usage_tokens += token_count
             db.commit()
@@ -347,7 +347,7 @@ class UserService:
             logger.error(f"Error adding usage tokens: {str(e)}")
     
     @staticmethod
-    async def check_subscription_status(db: Session, user_id: str, user: Optional[User] = None) -> Dict[str, Any]:
+    def check_subscription_status(db: Session, user_id: str, user: Optional[User] = None) -> Dict[str, Any]:
         """
         Проверить статус подписки пользователя
         
@@ -362,7 +362,7 @@ class UserService:
         """
         try:
             if user is None or str(user.id) != str(user_id):
-                user = await UserService.get_user_by_id(db, user_id)
+                user = UserService.get_user_by_id(db, user_id)
             
             # Администраторы всегда имеют активную подписку
             if user.is_admin or user.email == "well96well@gmail.com":
@@ -437,7 +437,7 @@ class UserService:
             }
 
     @staticmethod
-    async def set_subscription_plan(db: Session, user_id: str, plan_code: str, duration_days: int) -> User:
+    def set_subscription_plan(db: Session, user_id: str, plan_code: str, duration_days: int) -> User:
         """
         Установить план подписки для пользователя
         
@@ -451,7 +451,7 @@ class UserService:
             Обновленный объект пользователя
         """
         try:
-            user = await UserService.get_user_by_id(db, user_id)
+            user = UserService.get_user_by_id(db, user_id)
             
             # Находим план подписки по коду
             subscription_plan = db.query(SubscriptionPlan).filter(SubscriptionPlan.code == plan_code).first()

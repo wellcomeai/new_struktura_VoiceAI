@@ -599,7 +599,7 @@ class AnalyzeLogResponse(BaseModel):
 # =============================================================================
 
 @router.get("/my-phone-numbers")
-async def get_available_phone_numbers(
+def get_available_phone_numbers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2023,7 +2023,7 @@ async def get_my_numbers(
 
 
 @router.get("/bindable-agents")
-async def get_bindable_agents(
+def get_bindable_agents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2231,7 +2231,7 @@ async def bind_assistant_to_number(
 # =============================================================================
 
 @router.get("/scenarios")
-async def get_account_scenarios(
+def get_account_scenarios(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2534,7 +2534,7 @@ async def repair_phone_numbers(
 # =============================================================================
 
 @router.get("/call/{session_history_id}")
-async def get_call_by_session_history_id(
+def get_call_by_session_history_id(
     session_history_id: str,
     db: Session = Depends(get_db),
 ):
@@ -3253,7 +3253,7 @@ def resolve_scenario_keys(db: Session, user: User, assistant_type: str, log_pref
     return keys, True, "wallet"
 
 @router.get("/outbound-config", response_model=OutboundConfigResponse)
-async def get_outbound_config(
+def get_outbound_config(
     assistant_id: str = Query(..., description="UUID ассистента"),
     assistant_type: Optional[str] = Query(None, description="Тип ассистента (необязательно, определяется автоматически)"),
     db: Session = Depends(get_db),
@@ -5422,7 +5422,7 @@ def _build_caller_context(contact) -> str:
 
 
 @router.get("/config")
-async def get_scenario_config(
+def get_scenario_config(
     phone: str = Query(..., description="Номер телефона, на который звонят"),
     caller: Optional[str] = Query(None, description="Номер звонящего (для подтягивания карточки контакта агента)"),
     db: Session = Depends(get_db),
@@ -5973,7 +5973,7 @@ async def disconnect_sip_trunk(
 
 
 @router.get("/sip/list")
-async def list_sip_trunks(
+def list_sip_trunks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -6398,7 +6398,7 @@ async def webhook_sms(request: Request, db: Session = Depends(get_db)):
 
 
 @router.get("/sms")
-async def get_sms_list(
+def get_sms_list(
     phone_number: Optional[str] = Query(None, description="Фильтр по номеру получателя"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -6457,7 +6457,7 @@ async def get_sms_list(
 
 
 @router.post("/sms/{sms_id}/read")
-async def mark_sms_read(
+def mark_sms_read(
     sms_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

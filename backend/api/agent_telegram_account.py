@@ -167,7 +167,7 @@ def _finalize_connected(db: Session, row: AgentTelegramAccount, result: dict) ->
 
 @router.get("")
 @router.get("/")
-async def get_status(
+def get_status(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -273,7 +273,7 @@ async def verify_password(
 
 
 @router.patch("/settings")
-async def update_settings(
+def update_settings(
     body: SettingsRequest,
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),

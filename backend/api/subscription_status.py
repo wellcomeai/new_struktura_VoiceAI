@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 @router.get("/check-access", response_model=Dict[str, Any])
-async def check_user_access(
+def check_user_access(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -42,7 +42,7 @@ async def check_user_access(
             }
         
         # Проверяем статус подписки
-        subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
+        subscription_status = UserService.check_subscription_status(db, str(current_user.id))
         
         # Если подписка активна - доступ разрешен
         if subscription_status["active"]:

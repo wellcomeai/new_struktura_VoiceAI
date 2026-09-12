@@ -54,7 +54,7 @@ class SubscriptionService:
             # Пытаемся получить пользователя
             user = None
             try:
-                user = await UserService.get_user_by_id(db, user_id)
+                user = UserService.get_user_by_id(db, user_id)
             except HTTPException as he:
                 logger.error(f"Error getting user: {str(he)}")
                 user = db.query(User).get(user_id)
@@ -144,7 +144,7 @@ class SubscriptionService:
             db.refresh(user)
             
             # ✅ Логирование с указанием типа триала
-            await SubscriptionService.log_subscription_event(
+            SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=str(user.id),
                 action="trial_activate",
@@ -209,7 +209,7 @@ class SubscriptionService:
                 user.is_trial = False
                 # НЕ ОБНУЛЯЕМ subscription_end_date - оставляем для истории!
                 
-                await SubscriptionService.log_subscription_event(
+                SubscriptionService.log_subscription_event(
                     db=db,
                     user_id=str(user.id),
                     action="trial_expired",
@@ -241,7 +241,7 @@ class SubscriptionService:
             return 0
     
     @staticmethod
-    async def log_subscription_event(
+    def log_subscription_event(
         db: Session, 
         user_id: str, 
         action: str, 
@@ -286,7 +286,7 @@ class SubscriptionService:
             return None
     
     @staticmethod
-    async def get_subscription_logs(db: Session, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_subscription_logs(db: Session, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         """
         Получение истории подписки пользователя
         
@@ -323,7 +323,7 @@ class SubscriptionService:
             return []
     
     @staticmethod
-    async def get_upcoming_expirations(db: Session, days_ahead: int = 3) -> List[User]:
+    def get_upcoming_expirations(db: Session, days_ahead: int = 3) -> List[User]:
         """
         Получение пользователей с истекающими подписками
         
@@ -376,10 +376,10 @@ class SubscriptionService:
         """
         try:
             # Напоминания за 3 дня
-            users_3_days = await SubscriptionService.get_upcoming_expirations(db, 3)
+            users_3_days = SubscriptionService.get_upcoming_expirations(db, 3)
             
             # Напоминания за 1 день
-            users_1_day = await SubscriptionService.get_upcoming_expirations(db, 1)
+            users_1_day = SubscriptionService.get_upcoming_expirations(db, 1)
             
             sent_count = 0
             

@@ -114,7 +114,7 @@ async def handle_websocket_connection(
                 # Проверяем подписку только для НЕ-админов
                 if not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
-                    subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                    subscription_status = UserService.check_subscription_status(db, str(user.id))
                     
                     if not subscription_status["active"]:
                         logger.warning(f"WebSocket blocked for user {user.id} - subscription expired")

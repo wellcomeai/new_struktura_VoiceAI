@@ -175,7 +175,7 @@ def to_response(assistant: FishAssistantConfig) -> FishAssistantResponse:
     )
 
 
-async def verify_assistant_access(
+def verify_assistant_access(
     assistant_id: str,
     user_id: str,
     db: Session,
@@ -217,7 +217,7 @@ async def verify_assistant_access(
 # ============================================================================
 
 @router.get("/options")
-async def get_fish_options():
+def get_fish_options():
     """Справочник моделей синтеза и режимов латентности Fish Audio."""
     return {
         # В селекторе — только обкатываемая модель; API при этом принимает
@@ -237,7 +237,7 @@ async def get_fish_options():
 
 
 @router.get("/api-keys", response_model=FishApiKeysStatus)
-async def get_api_keys_status(
+def get_api_keys_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -251,7 +251,7 @@ async def get_api_keys_status(
 
 
 @router.put("/api-keys", response_model=FishApiKeysStatus)
-async def update_api_keys(
+def update_api_keys(
     keys_data: FishApiKeysUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -290,7 +290,7 @@ async def update_api_keys(
 # ============================================================================
 
 @router.get("")
-async def get_fish_assistants(
+def get_fish_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -324,7 +324,7 @@ async def get_fish_assistants(
 
 
 @router.post("", response_model=FishAssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_fish_assistant(
+def create_fish_assistant(
     assistant_data: FishAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit проверяет активность подписки + общий лимит
@@ -375,13 +375,13 @@ async def create_fish_assistant(
 
 
 @router.get("/{assistant_id}", response_model=FishAssistantResponse)
-async def get_fish_assistant(
+def get_fish_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Get a specific Fish assistant by ID."""
-    assistant = await verify_assistant_access(
+    assistant = verify_assistant_access(
         assistant_id=assistant_id,
         user_id=str(current_user.id),
         db=db,
@@ -391,7 +391,7 @@ async def get_fish_assistant(
 
 
 @router.put("/{assistant_id}", response_model=FishAssistantResponse)
-async def update_fish_assistant(
+def update_fish_assistant(
     assistant_id: str,
     assistant_data: FishAssistantUpdate,
     db: Session = Depends(get_db),
@@ -399,7 +399,7 @@ async def update_fish_assistant(
 ):
     """Update a Fish assistant."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -432,14 +432,14 @@ async def update_fish_assistant(
 
 
 @router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_fish_assistant(
+def delete_fish_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Delete a Fish assistant."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,

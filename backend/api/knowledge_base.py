@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["Knowledge Base"])
 
 @router.get("/", response_model=Dict[str, Any])
-async def get_knowledge_base_status(
+def get_knowledge_base_status(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -116,7 +116,7 @@ def _embedding_api_key(current_user: User) -> str:
     return key
 
 @router.get("/all", response_model=List[Dict[str, Any]])
-async def get_all_knowledge_bases(
+def get_all_knowledge_bases(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -379,7 +379,7 @@ async def delete_knowledge_base(
         )
 
 @router.get("/{kb_id}/content", response_model=Dict[str, Any])
-async def get_knowledge_base_content(
+def get_knowledge_base_content(
     kb_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)

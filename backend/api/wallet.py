@@ -91,7 +91,7 @@ def _tariff_payload(t, user: Optional[User]) -> Dict[str, Any]:
 # ============================================================================
 
 @router.get("/balance")
-async def get_balance(
+def get_balance(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -114,7 +114,7 @@ async def get_balance(
 
 
 @router.get("/tariffs")
-async def list_tariffs(
+def list_tariffs(
     db: Session = Depends(get_db),
 ):
     """Витрина моделей (без авторизации — цены не секрет)."""
@@ -126,7 +126,7 @@ async def list_tariffs(
 
 
 @router.get("/tariffs/me")
-async def list_tariffs_for_me(
+def list_tariffs_for_me(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -137,7 +137,7 @@ async def list_tariffs_for_me(
 
 
 @router.get("/transactions")
-async def list_transactions(
+def list_transactions(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     type: Optional[str] = Query(None),
@@ -154,7 +154,7 @@ async def list_transactions(
 
 
 @router.post("/topup")
-async def create_topup(
+def create_topup(
     body: TopupRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -198,7 +198,7 @@ async def create_topup(
 # ============================================================================
 
 @router.get("/admin/tariffs")
-async def admin_list_tariffs(
+def admin_list_tariffs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -208,7 +208,7 @@ async def admin_list_tariffs(
 
 
 @router.put("/admin/tariffs/{code}")
-async def admin_update_tariff(
+def admin_update_tariff(
     code: str,
     body: TariffUpdateRequest,
     current_user: User = Depends(get_current_user),
@@ -227,7 +227,7 @@ async def admin_update_tariff(
 
 
 @router.post("/admin/adjust")
-async def admin_adjust(
+def admin_adjust(
     body: AdjustRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -252,7 +252,7 @@ async def admin_adjust(
 
 
 @router.get("/admin/usage")
-async def admin_usage(
+def admin_usage(
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -262,7 +262,7 @@ async def admin_usage(
 
 
 @router.get("/admin/users/{user_id}")
-async def admin_user_wallet(
+def admin_user_wallet(
     user_id: str,
     limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),

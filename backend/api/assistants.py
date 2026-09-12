@@ -31,7 +31,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 @router.get("/", response_model=List[AssistantResponse])
-async def get_assistants(
+def get_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -51,7 +51,7 @@ async def get_assistants(
         List of AssistantResponse objects
     """
     try:
-        return await AssistantService.get_assistants(
+        return AssistantService.get_assistants(
             db, str(current_user.id), include_agent_voices=include_agent_voices
         )
     except HTTPException:
@@ -64,7 +64,7 @@ async def get_assistants(
         )
 
 @router.post("/", response_model=AssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_assistant(
+def create_assistant(
     assistant_data: AssistantCreate,
     current_user: User = Depends(check_assistant_limit),
     db: Session = Depends(get_db)
@@ -82,7 +82,7 @@ async def create_assistant(
     """
     try:
         # Дополнительная проверка подписки (check_assistant_limit уже включает её)
-        subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
+        subscription_status = UserService.check_subscription_status(db, str(current_user.id))
         
         if not subscription_status["active"] and not current_user.is_admin and current_user.email != "well96well@gmail.com":
             raise HTTPException(
@@ -95,7 +95,7 @@ async def create_assistant(
                 }
             )
         
-        return await AssistantService.create_assistant(db, str(current_user.id), assistant_data)
+        return AssistantService.create_assistant(db, str(current_user.id), assistant_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -106,7 +106,7 @@ async def create_assistant(
         )
 
 @router.get("/{assistant_id}", response_model=AssistantResponse)
-async def get_assistant(
+def get_assistant(
     assistant_id: str = Path(..., description="The ID of the assistant to retrieve"),
     current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
@@ -123,7 +123,7 @@ async def get_assistant(
         AssistantResponse with the assistant information
     """
     try:
-        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        assistant = AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
         return AssistantResponse(
             id=str(assistant.id),
@@ -155,7 +155,7 @@ async def get_assistant(
         )
 
 @router.put("/{assistant_id}", response_model=AssistantResponse)
-async def update_assistant(
+def update_assistant(
     assistant_data: AssistantUpdate,
     assistant_id: str = Path(..., description="The ID of the assistant to update"),
     current_user: User = Depends(check_subscription_active_for_assistants),
@@ -174,7 +174,7 @@ async def update_assistant(
         AssistantResponse with the updated assistant information
     """
     try:
-        return await AssistantService.update_assistant(db, assistant_id, str(current_user.id), assistant_data)
+        return AssistantService.update_assistant(db, assistant_id, str(current_user.id), assistant_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -185,7 +185,7 @@ async def update_assistant(
         )
 
 @router.delete("/{assistant_id}", response_model=dict)
-async def delete_assistant(
+def delete_assistant(
     assistant_id: str = Path(..., description="The ID of the assistant to delete"),
     current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
@@ -202,7 +202,7 @@ async def delete_assistant(
         Confirmation message
     """
     try:
-        await AssistantService.delete_assistant(db, assistant_id, str(current_user.id))
+        AssistantService.delete_assistant(db, assistant_id, str(current_user.id))
         return {"success": True, "message": "Assistant deleted successfully", "id": assistant_id}
     except HTTPException:
         raise
@@ -214,7 +214,7 @@ async def delete_assistant(
         )
 
 @router.get("/{assistant_id}/embed-code", response_model=EmbedCodeResponse)
-async def get_embed_code(
+def get_embed_code(
     assistant_id: str = Path(..., description="The ID of the assistant"),
     current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
@@ -231,7 +231,7 @@ async def get_embed_code(
         EmbedCodeResponse with the embed code
     """
     try:
-        return await AssistantService.get_embed_code(db, assistant_id, str(current_user.id))
+        return AssistantService.get_embed_code(db, assistant_id, str(current_user.id))
     except HTTPException:
         raise
     except Exception as e:
@@ -242,7 +242,7 @@ async def get_embed_code(
         )
 
 @router.get("/{assistant_id}/conversations", response_model=List[ConversationResponse])
-async def get_conversations(
+def get_conversations(
     assistant_id: str = Path(..., description="The ID of the assistant"),
     skip: int = Query(0, ge=0, description="Number of conversations to skip"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of conversations to return"),
@@ -264,9 +264,9 @@ async def get_conversations(
     """
     try:
         # Verify assistant belongs to user
-        await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
-        return await ConversationService.get_conversations(db, assistant_id, skip, limit)
+        return ConversationService.get_conversations(db, assistant_id, skip, limit)
     except HTTPException:
         raise
     except Exception as e:
@@ -295,7 +295,7 @@ async def get_conversation_stats(
     """
     try:
         # Verify assistant belongs to user
-        await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
         return await ConversationService.get_conversation_stats(db, assistant_id)
     except HTTPException:
@@ -328,7 +328,7 @@ async def verify_google_sheet(
     """
     try:
         # Verify assistant belongs to user
-        await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
         sheet_id = sheet_data.get("sheet_id")
         if not sheet_id:
@@ -377,7 +377,7 @@ async def create_or_update_knowledge_base(
     """
     try:
         # Get assistant and verify ownership
-        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        assistant = AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
         # Check for API key
         api_key = current_user.openai_api_key
@@ -447,7 +447,7 @@ async def create_or_update_knowledge_base(
         )
 
 @router.get("/{assistant_id}/knowledge-base", response_model=Dict[str, Any])
-async def get_knowledge_base_status(
+def get_knowledge_base_status(
     assistant_id: str = Path(..., description="Assistant ID"),
     current_user: User = Depends(check_subscription_active_for_assistants),
     db: Session = Depends(get_db)
@@ -465,7 +465,7 @@ async def get_knowledge_base_status(
     """
     try:
         # Get assistant and verify ownership
-        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        assistant = AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
         # Get knowledge base config
         config = db.query(PineconeConfig).filter(
@@ -517,7 +517,7 @@ async def delete_knowledge_base(
     """
     try:
         # Get assistant and verify ownership
-        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
+        assistant = AssistantService.get_assistant_by_id(db, assistant_id, str(current_user.id))
         
         # Get knowledge base config
         config = db.query(PineconeConfig).filter(

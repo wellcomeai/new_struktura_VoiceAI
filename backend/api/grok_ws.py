@@ -212,7 +212,7 @@ async def grok_custom_websocket_endpoint(
 # =============================================================================
 
 @router.get("/grok/health")
-async def grok_health_check():
+def grok_health_check():
     """
     Health check endpoint for Grok WebSocket service.
     """
@@ -237,7 +237,7 @@ async def grok_health_check():
 
 
 @router.get("/grok/info")
-async def grok_info():
+def grok_info():
     """
     Get information about Grok Voice Agent API integration.
     """
@@ -299,7 +299,7 @@ async def grok_info():
 
 
 @router.get("/grok/voices")
-async def grok_voices():
+def grok_voices():
     """
     Get list of available Grok voices with details.
     """

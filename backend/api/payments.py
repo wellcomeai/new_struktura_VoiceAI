@@ -279,7 +279,7 @@ class CreatePaymentRequest(BaseModel):
 # =============================================================================
 
 @router.get("/plans", response_model=Dict[str, Any])
-async def get_subscription_plans():
+def get_subscription_plans():
     """
     Получить информацию о всех доступных тарифах
     
@@ -299,7 +299,7 @@ async def get_subscription_plans():
 
 
 @router.get("/plans/{plan_code}", response_model=Dict[str, Any])
-async def get_plan_details(plan_code: str):
+def get_plan_details(plan_code: str):
     """
     Получить детали конкретного тарифа
     
@@ -330,7 +330,7 @@ async def get_plan_details(plan_code: str):
 
 
 @router.post("/create-payment", response_model=Dict[str, Any])
-async def create_payment(
+def create_payment(
     request_data: CreatePaymentRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -528,7 +528,7 @@ async def create_payment(
         logger.info(f"✅ Payment created: {plan_name}, {subscription_price} руб for {subscription_days} days")
         
         # Логируем событие
-        await SubscriptionService.log_subscription_event(
+        SubscriptionService.log_subscription_event(
             db=db,
             user_id=str(current_user.id),
             action="payment_started",
@@ -571,7 +571,7 @@ async def create_payment(
 
 
 @router.get("/subscription-periods", response_model=Dict[str, Any])
-async def get_subscription_periods(plan_code: str = "ai_voice"):
+def get_subscription_periods(plan_code: str = "ai_voice"):
     """
     Получить информацию о доступных периодах подписки для конкретного тарифа
     
@@ -942,7 +942,7 @@ async def get_payment_status(
 # =============================================================================
 
 @router.get("/debug-prices")
-async def debug_subscription_prices(db: Session = Depends(get_db)):
+def debug_subscription_prices(db: Session = Depends(get_db)):
     """
     🔍 ДИАГНОСТИЧЕСКИЙ endpoint для проверки цен подписок
     """
@@ -991,7 +991,7 @@ async def debug_subscription_prices(db: Session = Depends(get_db)):
 
 
 @router.get("/config-check")
-async def check_robokassa_config():
+def check_robokassa_config():
     """
     🔍 ДИАГНОСТИЧЕСКИЙ endpoint для проверки конфигурации Robokassa
     """
@@ -1024,7 +1024,7 @@ async def check_robokassa_config():
 
 
 @router.post("/test-signature")
-async def test_signature_generation(request: dict = Body(...)):
+def test_signature_generation(request: dict = Body(...)):
     """
     🔧 ДИАГНОСТИЧЕСКИЙ endpoint для тестирования генерации подписи
     """
@@ -1083,7 +1083,7 @@ async def test_signature_generation(request: dict = Body(...)):
 
 
 @router.post("/enable-diagnostic-mode")
-async def enable_diagnostic_mode():
+def enable_diagnostic_mode():
     """
     🔧 Включение диагностического режима (без Shp_ параметров)
     """
@@ -1096,7 +1096,7 @@ async def enable_diagnostic_mode():
 
 
 @router.post("/disable-diagnostic-mode")
-async def disable_diagnostic_mode():
+def disable_diagnostic_mode():
     """
     🔧 Выключение диагностического режима
     """

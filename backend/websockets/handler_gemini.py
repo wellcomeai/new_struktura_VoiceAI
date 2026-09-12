@@ -248,7 +248,7 @@ async def handle_gemini_websocket_connection(
                 
                 if not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
-                    subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                    subscription_status = UserService.check_subscription_status(db, str(user.id))
                     
                     log_to_render(f"💳 Subscription check:")
                     log_to_render(f"   Active: {subscription_status.get('active')}")
@@ -873,7 +873,7 @@ async def handle_gemini_messages(
                             
                             # Save to DB
                             try:
-                                await ConversationService.save_conversation(
+                                ConversationService.save_conversation(
                                     db=gemini_client.db_session,
                                     assistant_id=str(gemini_client.assistant_config.id),
                                     user_message=user_msg or "[no user input]",
@@ -1195,7 +1195,7 @@ async def handle_gemini_messages(
                             
                             # Save to DB
                             try:
-                                await ConversationService.save_conversation(
+                                ConversationService.save_conversation(
                                     db=gemini_client.db_session,
                                     assistant_id=str(gemini_client.assistant_config.id),
                                     user_message=user_msg or "[no user input]",
@@ -1314,7 +1314,7 @@ async def handle_gemini_messages(
             
             # Save to DB
             try:
-                await ConversationService.save_conversation(
+                ConversationService.save_conversation(
                     db=gemini_client.db_session,
                     assistant_id=str(gemini_client.assistant_config.id),
                     user_message=user_msg or "[no user input]",

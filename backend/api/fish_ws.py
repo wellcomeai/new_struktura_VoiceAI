@@ -64,7 +64,7 @@ async def fish_tts_websocket_endpoint(
 
 
 @router.get("/fish/health")
-async def fish_health_check():
+def fish_health_check():
     """Health check прокси Fish Audio."""
     return {
         "status": "ok",

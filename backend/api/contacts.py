@@ -182,7 +182,7 @@ def parse_time_string(time_str: str) -> datetime:
 # ==================== CONTACTS API Endpoints ====================
 
 @router.get("/")
-async def get_contacts(
+def get_contacts(
     status: Optional[str] = Query(None, description="Фильтр по статусу"),
     search: Optional[str] = Query(None, description="Поиск по имени или номеру"),
     limit: int = Query(50, ge=1, le=100, description="Количество записей"),
@@ -284,7 +284,7 @@ async def get_contacts(
 
 
 @router.get("/{contact_id}")
-async def get_contact_detail(
+def get_contact_detail(
     contact_id: str,
     include_conversations: bool = Query(True, description="Включить список всех диалогов"),
     current_user: User = Depends(AuthService.get_current_user),
@@ -402,7 +402,7 @@ async def get_contact_detail(
 
 
 @router.post("/")
-async def create_or_update_contact(
+def create_or_update_contact(
     contact_data: ContactCreate,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -497,7 +497,7 @@ async def create_or_update_contact(
 
 
 @router.put("/{contact_id}")
-async def update_contact(
+def update_contact(
     contact_id: str,
     contact_data: ContactUpdate,
     current_user: User = Depends(AuthService.get_current_user),
@@ -583,7 +583,7 @@ async def update_contact(
 
 
 @router.patch("/{contact_id}/status")
-async def update_contact_status(
+def update_contact_status(
     contact_id: str,
     status_data: ContactStatusUpdate,
     current_user: User = Depends(AuthService.get_current_user),
@@ -662,7 +662,7 @@ async def update_contact_status(
 
 
 @router.delete("/{contact_id}")
-async def delete_contact(
+def delete_contact(
     contact_id: str,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -744,7 +744,7 @@ async def delete_contact(
 # ==================== CONTACT NOTES API Endpoints ====================
 
 @router.get("/{contact_id}/notes")
-async def get_contact_notes(
+def get_contact_notes(
     contact_id: str,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -816,7 +816,7 @@ async def get_contact_notes(
 
 
 @router.post("/{contact_id}/notes")
-async def create_contact_note(
+def create_contact_note(
     contact_id: str,
     note_data: ContactNoteCreate,
     current_user: User = Depends(AuthService.get_current_user),
@@ -901,7 +901,7 @@ async def create_contact_note(
 
 
 @router.delete("/notes/{note_id}")
-async def delete_contact_note(
+def delete_contact_note(
     note_id: str,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -972,7 +972,7 @@ async def delete_contact_note(
 # ==================== TASKS API Endpoints (OpenAI + Gemini + Custom Greeting) ====================
 
 @router.get("/{contact_id}/tasks")
-async def get_contact_tasks(
+def get_contact_tasks(
     contact_id: str,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -1072,7 +1072,7 @@ async def get_contact_tasks(
 
 
 @router.get("/tasks/{task_id}")
-async def get_task_detail(
+def get_task_detail(
     task_id: str,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)
@@ -1168,7 +1168,7 @@ async def get_task_detail(
 
 
 @router.post("/{contact_id}/tasks")
-async def create_contact_task(
+def create_contact_task(
     contact_id: str,
     task_data: TaskCreate,
     current_user: User = Depends(AuthService.get_current_user),
@@ -1327,7 +1327,7 @@ async def create_contact_task(
 
 
 @router.put("/tasks/{task_id}")
-async def update_task(
+def update_task(
     task_id: str,
     task_data: TaskUpdate,
     current_user: User = Depends(AuthService.get_current_user),
@@ -1550,7 +1550,7 @@ async def update_task(
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(
+def delete_task(
     task_id: str,
     current_user: User = Depends(AuthService.get_current_user),
     db: Session = Depends(get_db)

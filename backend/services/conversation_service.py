@@ -198,7 +198,7 @@ class ConversationService:
     # ==================================================================================
     
     @staticmethod
-    async def create_conversation(db: Session, conversation_data: ConversationCreate) -> ConversationResponse:
+    def create_conversation(db: Session, conversation_data: ConversationCreate) -> ConversationResponse:
         """
         🔧 LEGACY: Create a new conversation record (оригинальный метод)
         
@@ -268,7 +268,7 @@ class ConversationService:
             )
     
     @staticmethod
-    async def get_conversations(
+    def get_conversations(
         db: Session, 
         assistant_id: str, 
         skip: int = 0, 
@@ -373,7 +373,7 @@ class ConversationService:
         )
     
     @staticmethod
-    async def add_feedback(db: Session, conversation_id: str, rating: int, feedback_text: Optional[str] = None) -> bool:
+    def add_feedback(db: Session, conversation_id: str, rating: int, feedback_text: Optional[str] = None) -> bool:
         """
         🔧 LEGACY: Add feedback to a conversation (оригинальный метод)
         
@@ -418,7 +418,7 @@ class ConversationService:
             )
     
     @staticmethod
-    async def flag_conversation(db: Session, conversation_id: str, flagged: bool = True) -> bool:
+    def flag_conversation(db: Session, conversation_id: str, flagged: bool = True) -> bool:
         """
         🔧 LEGACY: Flag or unflag a conversation (оригинальный метод)
         
@@ -465,7 +465,7 @@ class ConversationService:
     # ==================================================================================
     
     @staticmethod
-    async def save_conversation(
+    def save_conversation(
         db: Session,
         assistant_id: str,
         user_message: str,

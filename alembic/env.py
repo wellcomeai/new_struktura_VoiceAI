@@ -18,7 +18,9 @@ config = context.config
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: иначе alembic глушит логгеры app и backend.*,
+    # и всё, что приложение пишет после миграций, пропадает из логов Render.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

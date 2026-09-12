@@ -152,7 +152,7 @@ async def register(
 
 
 @router.post("/login", response_model=dict)
-async def login(
+def login(
     login_data: LoginRequest,
     db: Session = Depends(get_db)
 ):
@@ -175,7 +175,7 @@ async def login(
         logger.info(f"🔐 Login attempt for: {login_data.email}")
         
         # 1. Authenticate user (проверка credentials)
-        result = await AuthService.login(db, login_data)
+        result = AuthService.login(db, login_data)
         
         user = result.get("user")
         if not user:
@@ -220,7 +220,7 @@ async def login(
 
 
 @router.post("/reset-password", response_model=dict)
-async def reset_password_request(
+def reset_password_request(
     email: str,
     db: Session = Depends(get_db)
 ):
@@ -235,7 +235,7 @@ async def reset_password_request(
         Confirmation message
     """
     try:
-        await AuthService.reset_password_request(db, email)
+        AuthService.reset_password_request(db, email)
         # Always return success for security reasons
         return {
             "success": True, 
@@ -251,7 +251,7 @@ async def reset_password_request(
 
 
 @router.post("/reset-password-confirm", response_model=dict)
-async def reset_password_confirm(
+def reset_password_confirm(
     token: str,
     new_password: str,
     db: Session = Depends(get_db)

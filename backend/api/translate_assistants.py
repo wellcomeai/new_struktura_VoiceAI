@@ -38,7 +38,7 @@ router = APIRouter()
 # HELPER FUNCTIONS
 # ============================================================================
 
-async def verify_assistant_access(
+def verify_assistant_access(
     assistant_id: str,
     user_id: str,
     db: Session,
@@ -80,7 +80,7 @@ async def verify_assistant_access(
 # ============================================================================
 
 @router.get("", response_model=List[TranslateAssistantResponse])
-async def get_translate_assistants(
+def get_translate_assistants(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -105,14 +105,14 @@ async def get_translate_assistants(
 
 
 @router.get("/{assistant_id}", response_model=TranslateAssistantResponse)
-async def get_translate_assistant(
+def get_translate_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Получить переводчик по ID."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -131,7 +131,7 @@ async def get_translate_assistant(
 
 
 @router.post("", response_model=TranslateAssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_translate_assistant(
+def create_translate_assistant(
     assistant_data: TranslateAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit проверяет активность подписки + лимит ассистентов
@@ -195,7 +195,7 @@ async def create_translate_assistant(
 
 
 @router.put("/{assistant_id}", response_model=TranslateAssistantResponse)
-async def update_translate_assistant(
+def update_translate_assistant(
     assistant_id: str,
     assistant_data: TranslateAssistantUpdate,
     db: Session = Depends(get_db),
@@ -203,7 +203,7 @@ async def update_translate_assistant(
 ):
     """Обновить переводчик."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -240,14 +240,14 @@ async def update_translate_assistant(
 
 
 @router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_translate_assistant(
+def delete_translate_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Удалить переводчик и связанные записи."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -277,14 +277,14 @@ async def delete_translate_assistant(
 
 
 @router.get("/{assistant_id}/embed-code", response_model=TranslateEmbedCodeResponse)
-async def get_translate_embed_code(
+def get_translate_embed_code(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Готовый embed-сниппет для виджета переводчика."""
     try:
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,

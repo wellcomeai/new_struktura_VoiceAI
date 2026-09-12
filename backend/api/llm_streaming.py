@@ -141,7 +141,7 @@ async def stream_llm_response(request: LLMStreamRequest):
 # ============================================================================
 
 @router.get("/api/llm/models")
-async def get_available_models():
+def get_available_models():
     """
     Get list of available ChatGPT models.
     
@@ -180,7 +180,7 @@ async def get_available_models():
 
 
 @router.get("/api/llm/status")
-async def get_streaming_status():
+def get_streaming_status():
     """
     Get streaming service status.
     
@@ -268,7 +268,7 @@ def _agent_config_to_response(cfg: AgentConfig) -> dict:
 # ============================================================================
 
 @router.post("/api/llm/agent-config", status_code=201)
-async def create_agent_config(
+def create_agent_config(
     payload: AgentConfigCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -293,7 +293,7 @@ async def create_agent_config(
 
 
 @router.get("/api/llm/agent-config")
-async def list_agent_configs(
+def list_agent_configs(
     assistant_id: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -311,7 +311,7 @@ async def list_agent_configs(
 
 
 @router.get("/api/llm/agent-config/{config_id}")
-async def get_agent_config(
+def get_agent_config(
     config_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -331,7 +331,7 @@ async def get_agent_config(
 
 
 @router.put("/api/llm/agent-config/{config_id}")
-async def update_agent_config(
+def update_agent_config(
     config_id: str,
     payload: AgentConfigUpdate,
     current_user: User = Depends(get_current_user),
@@ -364,7 +364,7 @@ async def update_agent_config(
 
 
 @router.delete("/api/llm/agent-config/{config_id}")
-async def delete_agent_config(
+def delete_agent_config(
     config_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)

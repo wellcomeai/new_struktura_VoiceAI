@@ -494,7 +494,7 @@ async def _save_turn(
 
     # --- БД ---
     try:
-        await ConversationService.save_conversation(
+        ConversationService.save_conversation(
             db=gemini_client.db_session,
             assistant_id=str(config.id),
             user_message=user_msg or "[no input]",

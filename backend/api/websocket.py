@@ -151,7 +151,7 @@ async def demo_websocket_endpoint(
 # ==================================================================================
 
 @router.get("/ws/status")
-async def websocket_status():
+def websocket_status():
     """
     Get WebSocket endpoints status and API information.
     
@@ -260,7 +260,7 @@ async def websocket_status():
 
 
 @router.get("/ws/info")
-async def websocket_info():
+def websocket_info():
     """
     Get detailed API documentation and usage information.
     
@@ -363,7 +363,7 @@ async def websocket_info():
 # ==================================================================================
 
 @router.get("/ws/health")
-async def websocket_health():
+def websocket_health():
     """
     Health check endpoint for monitoring.
     

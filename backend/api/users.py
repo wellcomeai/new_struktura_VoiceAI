@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
+def get_current_user_info(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -42,7 +42,7 @@ async def get_current_user_info(
         UserResponse with user profile information
     """
     try:
-        return await UserService.get_user_profile(db, str(current_user.id))
+        return UserService.get_user_profile(db, str(current_user.id))
     except HTTPException:
         raise
     except Exception as e:
@@ -53,7 +53,7 @@ async def get_current_user_info(
         )
 
 @router.get("/me/details", response_model=UserDetailResponse)
-async def get_user_details(
+def get_user_details(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -68,7 +68,7 @@ async def get_user_details(
         UserDetailResponse with detailed user information
     """
     try:
-        return await UserService.get_user_details(db, str(current_user.id))
+        return UserService.get_user_details(db, str(current_user.id))
     except HTTPException:
         raise
     except Exception as e:
@@ -79,7 +79,7 @@ async def get_user_details(
         )
 
 @router.put("/me", response_model=UserResponse)
-async def update_user(
+def update_user(
     user_data: UserUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -96,7 +96,7 @@ async def update_user(
         UserResponse with updated user information
     """
     try:
-        return await UserService.update_user(db, str(current_user.id), user_data)
+        return UserService.update_user(db, str(current_user.id), user_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -107,7 +107,7 @@ async def update_user(
         )
 
 @router.put("/me/password", response_model=dict)
-async def change_password(
+def change_password(
     password_data: UserPasswordUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -124,7 +124,7 @@ async def change_password(
         Confirmation message
     """
     try:
-        await AuthService.change_password(
+        AuthService.change_password(
             db, 
             str(current_user.id), 
             password_data.current_password, 
@@ -141,7 +141,7 @@ async def change_password(
         )
 
 @router.delete("/me", response_model=dict)
-async def deactivate_account(
+def deactivate_account(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -156,7 +156,7 @@ async def deactivate_account(
         Confirmation message
     """
     try:
-        await UserService.deactivate_user(db, str(current_user.id))
+        UserService.deactivate_user(db, str(current_user.id))
         return {"success": True, "message": "Account deactivated successfully"}
     except HTTPException:
         raise
@@ -188,7 +188,7 @@ def _api_key_status(user: User) -> dict:
 
 
 @router.get("/api-key", response_model=dict)
-async def get_api_key_status(
+def get_api_key_status(
     current_user: User = Depends(get_current_user),
 ):
     """Статус персонального API-ключа (есть ли, префикс, дата создания)."""
@@ -196,7 +196,7 @@ async def get_api_key_status(
 
 
 @router.post("/api-key/regenerate", response_model=dict)
-async def regenerate_api_key(
+def regenerate_api_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -217,7 +217,7 @@ async def regenerate_api_key(
 
 
 @router.delete("/api-key", response_model=dict)
-async def revoke_api_key(
+def revoke_api_key(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

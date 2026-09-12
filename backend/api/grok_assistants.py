@@ -289,7 +289,7 @@ def mask_api_key(key: Optional[str]) -> Optional[str]:
     return f"{key[:6]}...{key[-4:]}"
 
 
-async def verify_assistant_access(
+def verify_assistant_access(
     assistant_id: str, user_id: str, db: Session, require_ownership: bool = True
 ) -> GrokAssistantConfig:
     try:
@@ -399,7 +399,7 @@ def grok_to_response(a: GrokAssistantConfig) -> GrokAssistantResponse:
 # ============================================================================
 
 @router.get("/voices", response_model=GrokVoicesResponse)
-async def get_grok_voices():
+def get_grok_voices():
     return GrokVoicesResponse(voices=GROK_VOICES)
 
 
@@ -408,7 +408,7 @@ async def get_grok_voices():
 # ============================================================================
 
 @router.get("/cascade/api-keys", response_model=CascadeApiKeysStatus)
-async def get_cascade_api_keys_status(
+def get_cascade_api_keys_status(
     current_user: User = Depends(get_current_user)
 ):
     return CascadeApiKeysStatus(
@@ -418,7 +418,7 @@ async def get_cascade_api_keys_status(
 
 
 @router.put("/cascade/api-keys", response_model=CascadeApiKeysStatus)
-async def update_cascade_api_keys(
+def update_cascade_api_keys(
     keys_data: CascadeApiKeysUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -447,7 +447,7 @@ async def update_cascade_api_keys(
 # ============================================================================
 
 @router.get("/cascade/tts-providers")
-async def get_cascade_tts_providers():
+def get_cascade_tts_providers():
     return {"providers": TTS_PROVIDERS}
 
 
@@ -462,7 +462,7 @@ class CascadePurchaseRequest(BaseModel):
 
 
 @router.get("/cascade/credits/balance")
-async def get_cascade_credits_balance(
+def get_cascade_credits_balance(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_flexible),
 ):
@@ -488,7 +488,7 @@ async def get_cascade_credits_balance(
 
 
 @router.get("/cascade/credits/packages")
-async def get_cascade_credits_packages(
+def get_cascade_credits_packages(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -505,7 +505,7 @@ async def get_cascade_credits_packages(
 
 
 @router.get("/cascade/credits/transactions")
-async def get_cascade_credits_transactions(
+def get_cascade_credits_transactions(
     limit: int = 50,
     offset: int = 0,
     type_filter: Optional[str] = None,
@@ -528,7 +528,7 @@ async def get_cascade_credits_transactions(
 
 
 @router.post("/cascade/credits/purchase")
-async def purchase_cascade_credits(
+def purchase_cascade_credits(
     body: CascadePurchaseRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -585,7 +585,7 @@ async def purchase_cascade_credits(
 # ============================================================================
 
 @router.get("/cascade", response_model=List[CascadeAssistantResponse])
-async def list_cascade_assistants(
+def list_cascade_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -604,7 +604,7 @@ async def list_cascade_assistants(
 
 
 @router.post("/cascade", response_model=CascadeAssistantResponse, status_code=201)
-async def create_cascade_assistant(
+def create_cascade_assistant(
     data: CascadeAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit_flexible проверяет активность подписки + общий
@@ -639,7 +639,7 @@ async def create_cascade_assistant(
 # ============================================================================
 
 @router.get("/cascade/{assistant_id}", response_model=CascadeAssistantResponse)
-async def get_cascade_assistant(
+def get_cascade_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_flexible)
@@ -649,7 +649,7 @@ async def get_cascade_assistant(
 
 
 @router.put("/cascade/{assistant_id}", response_model=CascadeAssistantResponse)
-async def update_cascade_assistant(
+def update_cascade_assistant(
     assistant_id: str,
     data: CascadeAssistantUpdate,
     db: Session = Depends(get_db),
@@ -667,7 +667,7 @@ async def update_cascade_assistant(
 
 
 @router.delete("/cascade/{assistant_id}", status_code=204)
-async def delete_cascade_assistant(
+def delete_cascade_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_flexible)
@@ -683,7 +683,7 @@ async def delete_cascade_assistant(
 # ============================================================================
 
 @router.get("", response_model=List[GrokAssistantResponse])
-async def get_grok_assistants(
+def get_grok_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -714,7 +714,7 @@ async def get_grok_assistants(
 # ============================================================================
 
 @router.post("", response_model=GrokAssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_grok_assistant(
+def create_grok_assistant(
     assistant_data: GrokAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit проверяет активность подписки + общий лимит
@@ -768,13 +768,13 @@ async def create_grok_assistant(
 # ============================================================================
 
 @router.get("/{assistant_id}", response_model=GrokAssistantResponse)
-async def get_grok_assistant(
+def get_grok_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
-        assistant = await verify_assistant_access(assistant_id, str(current_user.id), db, True)
+        assistant = verify_assistant_access(assistant_id, str(current_user.id), db, True)
         return grok_to_response(assistant)
     except HTTPException:
         raise
@@ -784,14 +784,14 @@ async def get_grok_assistant(
 
 
 @router.put("/{assistant_id}", response_model=GrokAssistantResponse)
-async def update_grok_assistant(
+def update_grok_assistant(
     assistant_id: str,
     assistant_data: GrokAssistantUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
-        assistant = await verify_assistant_access(assistant_id, str(current_user.id), db, True)
+        assistant = verify_assistant_access(assistant_id, str(current_user.id), db, True)
         update_data = assistant_data.dict(exclude_unset=True)
         if "voice" in update_data:
             update_data["voice"] = validate_voice(update_data["voice"])
@@ -816,13 +816,13 @@ async def update_grok_assistant(
 
 
 @router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_grok_assistant(
+def delete_grok_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
-        assistant = await verify_assistant_access(assistant_id, str(current_user.id), db, True)
+        assistant = verify_assistant_access(assistant_id, str(current_user.id), db, True)
         db.delete(assistant)
         db.commit()
         logger.info(f"[GROK-API] Grok assistant deleted: {assistant_id}")
@@ -839,7 +839,7 @@ async def delete_grok_assistant(
 # ============================================================================
 
 @router.get("/{assistant_id}/conversations", response_model=List[GrokConversationResponse])
-async def get_grok_conversations(
+def get_grok_conversations(
     assistant_id: str,
     skip: int = 0,
     limit: int = 50,
@@ -847,7 +847,7 @@ async def get_grok_conversations(
     current_user: User = Depends(get_current_user)
 ):
     try:
-        await verify_assistant_access(assistant_id, str(current_user.id), db, True)
+        verify_assistant_access(assistant_id, str(current_user.id), db, True)
         conversations = db.query(GrokConversation).filter(
             GrokConversation.assistant_id == uuid.UUID(assistant_id)
         ).order_by(GrokConversation.created_at.desc()).offset(skip).limit(limit).all()
@@ -870,13 +870,13 @@ async def get_grok_conversations(
 
 
 @router.get("/{assistant_id}/embed-code", response_model=EmbedCodeResponse)
-async def get_grok_embed_code(
+def get_grok_embed_code(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
-        assistant = await verify_assistant_access(assistant_id, str(current_user.id), db, True)
+        assistant = verify_assistant_access(assistant_id, str(current_user.id), db, True)
         if not assistant.is_active:
             raise HTTPException(status_code=400, detail="Assistant must be active to generate embed code")
 
@@ -915,7 +915,7 @@ async def verify_grok_google_sheet(
         if not sheet_id:
             raise HTTPException(status_code=400, detail="sheet_id is required")
         if assistant_id != "new":
-            await verify_assistant_access(assistant_id, str(current_user.id), db, True)
+            verify_assistant_access(assistant_id, str(current_user.id), db, True)
 
         from backend.services.google_sheets_service import GoogleSheetsService
         result = await GoogleSheetsService.verify_sheet_access(sheet_id)

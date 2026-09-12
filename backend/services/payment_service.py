@@ -725,7 +725,7 @@ class RobokassaService:
                 # Платеж считается успешным, комиссия может быть обработана позже
             
             # Логируем успешную оплату
-            await SubscriptionService.log_subscription_event(
+            SubscriptionService.log_subscription_event(
                 db=db,
                 user_id=user_id,
                 action="payment_success",

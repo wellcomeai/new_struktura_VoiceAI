@@ -364,7 +364,7 @@ async def llm_stream_websocket_endpoint(
 # =============================================================================
 
 @router.get("/gemini/health")
-async def gemini_health_check():
+def gemini_health_check():
     """
     Health check endpoint for Gemini WebSocket service.
     
@@ -396,7 +396,7 @@ async def gemini_health_check():
 
 
 @router.get("/gemini/info")
-async def gemini_info():
+def gemini_info():
     """
     Get information about Gemini Live API integration.
     

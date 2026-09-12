@@ -776,7 +776,7 @@ def _resolve_agent(db: Session, user: User, agent_id: Optional[str] = None) -> O
 
 
 @router.get("/list")
-async def list_agents(
+def list_agents(
     current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
 ):
@@ -797,7 +797,7 @@ async def list_agents(
 
 
 @router.get("/")
-async def get_agent(
+def get_agent(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
@@ -812,7 +812,7 @@ async def get_agent(
 
 
 @router.post("/create")
-async def create_agent(
+def create_agent(
     body: AgentCreateRequest,
     current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db)
@@ -1084,7 +1084,7 @@ async def update_agent(
 
 
 @router.delete("/")
-async def delete_agent(
+def delete_agent(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -1237,7 +1237,7 @@ def _kb_status_dict(agent: AgentConfig) -> dict:
 
 
 @router.get("/knowledge-base")
-async def get_agent_knowledge_base(
+def get_agent_knowledge_base(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1481,7 +1481,7 @@ async def agent_transcribe(
 
 
 @router.post("/chat/clear")
-async def agent_chat_clear(
+def agent_chat_clear(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -1571,7 +1571,7 @@ def _coerce_public_message(payload) -> str:
 
 
 @router.get("/public-access")
-async def get_public_access(
+def get_public_access(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1584,7 +1584,7 @@ async def get_public_access(
 
 
 @router.post("/public-access/regenerate")
-async def regenerate_public_key(
+def regenerate_public_key(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1603,7 +1603,7 @@ async def regenerate_public_key(
 
 
 @router.put("/public-access")
-async def toggle_public_access(
+def toggle_public_access(
     body: PublicAccessToggleRequest,
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -2095,7 +2095,7 @@ async def agent_public_message(
 
 
 @router.get("/stats")
-async def get_agent_stats(
+def get_agent_stats(
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2158,7 +2158,7 @@ async def get_agent_stats(
 
 
 @router.get("/orchestrator-models")
-async def get_orchestrator_models(
+def get_orchestrator_models(
     current_user: User = Depends(get_current_user_flexible),
 ):
     """Return the list of available orchestrator models for the wizard select. JWT или X-Api-Key."""
@@ -2194,7 +2194,7 @@ def _agent_task_dict(t: Task) -> dict:
 
 
 @router.get("/tasks")
-async def list_agent_tasks(
+def list_agent_tasks(
     status: Optional[str] = Query("scheduled"),
     limit: int = Query(10, ge=1, le=500),
     agent_id: Optional[str] = Query(None),
@@ -2246,7 +2246,7 @@ async def list_agent_tasks(
 
 
 @router.delete("/tasks")
-async def delete_agent_tasks_bulk(
+def delete_agent_tasks_bulk(
     date: Optional[str] = Query(None, description="YYYY-MM-DD (МСК) — удалить задачи только этого дня"),
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -2295,7 +2295,7 @@ async def delete_agent_tasks_bulk(
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_agent_task(
+def delete_agent_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2363,7 +2363,7 @@ async def update_agent_task(
 
 
 @router.get("/phone-numbers")
-async def get_phone_numbers(
+def get_phone_numbers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2407,7 +2407,7 @@ async def get_phone_numbers(
 
 
 @router.get("/contacts")
-async def list_agent_contacts(
+def list_agent_contacts(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None, description="Поиск по name или phone (ILIKE)"),
     limit: int = Query(20, ge=1, le=200),
@@ -2444,7 +2444,7 @@ async def list_agent_contacts(
 
 
 @router.get("/contacts/{contact_id}")
-async def get_agent_contact_details(
+def get_agent_contact_details(
     contact_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2519,7 +2519,7 @@ async def get_agent_contact_details(
 
 
 @router.post("/contacts/{contact_id}/tasks")
-async def create_agent_contact_task(
+def create_agent_contact_task(
     contact_id: str,
     body: AgentTaskCreateRequest,
     current_user: User = Depends(get_current_user),
@@ -2565,7 +2565,7 @@ async def create_agent_contact_task(
 
 
 @router.post("/contacts")
-async def create_agent_contact(
+def create_agent_contact(
     body: AgentContactCreateRequest,
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -2619,7 +2619,7 @@ async def create_agent_contact(
 
 
 @router.put("/contacts/{contact_id}")
-async def update_agent_contact(
+def update_agent_contact(
     contact_id: str,
     body: AgentContactUpdateRequest,
     current_user: User = Depends(get_current_user),
@@ -2644,7 +2644,7 @@ async def update_agent_contact(
 
 
 @router.delete("/contacts/{contact_id}")
-async def delete_agent_contact(
+def delete_agent_contact(
     contact_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2674,13 +2674,13 @@ async def delete_agent_contact(
 
 
 @router.get("/pipeline/stages")
-async def get_pipeline_stages(current_user: User = Depends(get_current_user)):
+def get_pipeline_stages(current_user: User = Depends(get_current_user)):
     """Справочник стадий воронки (фиксированный набор) — для канбана на фронте."""
     return {"stages": AGENT_CONTACT_STAGES}
 
 
 @router.patch("/contacts/{contact_id}/status")
-async def update_agent_contact_status(
+def update_agent_contact_status(
     contact_id: str,
     body: AgentContactStatusRequest,
     current_user: User = Depends(get_current_user),
@@ -2711,7 +2711,7 @@ async def update_agent_contact_status(
 
 
 @router.get("/calls")
-async def list_agent_calls(
+def list_agent_calls(
     agent_contact_id: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -2755,7 +2755,7 @@ async def list_agent_calls(
 
 
 @router.get("/calls/{call_id}")
-async def get_agent_call(
+def get_agent_call(
     call_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2785,7 +2785,7 @@ XLSX_MEDIA_TYPE = (
 
 
 @router.get("/contacts/import/template")
-async def import_contacts_template(
+def import_contacts_template(
     current_user: User = Depends(get_current_user),
 ):
     """Скачать xlsx-шаблон для импорта контактов (генерируется на лету)."""
@@ -3038,7 +3038,7 @@ async def _run_contacts_import(
 
 
 @router.post("/contacts/import/execute")
-async def import_contacts_execute(
+def import_contacts_execute(
     body: ImportExecuteRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
@@ -3087,7 +3087,7 @@ async def import_contacts_execute(
 
 
 @router.get("/contacts/import/errors/{preview_token}")
-async def import_contacts_errors(
+def import_contacts_errors(
     preview_token: str,
     current_user: User = Depends(get_current_user),
 ):

@@ -115,7 +115,7 @@ def _build_robokassa_payment(
 # ============================================================================
 
 @router.get("/balance")
-async def get_balance(
+def get_balance(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -138,7 +138,7 @@ async def get_balance(
 
 
 @router.get("/packages")
-async def get_packages(
+def get_packages(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -154,7 +154,7 @@ async def get_packages(
 
 
 @router.get("/transactions")
-async def get_transactions(
+def get_transactions(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     type_filter: Optional[str] = Query(None),
@@ -174,7 +174,7 @@ async def get_transactions(
 
 
 @router.post("/purchase")
-async def purchase_package(
+def purchase_package(
     body: PurchaseRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -228,7 +228,7 @@ async def purchase_package(
 
 
 @router.post("/subscribe")
-async def subscribe_agent(
+def subscribe_agent(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

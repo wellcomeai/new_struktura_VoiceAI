@@ -178,7 +178,7 @@ async def get_my_subscription(
 
 
 @router.get("/assistants-usage", response_model=Dict[str, Any])
-async def get_assistants_usage_endpoint(
+def get_assistants_usage_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -193,7 +193,7 @@ async def get_assistants_usage_endpoint(
         used, max, unlimited, can_create, subscription_active, plan_code, breakdown
     """
     try:
-        return await get_assistants_usage(db, current_user)
+        return get_assistants_usage(db, current_user)
     except Exception as e:
         logger.error(f"Error getting assistants usage: {str(e)}")
         raise HTTPException(
@@ -203,7 +203,7 @@ async def get_assistants_usage_endpoint(
 
 
 @router.get("/plans", response_model=List[Dict[str, Any]])
-async def get_subscription_plans(
+def get_subscription_plans(
     include_inactive: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -430,7 +430,7 @@ async def subscribe_to_plan(
         
         # Log subscription change
         from backend.services.subscription_service import SubscriptionService
-        await SubscriptionService.log_subscription_event(
+        SubscriptionService.log_subscription_event(
             db=db,
             user_id=str(current_user.id),
             action="subscribe",

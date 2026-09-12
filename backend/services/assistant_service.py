@@ -22,7 +22,7 @@ class AssistantService:
     """Service for assistant operations"""
     
     @staticmethod
-    async def get_assistants(
+    def get_assistants(
         db: Session, user_id: str, include_agent_voices: bool = False
     ) -> List[AssistantResponse]:
         """
@@ -77,7 +77,7 @@ class AssistantService:
         return result
     
     @staticmethod
-    async def get_assistant_by_id(db: Session, assistant_id: str, user_id: Optional[str] = None) -> AssistantConfig:
+    def get_assistant_by_id(db: Session, assistant_id: str, user_id: Optional[str] = None) -> AssistantConfig:
         """
         Get assistant by ID
         
@@ -112,7 +112,7 @@ class AssistantService:
         return assistant
     
     @staticmethod
-    async def create_assistant(db: Session, user_id: str, assistant_data: AssistantCreate) -> AssistantResponse:
+    def create_assistant(db: Session, user_id: str, assistant_data: AssistantCreate) -> AssistantResponse:
         """
         Create a new assistant
         
@@ -198,7 +198,7 @@ class AssistantService:
             )
     
     @staticmethod
-    async def update_assistant(
+    def update_assistant(
         db: Session, 
         assistant_id: str, 
         user_id: str, 
@@ -221,7 +221,7 @@ class AssistantService:
         """
         try:
             # Get assistant and verify ownership
-            assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
+            assistant = AssistantService.get_assistant_by_id(db, assistant_id, user_id)
             
             # Update only provided fields
             update_data = assistant_data.dict(exclude_unset=True)
@@ -283,7 +283,7 @@ class AssistantService:
             )
     
     @staticmethod
-    async def delete_assistant(db: Session, assistant_id: str, user_id: str) -> bool:
+    def delete_assistant(db: Session, assistant_id: str, user_id: str) -> bool:
         """
         Delete an assistant
         
@@ -300,7 +300,7 @@ class AssistantService:
         """
         try:
             # Get assistant and verify ownership
-            assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
+            assistant = AssistantService.get_assistant_by_id(db, assistant_id, user_id)
 
             # ✅ FIX: Запрещаем удаление, если ассистент является голосом агента обзвона.
             # Иначе агент молча остаётся без голоса. Просим сначала отвязать через
@@ -342,7 +342,7 @@ class AssistantService:
             )
     
     @staticmethod
-    async def get_embed_code(db: Session, assistant_id: str, user_id: str) -> EmbedCodeResponse:
+    def get_embed_code(db: Session, assistant_id: str, user_id: str) -> EmbedCodeResponse:
         """
         Get embed code for an assistant
         
@@ -358,7 +358,7 @@ class AssistantService:
             HTTPException: If assistant isn't active
         """
         # Get assistant and verify ownership
-        assistant = await AssistantService.get_assistant_by_id(db, assistant_id, user_id)
+        assistant = AssistantService.get_assistant_by_id(db, assistant_id, user_id)
         
         # Check if assistant is active
         if not assistant.is_active:
@@ -390,7 +390,7 @@ class AssistantService:
         )
     
     @staticmethod
-    async def increment_conversation_count(db: Session, assistant_id: str) -> None:
+    def increment_conversation_count(db: Session, assistant_id: str) -> None:
         """
         Increment the conversation count for an assistant
         

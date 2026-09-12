@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 @router.get("/my-logs", response_model=List[Dict[str, Any]])
-async def get_my_subscription_logs(
+def get_my_subscription_logs(
     skip: int = 0,
     limit: int = 100,
     current_user: User = Depends(get_current_user),
@@ -56,7 +56,7 @@ async def get_my_subscription_logs(
     return result
 
 @router.get("/all", response_model=List[Dict[str, Any]])
-async def get_all_subscription_logs(
+def get_all_subscription_logs(
     skip: int = 0,
     limit: int = 100,
     user_id: Optional[str] = None,

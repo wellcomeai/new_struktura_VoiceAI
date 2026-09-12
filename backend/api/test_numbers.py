@@ -66,7 +66,7 @@ def _bad_request(e: TestNumberError):
 # ============================================================================
 
 @router.get("/status")
-async def get_test_number_status(
+def get_test_number_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -135,7 +135,7 @@ async def rebind_test_number(
 
 
 @router.post("/release")
-async def release_test_number(
+def release_test_number(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -154,7 +154,7 @@ async def release_test_number(
 # ============================================================================
 
 @router.get("/admin/pool")
-async def admin_get_pool(
+def admin_get_pool(
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),
 ):
@@ -166,7 +166,7 @@ async def admin_get_pool(
 
 
 @router.put("/admin/pool/{phone_number_id}")
-async def admin_set_pool_flag(
+def admin_set_pool_flag(
     phone_number_id: str,
     request: PoolFlagRequest,
     db: Session = Depends(get_db),
@@ -186,7 +186,7 @@ async def admin_set_pool_flag(
 
 
 @router.get("/admin/leases")
-async def admin_get_leases(
+def admin_get_leases(
     limit: int = 50,
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),
@@ -195,7 +195,7 @@ async def admin_get_leases(
 
 
 @router.post("/admin/leases/{lease_id}/release")
-async def admin_release_lease(
+def admin_release_lease(
     lease_id: str,
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),
@@ -211,7 +211,7 @@ async def admin_release_lease(
 
 
 @router.get("/admin/grants")
-async def admin_get_grants(
+def admin_get_grants(
     limit: int = 100,
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),
@@ -220,7 +220,7 @@ async def admin_get_grants(
 
 
 @router.post("/admin/grants")
-async def admin_grant_attempt(
+def admin_grant_attempt(
     request: GrantRequest,
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),
@@ -234,7 +234,7 @@ async def admin_grant_attempt(
 
 
 @router.delete("/admin/grants/{grant_id}")
-async def admin_revoke_grant(
+def admin_revoke_grant(
     grant_id: str,
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),

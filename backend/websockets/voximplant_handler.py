@@ -635,7 +635,7 @@ class VoximplantProtocolHandler:
             logger.info(f"[VOX-v2.2] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
             # Save to database as NEW record
-            conversation = await ConversationService.save_conversation(
+            conversation = ConversationService.save_conversation(
                 db=self.db,
                 assistant_id=str(self.openai_client.assistant_config.id),
                 user_message=self.user_transcript,
@@ -818,7 +818,7 @@ class VoximplantProtocolHandler:
             if not user or user.is_admin or user.email == "well96well@gmail.com":
                 return True
             
-            subscription_status = await UserService.check_subscription_status(
+            subscription_status = UserService.check_subscription_status(
                 self.db, str(user.id)
             )
             

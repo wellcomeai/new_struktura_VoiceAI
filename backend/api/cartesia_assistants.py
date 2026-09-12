@@ -102,7 +102,7 @@ def mask_api_key(key: Optional[str]) -> Optional[str]:
     return f"{key[:3]}...{key[-3:]}"
 
 
-async def verify_assistant_access(
+def verify_assistant_access(
     assistant_id: str,
     user_id: str,
     db: Session,
@@ -144,7 +144,7 @@ async def verify_assistant_access(
 # ============================================================================
 
 @router.get("/api-keys", response_model=CartesiaApiKeysStatus)
-async def get_api_keys_status(
+def get_api_keys_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -158,7 +158,7 @@ async def get_api_keys_status(
 
 
 @router.put("/api-keys", response_model=CartesiaApiKeysStatus)
-async def update_api_keys(
+def update_api_keys(
     keys_data: CartesiaApiKeysUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -203,7 +203,7 @@ async def update_api_keys(
 # ============================================================================
 
 @router.get("")
-async def get_cartesia_assistants(
+def get_cartesia_assistants(
     include_agent_voices: bool = Query(
         False,
         description="Показать голосовых ассистентов агентов обзвона (по умолчанию скрыты)",
@@ -257,7 +257,7 @@ async def get_cartesia_assistants(
 
 
 @router.get("/{assistant_id}", response_model=CartesiaAssistantResponse)
-async def get_cartesia_assistant(
+def get_cartesia_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -266,7 +266,7 @@ async def get_cartesia_assistant(
     try:
         logger.info(f"[CARTESIA-API] Fetching assistant {assistant_id} for user {current_user.id}")
 
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -297,7 +297,7 @@ async def get_cartesia_assistant(
 
 
 @router.post("", response_model=CartesiaAssistantResponse, status_code=status.HTTP_201_CREATED)
-async def create_cartesia_assistant(
+def create_cartesia_assistant(
     assistant_data: CartesiaAssistantCreate,
     db: Session = Depends(get_db),
     # check_assistant_limit проверяет активность подписки + общий лимит
@@ -360,7 +360,7 @@ async def create_cartesia_assistant(
 
 
 @router.put("/{assistant_id}", response_model=CartesiaAssistantResponse)
-async def update_cartesia_assistant(
+def update_cartesia_assistant(
     assistant_id: str,
     assistant_data: CartesiaAssistantUpdate,
     db: Session = Depends(get_db),
@@ -370,7 +370,7 @@ async def update_cartesia_assistant(
     try:
         logger.info(f"[CARTESIA-API] Updating assistant {assistant_id} for user {current_user.id}")
 
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,
@@ -420,7 +420,7 @@ async def update_cartesia_assistant(
 
 
 @router.delete("/{assistant_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_cartesia_assistant(
+def delete_cartesia_assistant(
     assistant_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -429,7 +429,7 @@ async def delete_cartesia_assistant(
     try:
         logger.info(f"[CARTESIA-API] Deleting assistant {assistant_id} for user {current_user.id}")
 
-        assistant = await verify_assistant_access(
+        assistant = verify_assistant_access(
             assistant_id=assistant_id,
             user_id=str(current_user.id),
             db=db,

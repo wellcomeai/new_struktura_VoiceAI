@@ -750,7 +750,7 @@ def get_voximplant_credentials(db: Session, user_id: uuid.UUID) -> Optional[Dict
 # =============================================================================
 
 @router.get("/assistants/config/{assistant_id}")
-async def get_assistant_config(
+def get_assistant_config(
     assistant_id: str,
     user_id: Optional[str] = Header(None, alias="X-User-ID"),
     db: Session = Depends(get_db)
@@ -810,7 +810,7 @@ async def get_assistant_config(
                 # Проверяем статус подписки (кроме админов)
                 if not user.is_admin and user.email != "well96well@gmail.com":
                     try:
-                        subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                        subscription_status = UserService.check_subscription_status(db, str(user.id))
                         if not subscription_status["active"]:
                             logger.warning(f"[VOXIMPLANT] Подписка истекла для пользователя: {user.id}")
                             
@@ -1058,7 +1058,7 @@ async def execute_assistant_function(
 # =============================================================================
 
 @router.post("/webhook/transcript")
-async def voximplant_transcript_webhook(
+def voximplant_transcript_webhook(
     request_data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
@@ -1559,7 +1559,7 @@ async def log_conversation_data(
                     client_info["call_duration"] = call_duration
                 
                 # Вызываем ConversationService для сохранения
-                db_result = await ConversationService.save_conversation(
+                db_result = ConversationService.save_conversation(
                     db=db,
                     assistant_id=assistant_id,
                     user_message=user_message,
@@ -2122,7 +2122,7 @@ async def start_outbound_call(
 # =============================================================================
 
 @router.get("/analytics/costs/{assistant_id}")
-async def get_assistant_call_costs(
+def get_assistant_call_costs(
     assistant_id: str,
     days: int = Query(default=30, ge=1, le=365, description="Период в днях"),
     db: Session = Depends(get_db)
@@ -2211,7 +2211,7 @@ async def get_assistant_call_costs(
 
 
 @router.get("/analytics/costs/user/{user_id}")
-async def get_user_call_costs(
+def get_user_call_costs(
     user_id: str,
     days: int = Query(default=30, ge=1, le=365, description="Период в днях"),
     db: Session = Depends(get_db)

@@ -66,7 +66,7 @@ class VerificationResponse(BaseModel):
 # HELPER FUNCTIONS
 # ========================================
 
-async def get_current_user_from_email(email: str, db: Session):
+def get_current_user_from_email(email: str, db: Session):
     """
     Get user by email address.
     
@@ -122,7 +122,7 @@ async def send_verification_code(
         logger.info(f"📧 Verification code send request for: {request.email}")
         
         # Get user
-        user = await get_current_user_from_email(request.email, db)
+        user = get_current_user_from_email(request.email, db)
         
         # Check if already verified
         if user.email_verified:
@@ -186,7 +186,7 @@ async def resend_verification_code(
         logger.info(f"🔄 Verification code resend request for: {request.email}")
         
         # Get user
-        user = await get_current_user_from_email(request.email, db)
+        user = get_current_user_from_email(request.email, db)
         
         # Check if already verified
         if user.email_verified:
@@ -256,7 +256,7 @@ async def verify_email_code(
         logger.info(f"🔍 Verification code check for: {request.email}")
         
         # Get user
-        user = await get_current_user_from_email(request.email, db)
+        user = get_current_user_from_email(request.email, db)
         
         # Verify code
         result = await EmailService.verify_code(
@@ -328,7 +328,7 @@ async def get_verification_status(
         logger.info(f"📊 Status check for: {email}")
         
         # Get user
-        user = await get_current_user_from_email(email, db)
+        user = get_current_user_from_email(email, db)
         
         # Get verification status
         status_data = await EmailService.get_verification_status(

@@ -230,7 +230,7 @@ class AuthService:
             )
     
     @staticmethod
-    async def login(db: Session, login_data: LoginRequest) -> Dict[str, Any]:
+    def login(db: Session, login_data: LoginRequest) -> Dict[str, Any]:
         """
         Authenticate a user and generate a token
         
@@ -282,7 +282,7 @@ class AuthService:
             
             # Check subscription status
             from backend.services.user_service import UserService
-            subscription_status = await UserService.check_subscription_status(db, str(user.id))
+            subscription_status = UserService.check_subscription_status(db, str(user.id))
             
             # Check if user is a partner
             partner_info = None
@@ -331,7 +331,7 @@ class AuthService:
             )
     
     @staticmethod
-    async def change_password(
+    def change_password(
         db: Session, 
         user_id: str, 
         current_password: str, 
@@ -391,7 +391,7 @@ class AuthService:
             )
     
     @staticmethod
-    async def reset_password_request(db: Session, email: str) -> bool:
+    def reset_password_request(db: Session, email: str) -> bool:
         """
         Request password reset (placeholder for future implementation)
         
@@ -427,7 +427,7 @@ class AuthService:
         return create_access_token(data)
     
     @staticmethod
-    async def get_current_user(
+    def get_current_user(
         db: Session = Depends(get_db),
         credentials: HTTPAuthorizationCredentials = Depends(security)
     ) -> User:

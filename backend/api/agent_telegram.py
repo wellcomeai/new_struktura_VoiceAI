@@ -208,7 +208,7 @@ async def disconnect_telegram_bot(
 
 
 @router.patch("/enabled")
-async def set_telegram_enabled(
+def set_telegram_enabled(
     body: TelegramEnabledRequest,
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -251,7 +251,7 @@ async def regenerate_telegram_secret(
 # ============================================================================
 
 @router.post("/chats")
-async def add_telegram_chat(
+def add_telegram_chat(
     body: TelegramChatAddRequest,
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
@@ -288,7 +288,7 @@ async def add_telegram_chat(
 
 
 @router.delete("/chats/{chat_id}")
-async def delete_telegram_chat(
+def delete_telegram_chat(
     chat_id: str,
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),

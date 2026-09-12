@@ -138,7 +138,7 @@ async def async_save_dialog_to_db(db_session, assistant_id: str, user_message: s
         
         log_to_render(f"💾 [ASYNC] Saving dialog as separate DB record")
         
-        await ConversationService.save_conversation(
+        ConversationService.save_conversation(
             db=db_session,
             assistant_id=assistant_id,
             user_message=user_message,
@@ -391,7 +391,7 @@ async def handle_grok_websocket_connection(
                 # Check subscription
                 if not user.is_admin and user.email != "well96well@gmail.com":
                     from backend.services.user_service import UserService
-                    subscription_status = await UserService.check_subscription_status(db, str(user.id))
+                    subscription_status = UserService.check_subscription_status(db, str(user.id))
                     
                     if not subscription_status["active"]:
                         log_to_render(f"❌ Subscription expired for user {user.id}", "WARNING")
