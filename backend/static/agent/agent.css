@@ -62,6 +62,9 @@ a { color: var(--vf-accent); text-decoration: none; }
 .hidden { display: none !important; }
 :focus-visible { outline: 2px solid var(--vf-accent); outline-offset: 2px; border-radius: 4px; }
 .vf-fa > svg.ic { width: 1em; height: 1em; }
+/* Font Awesome подключён как запасной вариант: у иконок, которые ui.js уже заменил на
+   Lucide (класс vf-fa), гасим глиф ::before, иначе иконка рисуется дважды. */
+i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !important; }
 
 /* ---------- Кнопки (поверх .btn из voicyfy.css) ---------- */
 .btn { height: 34px; padding: 0 12px; font-size: 13.5px; }
@@ -331,6 +334,7 @@ a { color: var(--vf-accent); text-decoration: none; }
 /* Сообщения */
 .chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px 12px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .msg { display: flex; gap: 10px; align-items: flex-end; width: 100%; max-width: var(--chat-max); animation: msgIn .2s ease; }
+.msg.assistant { align-items: flex-start; }
 @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .msg.assistant { align-self: center; }
 .msg.user { align-self: center; flex-direction: row; justify-content: flex-end; }
@@ -341,19 +345,22 @@ a { color: var(--vf-accent); text-decoration: none; }
 .msg-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
 .msg.assistant .msg-body { max-width: calc(100% - 38px); }
 .msg-bubble { padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.55; word-break: break-word; }
-.msg.assistant .msg-bubble.answer { background: var(--vf-surface-2); border: 1px solid var(--vf-border); color: var(--vf-text); border-bottom-left-radius: 6px; }
+.msg.assistant .msg-bubble.answer { background: transparent; border: none; padding: 3px 0 0; border-radius: 0; color: var(--vf-text); font-size: 14px; line-height: 1.6; }
 .msg.assistant .msg-bubble.answer:empty { display: none; }
 .msg.user .msg-bubble.user-chip { background: var(--vf-accent); color: #fff; border-bottom-right-radius: 6px; max-width: 82%; margin-left: auto; }
 .msg-time { font-size: 11px; color: var(--vf-text-4); padding: 0 6px; }
+.msg.assistant .msg-time { padding: 0; }
 .msg.user .msg-time { text-align: right; }
 /* Markdown внутри ответа */
 .msg-bubble.md > *:first-child { margin-top: 0; }
 .msg-bubble.md > *:last-child { margin-bottom: 0; }
 .msg-bubble.md p { margin: 0 0 8px; }
-.msg-bubble.md h1, .msg-bubble.md h2, .msg-bubble.md h3, .msg-bubble.md h4 { margin: 10px 0 6px; line-height: 1.3; font-weight: 600; }
-.msg-bubble.md h1 { font-size: 17px; } .msg-bubble.md h2 { font-size: 15.5px; } .msg-bubble.md h3 { font-size: 14.5px; } .msg-bubble.md h4 { font-size: 13.5px; }
-.msg-bubble.md ul, .msg-bubble.md ol { margin: 6px 0 8px; padding-left: 20px; }
-.msg-bubble.md li { margin: 2px 0; }
+.msg-bubble.md strong, .msg-bubble.md b { font-weight: 600; }
+.msg-bubble.md h1, .msg-bubble.md h2, .msg-bubble.md h3, .msg-bubble.md h4 { margin: 12px 0 6px; line-height: 1.35; font-weight: 600; letter-spacing: -.01em; }
+.msg-bubble.md h1 { font-size: 15.5px; } .msg-bubble.md h2 { font-size: 15px; } .msg-bubble.md h3 { font-size: 14.5px; } .msg-bubble.md h4 { font-size: 14px; }
+.msg-bubble.md ul, .msg-bubble.md ol { margin: 4px 0 8px; padding-left: 18px; }
+.msg-bubble.md li { margin: 3px 0; padding-left: 2px; }
+.msg-bubble.md li::marker { color: var(--vf-text-4); }
 .msg-bubble.md li > p { margin: 0; }
 .msg-bubble.md a { color: var(--vf-accent); text-decoration: underline; word-break: break-all; }
 .msg-bubble.md code { background: rgba(15,23,42,.06); padding: 1px 5px; border-radius: 5px; font-size: .88em; font-family: var(--vf-font-mono); }
@@ -364,7 +371,7 @@ a { color: var(--vf-accent); text-decoration: none; }
 .msg-bubble.md .md-table-wrap { overflow-x: auto; margin: 8px 0; -webkit-overflow-scrolling: touch; }
 .msg-bubble.md table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 .msg-bubble.md th, .msg-bubble.md td { border: 1px solid var(--vf-border); padding: 6px 10px; text-align: left; vertical-align: top; }
-.msg-bubble.md th { background: var(--vf-surface); font-weight: 600; white-space: nowrap; }
+.msg-bubble.md th { background: var(--vf-surface-2); font-weight: 600; white-space: nowrap; color: var(--vf-text-2); font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em; }
 .msg-bubble.md tr:nth-child(even) td { background: rgba(15,23,42,.02); }
 .typing-row { display: flex; align-items: center; gap: 5px; padding: 12px 15px; background: var(--vf-surface-2); border-radius: 14px; border-bottom-left-radius: 4px; }
 .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--vf-accent); animation: tb 1.2s infinite ease-in-out; }
