@@ -82,7 +82,7 @@ class TranscriptCollector:
                 sep = "" if (turns[-1]["text"].endswith(" ") or f["text"].startswith(" ")) else " "
                 turns[-1]["text"] += sep + f["text"]
             else:
-                turns.append({"role": f["role"], "text": f["text"]})
+                turns.append({"role": f["role"], "text": f["text"], "start_ms": f["start_ms"]})
         for t in turns:
             t["text"] = " ".join(t["text"].split())
         return [t for t in turns if t["text"]]

@@ -114,6 +114,9 @@ class OpenAILiveClient:
         audio_rate: int = 24000,
         delegation_model: Optional[str] = None,
         voice_override: Optional[str] = None,
+        backend_user_prompt: Optional[str] = None,
+        voice_extra_instructions: Optional[str] = None,
+        exclude_functions: Optional[List[str]] = None,
     ):
         self.api_key = api_key
         self.assistant_config = assistant_config
@@ -123,6 +126,12 @@ class OpenAILiveClient:
         self.delegation_model = delegation_model or LIVE_DELEGATION_MODEL
         # Голос, выбранный на тестовой странице (?voice=), приоритетнее конфига ассистента
         self.voice_override = (voice_override or "").strip().lower() or None
+        # Телефония: бэкенду отдаём промпт из /api/telephony/config (с карточкой
+        # звонящего), голосовому слою — промпт ассистента плюс короткая добавка.
+        self.backend_user_prompt = (backend_user_prompt or "").strip() or None
+        self.voice_extra_instructions = (voice_extra_instructions or "").strip() or None
+        # Функции, которые в этом транспорте не поддерживаются (hangup_call в телефонии)
+        self.exclude_functions = {normalize_function_name(n) for n in (exclude_functions or [])}
 
         self.ws = None
         self.is_connected = False
@@ -140,6 +149,8 @@ class OpenAILiveClient:
         self._pending_calls: Dict[str, List[Dict[str, Any]]] = {}
         # Все вызовы функций за сессию (для отладочной страницы и логов)
         self.function_log: List[Dict[str, Any]] = []
+        # Дополнительный контекст для функций (телефония кладёт сюда call_data)
+        self.function_context_extra: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Конфигурация сессии
@@ -155,6 +166,11 @@ class OpenAILiveClient:
         else:
             names = []
         defs = get_enabled_functions(names)
+        if self.exclude_functions:
+            skipped = [d["name"] for d in defs if normalize_function_name(d["name"]) in self.exclude_functions]
+            if skipped:
+                logger.info(f"[LIVE-CLIENT] Functions excluded for this transport: {skipped}")
+            defs = [d for d in defs if normalize_function_name(d["name"]) not in self.exclude_functions]
         self.enabled_functions = [normalize_function_name(d["name"]) for d in defs]
         tools = []
         for d in defs:
@@ -201,10 +217,12 @@ class OpenAILiveClient:
             )
             voice_instructions = voice_instructions[:LIVE_VOICE_INSTRUCTIONS_MAX_CHARS]
         voice_instructions += VOICE_DELEGATION_HINT
+        if self.voice_extra_instructions:
+            voice_instructions += "\n\n" + self.voice_extra_instructions
 
         responses_cfg: Dict[str, Any] = {
             "model": self.delegation_model,
-            "instructions": BACKEND_SYSTEM_PROMPT + system_prompt,
+            "instructions": BACKEND_SYSTEM_PROMPT + (self.backend_user_prompt or system_prompt),
         }
         if self.tools:
             responses_cfg["tools"] = self.tools
@@ -360,6 +378,20 @@ class OpenAILiveClient:
             "delegation_id": delegation_id,
             "content": content[:2000],
         })
+
+    async def say_greeting(self, phrase: str) -> bool:
+        """
+        Приветствие первой фразой ассистента. У Live нет response.create, поэтому
+        просим голосовую модель начать разговор с заданной фразы через
+        session.instructions.append сразу после session.started.
+        """
+        phrase = " ".join((phrase or "").split())
+        if not phrase:
+            return False
+        return await self.append_instructions(
+            "Разговор только начался, собеседник ещё ничего не сказал. Начни первым: "
+            f"скажи дословно «{phrase}» и после этого жди ответа. Не повторяй приветствие позже."
+        )
 
     async def mute_input(self, muted: bool) -> bool:
         return await self._send({
@@ -526,6 +558,7 @@ class OpenAILiveClient:
             "db_session": self.db_session,
             "live_session_id": self.session_id,
         }
+        context.update(self.function_context_extra or {})
         logger.info(f"[LIVE-CLIENT] Executing function {normalized} args={str(arguments)[:200]}")
         try:
             return await execute_function(name=normalized, arguments=arguments, context=context)
