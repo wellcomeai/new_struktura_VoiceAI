@@ -20,7 +20,7 @@ Version: 3.6 - Yandex assistants + call log/record links in session cards
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, case, or_, text
+from sqlalchemy import func, desc, case, or_, text, select, literal, union_all
 from sqlalchemy.dialects.postgresql import JSONB
 import time
 from typing import Dict, Optional, List
@@ -67,22 +67,46 @@ SYSTEM_MESSAGE_PATTERNS = [
 
 def get_user_assistant_ids_by_type(db: Session, user_id: UUID) -> Dict[str, List[UUID]]:
     """
-    ID ассистентов пользователя по типам одним проходом (шесть лёгких запросов
-    по индексу user_id). Используется и для фильтра диалогов, и для
-    определения типа ассистента в ответе — раньше те же таблицы читались дважды.
+    ID ассистентов пользователя по типам одним запросом (UNION ALL по шести
+    таблицам). Используется и для фильтра диалогов, и для определения типа
+    ассистента в ответе.
     """
-    return {
-        "openai": [a.id for a in db.query(AssistantConfig.id).filter(AssistantConfig.user_id == user_id).all()],
-        "gemini": [a.id for a in db.query(GeminiAssistantConfig.id).filter(GeminiAssistantConfig.user_id == user_id).all()],
-        "cartesia": [a.id for a in db.query(CartesiaAssistantConfig.id).filter(CartesiaAssistantConfig.user_id == user_id).all()],
+    parts = [
+        select(AssistantConfig.id.label("id"), literal("openai").label("atype")).where(AssistantConfig.user_id == user_id),
+        select(GeminiAssistantConfig.id, literal("gemini")).where(GeminiAssistantConfig.user_id == user_id),
+        select(CartesiaAssistantConfig.id, literal("cartesia")).where(CartesiaAssistantConfig.user_id == user_id),
         # Yandex: телефонные диалоги тоже пишутся в conversations
-        "yandex": [a.id for a in db.query(YandexAssistantConfig.id).filter(YandexAssistantConfig.user_id == user_id).all()],
+        select(YandexAssistantConfig.id, literal("yandex")).where(YandexAssistantConfig.user_id == user_id),
         # Cascade: GrokAssistantConfig с assistant_type='cascade', звонки под grok-id
-        "cascade": [a.id for a in db.query(GrokAssistantConfig.id).filter(
-            GrokAssistantConfig.user_id == user_id, GrokAssistantConfig.assistant_type == "cascade").all()],
+        select(GrokAssistantConfig.id, literal("cascade")).where(
+            GrokAssistantConfig.user_id == user_id, GrokAssistantConfig.assistant_type == "cascade"),
         # Fish: диалог ведёт OpenAI Realtime, озвучка Fish, лог под fish-id
-        "fish": [a.id for a in db.query(FishAssistantConfig.id).filter(FishAssistantConfig.user_id == user_id).all()],
-    }
+        select(FishAssistantConfig.id, literal("fish")).where(FishAssistantConfig.user_id == user_id),
+    ]
+    result: Dict[str, List[UUID]] = {"openai": [], "gemini": [], "cartesia": [], "yandex": [], "cascade": [], "fish": []}
+    for row in db.execute(union_all(*parts)).all():
+        result[row.atype].append(row.id)
+    return result
+
+
+def get_assistant_names(db: Session, assistant_ids: List[UUID]) -> Dict[str, str]:
+    """Имена ассистентов всех типов по списку id — один UNION ALL вместо шести запросов."""
+    if not assistant_ids:
+        return {}
+    models = (
+        AssistantConfig,
+        GeminiAssistantConfig,
+        CartesiaAssistantConfig,
+        YandexAssistantConfig,
+        GrokAssistantConfig,
+        FishAssistantConfig,
+    )
+    parts = [
+        select(m.id.label("id"), m.name.label("name"), literal(i).label("ord")).where(m.id.in_(assistant_ids))
+        for i, m in enumerate(models)
+    ]
+    rows = sorted(db.execute(union_all(*parts)).all(), key=lambda r: r.ord)
+    return {str(r.id): r.name for r in rows}
 
 
 def get_user_assistant_ids(db: Session, user_id: UUID) -> List[UUID]:
@@ -383,6 +407,9 @@ async def get_conversation_sessions(
                 # Ссылки на запись и лог звонка из client_info (есть только у телефонии)
                 func.max(Conversation.client_info.op('->>')('record_url')).label('record_url'),
                 func.max(Conversation.client_info.op('->>')('log_url')).label('log_url'),
+                # Общее число сессий после GROUP BY/HAVING — в том же запросе,
+                # без второго прохода по таблице
+                func.count().over().label('total_sessions'),
             )
             .group_by(
                 Conversation.session_id,
@@ -417,11 +444,6 @@ async def get_conversation_sessions(
         if date_to_parsed:
             query = query.having(func.max(Conversation.created_at) <= date_to_parsed)
         
-        # Подсчет общего количества
-        from sqlalchemy import select
-        count_query = select(func.count()).select_from(query.subquery())
-        total = db.execute(count_query).scalar()
-        
         # Сортировка и пагинация
         sessions = (
             query.order_by(desc(func.max(Conversation.created_at)))
@@ -429,6 +451,13 @@ async def get_conversation_sessions(
             .offset(offset)
             .all()
         )
+
+        # Общее количество: из оконной функции, а если страница пустая
+        # (offset за концом списка) — отдельным подсчётом, как раньше
+        if sessions:
+            total = sessions[0].total_sessions
+        else:
+            total = db.execute(select(func.count()).select_from(query.subquery())).scalar() or 0
         
         logger.info(f"✅ Found {len(sessions)} sessions (total: {total}) in {(time.monotonic() - started_at) * 1000:.0f} ms")
         
@@ -532,21 +561,7 @@ async def get_conversation_sessions(
         # поиска (у cascade он не срабатывал → "Неизвестный ассистент").
         # =============================================================================
         unique_assistant_ids = list({s.assistant_id for s in sessions})
-        name_map = {}
-        if unique_assistant_ids:
-            for model in (
-                AssistantConfig,
-                GeminiAssistantConfig,
-                CartesiaAssistantConfig,
-                YandexAssistantConfig,
-                GrokAssistantConfig,
-                FishAssistantConfig,
-            ):
-                rows = db.query(model.id, model.name).filter(
-                    model.id.in_(unique_assistant_ids)
-                ).all()
-                for row in rows:
-                    name_map[str(row.id)] = row.name
+        name_map = get_assistant_names(db, unique_assistant_ids)
 
         # =============================================================================
         # Форматируем результат

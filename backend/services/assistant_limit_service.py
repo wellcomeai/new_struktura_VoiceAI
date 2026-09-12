@@ -15,7 +15,7 @@
 from typing import Any, Dict, Set
 from uuid import UUID
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.core.logging import get_logger
@@ -78,32 +78,49 @@ def get_assistants_breakdown(db: Session, user_id: Any) -> Dict[str, int]:
     """
     Количество ассистентов пользователя по провайдерам (без ассистентов агента).
 
+    Один SELECT с восемью скалярными подзапросами вместо восьми отдельных
+    COUNT(*): при каждом открытии списка ассистентов это была самая частая
+    нагрузка на базу (см. seq_scan по *_assistant_configs).
+
     Returns:
         Словарь вида {"openai": 2, "gemini": 0, ..., "total": 2}
     """
     excluded = get_agent_owned_assistant_ids(db, user_id)
 
-    def count(model, *extra_filters) -> int:
-        query = db.query(model).filter(model.user_id == user_id, *extra_filters)
-        return exclude_agent_owned(query, model, db, user_id, excluded).count()
+    def count_sq(model, *extra_filters):
+        stmt = select(func.count()).select_from(model).where(model.user_id == user_id, *extra_filters)
+        if excluded:
+            stmt = stmt.where(model.id.notin_(excluded))
+        return stmt.scalar_subquery()
 
-    breakdown = {
-        "openai": count(AssistantConfig),
-        "gemini": count(GeminiAssistantConfig),
+    row = db.execute(select(
+        count_sq(AssistantConfig).label("openai"),
+        count_sq(GeminiAssistantConfig).label("gemini"),
         # Каскад живёт в той же таблице, что и Grok, и различается assistant_type.
         # Legacy-строки без типа считаем grok — так ни одна строка не потеряется.
-        "grok": count(
+        count_sq(
             GrokAssistantConfig,
             or_(
                 GrokAssistantConfig.assistant_type != "cascade",
                 GrokAssistantConfig.assistant_type.is_(None),
             ),
-        ),
-        "cascade": count(GrokAssistantConfig, GrokAssistantConfig.assistant_type == "cascade"),
-        "cartesia": count(CartesiaAssistantConfig),
-        "yandex": count(YandexAssistantConfig),
-        "fish": count(FishAssistantConfig),
-        "translate": count(TranslateAssistantConfig),
+        ).label("grok"),
+        count_sq(GrokAssistantConfig, GrokAssistantConfig.assistant_type == "cascade").label("cascade"),
+        count_sq(CartesiaAssistantConfig).label("cartesia"),
+        count_sq(YandexAssistantConfig).label("yandex"),
+        count_sq(FishAssistantConfig).label("fish"),
+        count_sq(TranslateAssistantConfig).label("translate"),
+    )).one()
+
+    breakdown = {
+        "openai": row.openai,
+        "gemini": row.gemini,
+        "grok": row.grok,
+        "cascade": row.cascade,
+        "cartesia": row.cartesia,
+        "yandex": row.yandex,
+        "fish": row.fish,
+        "translate": row.translate,
     }
     breakdown["total"] = sum(breakdown.values())
     return breakdown

@@ -1894,8 +1894,28 @@ def ensure_conversation_indexes():
                 "CREATE INDEX IF NOT EXISTS ix_conversations_session_created "
                 "ON conversations(session_id, created_at)"
             ))
+            # Индексы по владельцу и по ассистенту для остальных таблиц. Созданы на
+            # проде вручную (12.09.2026), здесь — чтобы новые окружения получали их сами.
+            for name, ddl in [
+                ("ix_assistant_configs_user_id", "assistant_configs(user_id)"),
+                ("ix_gemini_assistant_configs_user_id", "gemini_assistant_configs(user_id)"),
+                ("ix_fish_assistant_configs_user_id", "fish_assistant_configs(user_id)"),
+                ("ix_yandex_assistant_configs_user_id", "yandex_assistant_configs(user_id)"),
+                ("ix_grok_assistant_configs_user_id", "grok_assistant_configs(user_id)"),
+                ("ix_cartesia_assistant_configs_user_id", "cartesia_assistant_configs(user_id)"),
+                ("ix_agent_configs_user_id", "agent_configs(user_id)"),
+                ("ix_gemini_conversations_assistant_created", "gemini_conversations(assistant_id, created_at)"),
+                ("ix_yandex_conversations_assistant_created", "yandex_conversations(assistant_id, created_at)"),
+                ("ix_grok_conversations_assistant_created", "grok_conversations(assistant_id, created_at)"),
+                ("ix_function_logs_conversation_id", "function_logs(conversation_id)"),
+                ("ix_function_logs_assistant_created", "function_logs(assistant_id, created_at)"),
+                ("ix_function_logs_user_id", "function_logs(user_id)"),
+                ("ix_subscription_logs_user_id", "subscription_logs(user_id)"),
+                ("ix_payment_transactions_user_id", "payment_transactions(user_id)"),
+            ]:
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {name} ON {ddl}"))
             conn.commit()
-            logger.info("✅ Conversation indexes ensured (assistant_id+created_at, session_id+created_at)")
+            logger.info("✅ Conversation and ownership indexes ensured")
     except Exception as e:
         logger.error(f"❌ ensure_conversation_indexes error: {e}")
 

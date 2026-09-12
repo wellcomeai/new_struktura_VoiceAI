@@ -232,7 +232,7 @@ async def check_subscription_active(
         return current_user
     
     # Check subscription status
-    subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
+    subscription_status = await UserService.check_subscription_status(db, str(current_user.id), user=current_user)
     
     if not subscription_status["active"]:
         logger.warning(f"User {current_user.id} attempted to access protected resource with inactive subscription")
@@ -274,7 +274,7 @@ async def check_subscription_active_for_assistants(
         return current_user
     
     # Проверяем статус подписки
-    subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
+    subscription_status = await UserService.check_subscription_status(db, str(current_user.id), user=current_user)
     
     if not subscription_status["active"]:
         logger.warning(f"User {current_user.id} blocked from using assistants - subscription expired")
@@ -327,7 +327,7 @@ async def enforce_assistant_limit(db: Session, current_user: User) -> User:
         return current_user
 
     # Get subscription status
-    subscription_status = await UserService.check_subscription_status(db, str(current_user.id))
+    subscription_status = await UserService.check_subscription_status(db, str(current_user.id), user=current_user)
     
     # Сначала проверяем активность подписки - СТРОГАЯ ПРОВЕРКА
     if not subscription_status["active"]:

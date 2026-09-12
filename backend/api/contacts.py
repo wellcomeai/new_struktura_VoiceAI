@@ -12,7 +12,7 @@ Version: 4.0 - Production Ready + Full Task Delete
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, or_
+from sqlalchemy import func, desc, or_, select
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -212,45 +212,44 @@ async def get_contacts(
         logger.info(f"   Filters: status={status}, search={search}")
         logger.info(f"   Pagination: limit={limit}, offset={offset}")
         
-        # Подзапрос для подсчета диалогов
-        conversations_count_subquery = (
-            db.query(
-                Conversation.contact_id,
-                func.count(Conversation.id).label('total_conversations')
-            )
-            .group_by(Conversation.contact_id)
-            .subquery()
+        # Количество диалогов — коррелированный подзапрос по contact_id (индекс
+        # ix_conversations_contact_id). Раньше здесь был GROUP BY по всей таблице
+        # conversations без фильтра по пользователю, и он выполнялся дважды.
+        conversations_count = (
+            select(func.count(Conversation.id))
+            .where(Conversation.contact_id == Contact.id)
+            .correlate(Contact)
+            .scalar_subquery()
         )
-        
+
         # Основной запрос
         query = (
             db.query(
                 Contact,
-                func.coalesce(conversations_count_subquery.c.total_conversations, 0).label('conversations_count')
-            )
-            .outerjoin(
-                conversations_count_subquery,
-                Contact.id == conversations_count_subquery.c.contact_id
+                func.coalesce(conversations_count, 0).label('conversations_count')
             )
             .filter(Contact.user_id == current_user.id)
         )
+        # Такой же фильтр для подсчёта total, но без подзапроса по диалогам
+        count_query = db.query(func.count(Contact.id)).filter(Contact.user_id == current_user.id)
         
         # Фильтр по статусу
         if status:
             query = query.filter(Contact.status == status)
+            count_query = count_query.filter(Contact.status == status)
         
         # Поиск
         if search:
             search_pattern = f"%{search}%"
-            query = query.filter(
-                or_(
-                    Contact.name.ilike(search_pattern),
-                    Contact.phone.ilike(search_pattern)
-                )
+            search_filter = or_(
+                Contact.name.ilike(search_pattern),
+                Contact.phone.ilike(search_pattern)
             )
+            query = query.filter(search_filter)
+            count_query = count_query.filter(search_filter)
         
         # Подсчет общего количества
-        total = query.count()
+        total = count_query.scalar() or 0
         
         # Сортировка и пагинация
         contacts_with_counts = (

@@ -347,19 +347,22 @@ class UserService:
             logger.error(f"Error adding usage tokens: {str(e)}")
     
     @staticmethod
-    async def check_subscription_status(db: Session, user_id: str) -> Dict[str, Any]:
+    async def check_subscription_status(db: Session, user_id: str, user: Optional[User] = None) -> Dict[str, Any]:
         """
         Проверить статус подписки пользователя
         
         Args:
             db: Сессия базы данных
             user_id: ID пользователя
+            user: уже загруженный пользователь (из get_current_user), чтобы не
+                читать его из базы второй раз на каждом запросе
             
         Returns:
             Словарь с информацией о статусе подписки
         """
         try:
-            user = await UserService.get_user_by_id(db, user_id)
+            if user is None or str(user.id) != str(user_id):
+                user = await UserService.get_user_by_id(db, user_id)
             
             # Администраторы всегда имеют активную подписку
             if user.is_admin or user.email == "well96well@gmail.com":
