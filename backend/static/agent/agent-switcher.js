@@ -108,6 +108,7 @@ async function selectAgent(id){
   if(!id || String(id)===String(currentAgentId)) return;
   currentAgentId = id;
   localStorage.setItem('agent_current_id', id);
+  renderAgentSwitcher();   // подсветка и галочка выбранного агента в списке
   const msgs = document.getElementById('chat-messages');
   if(msgs) msgs.innerHTML = '';   // чат привязан к конкретному агенту
   await loadCurrentAgent();

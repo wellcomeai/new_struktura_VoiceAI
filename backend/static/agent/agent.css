@@ -101,7 +101,11 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 }
 .nav-left, .nav-right { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .nav-right { justify-content: flex-end; gap: 6px; }
-.nav-center { display: flex; justify-content: center; min-width: 0; }
+/* Центр топбара: переключатель агентов строго по центру страницы, «Новый чат» —
+   в третьей колонке, чтобы не сдвигать переключатель влево */
+.nav-center { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 6px; min-width: 0; }
+.nav-center .agent-switch { grid-column: 2; }
+.nav-center #chat-new-btn { grid-column: 3; justify-self: start; }
 .nav-sep { width: 1px; height: 22px; background: var(--vf-border); margin: 0 6px; flex: 0 0 auto; }
 .nav-logo { display: flex; align-items: center; gap: 9px; padding: 4px 8px 4px 4px; border-radius: 10px; color: var(--vf-text); }
 .nav-logo:hover { background: var(--vf-surface-2); }
