@@ -39,6 +39,7 @@ from backend.api import (
     yandex_assistants,  # 🆕 Yandex Assistants CRUD API (SpeechKit Realtime)
     fish_assistants,  # 🆕 Fish Assistants CRUD API (Fish Audio TTS)
     fish_ws,  # 🆕 Fish Audio TTS proxy WebSocket
+    live_ws,  # 🧪 GPT-Live (gpt-live-1) экспериментальный виджет
     translate_assistants,  # 🆕 v1.0: Translate Assistants CRUD API
     translate_ws,  # 🆕 v1.0: Translate WebSocket API
     contacts,  # ✅ CRM API
@@ -195,6 +196,7 @@ app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(gemini_ws.router, tags=["Gemini WebSocket"])  # BEFORE websocket.router — /ws/llm-stream must match before /ws/{assistant_id}
 app.include_router(translate_ws.router, tags=["Translate WebSocket"])  # BEFORE websocket.router — /ws/translate/{id} must match before /ws/{assistant_id}
 app.include_router(fish_ws.router, tags=["Fish TTS WebSocket"])  # BEFORE websocket.router — /ws/fish/tts/{id} must match before /ws/{assistant_id}
+app.include_router(live_ws.router, tags=["GPT-Live WebSocket"])  # BEFORE websocket.router — /ws/live/{id} must match before /ws/{assistant_id}
 app.include_router(websocket.router, tags=["WebSocket"])
 app.include_router(grok_ws.router, tags=["Grok WebSocket"])  # 🆕 v3.0
 app.include_router(healthcheck.router, tags=["Health"])

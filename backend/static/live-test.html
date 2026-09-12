@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPT-Live тест — Voicyfy</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#262b36; --text:#e6e8ee; --muted:#8b93a7; --accent:#4f8cff; --ok:#2ecc71; --warn:#f5a623; --err:#ff5c5c; --user:#2b3a55; --asst:#2f3b2f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:1200px; margin:0 auto; padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; }
+  select, input[type=text] { background:#0f1115; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:8px 10px; min-width:220px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 14px; font-weight:600; cursor:pointer; }
+  button.secondary { background:#2a2f3a; }
+  button.danger { background:var(--err); }
+  button:disabled { opacity:.45; cursor:default; }
+  .status { margin-left:auto; display:flex; gap:14px; font-size:12px; color:var(--muted); }
+  .status b { color:var(--text); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#555; margin-right:6px; vertical-align:middle; }
+  .dot.on { background:var(--ok); } .dot.warn { background:var(--warn); } .dot.err { background:var(--err); }
+  .grid { display:grid; grid-template-columns:1.2fr 1fr; gap:12px; margin-top:12px; }
+  @media (max-width:900px) { .grid { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; min-height:200px; }
+  .panel h3 { margin:0 0 8px; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; display:flex; align-items:center; gap:8px; }
+  .panel h3 .right { margin-left:auto; font-weight:400; text-transform:none; letter-spacing:0; }
+  .transcript { height:360px; overflow:auto; display:flex; flex-direction:column; gap:6px; }
+  .turn { padding:8px 10px; border-radius:8px; max-width:92%; white-space:pre-wrap; word-break:break-word; }
+  .turn.user { background:var(--user); align-self:flex-end; }
+  .turn.assistant { background:var(--asst); align-self:flex-start; }
+  .turn .who { font-size:10px; color:var(--muted); margin-bottom:2px; }
+  .log { height:360px; overflow:auto; font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
+  .log .l { padding:2px 4px; border-bottom:1px dashed #20242d; }
+  .log .l.err { color:var(--err); } .log .l.fn { color:var(--warn); } .log .l.sys { color:var(--accent); } .log .l.dim { color:var(--muted); }
+  .fn { font:12px ui-monospace,Menlo,monospace; height:160px; overflow:auto; }
+  .fn .c { padding:6px; border-bottom:1px solid var(--line); }
+  .backend { height:160px; overflow:auto; font-size:13px; color:#cfd5e3; white-space:pre-wrap; }
+  .meter { height:6px; background:#0f1115; border-radius:3px; overflow:hidden; }
+  .meter i { display:block; height:100%; width:0; background:var(--ok); transition:width .1s; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  .hint { color:var(--muted); font-size:12px; }
+  label.chk { font-size:12px; color:var(--muted); display:flex; gap:6px; align-items:center; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧪 GPT-Live (gpt-live-1) — тестовый виджет</h1>
+  <div class="sub">Экспериментальный транспорт <code>/ws/live/{assistant_id}</code>. Доступ только владельцу ассистента или админу. Публичный виджет не затронут.</div>
+
+  <div class="bar">
+    <select id="assistant"><option value="">— загрузка ассистентов —</option></select>
+    <input type="text" id="assistantId" placeholder="или вставьте UUID ассистента">
+    <button id="btnStart">▶ Старт</button>
+    <button id="btnStop" class="danger" disabled>■ Стоп</button>
+    <button id="btnFlush" class="secondary" title="Сбросить очередь воспроизведения (отладка перебиваний)">⏭ Сброс буфера</button>
+    <div class="status">
+      <span><span class="dot" id="dotWs"></span>WS</span>
+      <span><span class="dot" id="dotMic"></span>Микрофон</span>
+      <span>Сессия: <b id="elapsed">0:00</b></span>
+      <span>Usage: <b id="usage">—</b> с</span>
+      <span>Буфер: <b id="buffered">0</b> мс</span>
+      <span>Контекст: <b id="ctx">—</b></span>
+    </div>
+  </div>
+
+  <div class="row">
+    <span class="hint" id="sessionInfo">Сессия не запущена.</span>
+    <label class="chk" style="margin-left:auto"><input type="checkbox" id="showRaw"> показывать все события</label>
+    <label class="chk"><input type="checkbox" id="aec" checked> эхоподавление</label>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h3>Транскрипт <span class="right hint">фрагменты склеиваются по говорящему</span></h3>
+      <div class="transcript" id="transcript"></div>
+    </div>
+    <div class="panel">
+      <h3>События</h3>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="panel">
+      <h3>Вызовы функций (delegation)</h3>
+      <div class="fn" id="fn"></div>
+    </div>
+    <div class="panel">
+      <h3>Текст бэкенд-модели <span class="right hint" id="backendModel"></span></h3>
+      <div class="backend" id="backend"></div>
+      <div class="row"><span class="hint">Уровень микрофона</span><div class="meter" style="flex:1"><i id="micLevel"></i></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const TARGET_RATE = 24000;
+  const CHUNK_MS = 100;
+  const $ = id => document.getElementById(id);
+  const token = (() => { try { return localStorage.getItem('auth_token'); } catch (e) { return null; } })();
+
+  // ---------- лог ----------
+  const logEl = $('log');
+  function log(msg, cls = '') {
+    const d = document.createElement('div');
+    d.className = 'l ' + cls;
+    d.textContent = `${new Date().toLocaleTimeString()}  ${msg}`;
+    logEl.appendChild(d);
+    if (logEl.childElementCount > 600) logEl.removeChild(logEl.firstChild);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  if (!token) {
+    log('Нет auth_token в localStorage. Войдите в личный кабинет на этом домене и откройте страницу снова.', 'err');
+    $('btnStart').disabled = true;
+  }
+
+  // ---------- ассистенты ----------
+  async function loadAssistants() {
+    if (!token) return;
+    try {
+      const r = await fetch('/api/assistants/', { headers: { Authorization: 'Bearer ' + token } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const list = await r.json();
+      const sel = $('assistant');
+      sel.innerHTML = '<option value="">— выберите ассистента —</option>';
+      for (const a of list) {
+        const o = document.createElement('option');
+        o.value = a.id; o.textContent = `${a.name} (${String(a.id).slice(0, 8)}…)`;
+        sel.appendChild(o);
+      }
+      log(`Загружено ассистентов: ${list.length}`, 'sys');
+    } catch (e) {
+      log('Не удалось загрузить список ассистентов: ' + e.message, 'err');
+    }
+  }
+  loadAssistants();
+
+  // ---------- транскрипт ----------
+  const trEl = $('transcript');
+  let lastTurn = null;
+  function addTranscript(role, delta) {
+    if (!delta) return;
+    if (!lastTurn || lastTurn.role !== role) {
+      const d = document.createElement('div');
+      d.className = 'turn ' + role;
+      d.innerHTML = `<div class="who">${role === 'user' ? 'Вы' : 'Ассистент'}</div><span class="t"></span>`;
+      trEl.appendChild(d);
+      lastTurn = { role, el: d.querySelector('.t') };
+    }
+    lastTurn.el.textContent += delta;
+    trEl.scrollTop = trEl.scrollHeight;
+  }
+
+  // ---------- аудио: воспроизведение ----------
+  let ctx = null, nextPlayTime = 0, scheduled = [];
+  function ensureCtx() {
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: TARGET_RATE });
+      log(`AudioContext sampleRate=${ctx.sampleRate}`, 'sys');
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function b64ToInt16(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2));
+  }
+  function playPcm(b64) {
+    const c = ensureCtx();
+    const i16 = b64ToInt16(b64);
+    if (!i16.length) return;
+    const buf = c.createBuffer(1, i16.length, TARGET_RATE);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
+    const src = c.createBufferSource();
+    src.buffer = buf; src.connect(c.destination);
+    const now = c.currentTime;
+    if (nextPlayTime < now) nextPlayTime = now + 0.02;
+    src.start(nextPlayTime);
+    nextPlayTime += buf.duration;
+    scheduled.push(src);
+    src.onended = () => { const i = scheduled.indexOf(src); if (i >= 0) scheduled.splice(i, 1); };
+  }
+  function flushPlayback() {
+    for (const s of scheduled) { try { s.stop(); } catch (e) {} }
+    scheduled = []; nextPlayTime = 0;
+    log('Буфер воспроизведения сброшен', 'sys');
+  }
+  $('btnFlush').onclick = flushPlayback;
+  setInterval(() => {
+    const ahead = ctx ? Math.max(0, Math.round((nextPlayTime - ctx.currentTime) * 1000)) : 0;
+    $('buffered').textContent = ahead;
+  }, 200);
+
+  // ---------- аудио: захват ----------
+  let stream = null, workletNode = null, procNode = null, srcNode = null;
+  let ws = null, running = false, startedAt = 0, timer = null;
+
+  function floatTo16(f32) {
+    const out = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) { const s = Math.max(-1, Math.min(1, f32[i])); out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; }
+    return out;
+  }
+  function resample(f32, from, to) {
+    if (from === to) return f32;
+    const ratio = from / to, n = Math.floor(f32.length / ratio), out = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const p = i * ratio, i0 = Math.floor(p), i1 = Math.min(i0 + 1, f32.length - 1), t = p - i0; out[i] = f32[i0] * (1 - t) + f32[i1] * t; }
+    return out;
+  }
+  function i16ToB64(i16) {
+    const bytes = new Uint8Array(i16.buffer, i16.byteOffset, i16.byteLength);
+    let bin = ''; const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    return btoa(bin);
+  }
+
+  let pending = new Float32Array(0), peak = 0;
+  function onCapture(f32, srcRate) {
+    let p = 0; for (let i = 0; i < f32.length; i += 8) p = Math.max(p, Math.abs(f32[i]));
+    peak = Math.max(peak * 0.85, p);
+    $('micLevel').style.width = Math.min(100, Math.round(peak * 140)) + '%';
+    const rs = resample(f32, srcRate, TARGET_RATE);
+    const merged = new Float32Array(pending.length + rs.length); merged.set(pending); merged.set(rs, pending.length); pending = merged;
+    const chunk = Math.round(TARGET_RATE * CHUNK_MS / 1000);
+    while (pending.length >= chunk) {
+      const part = pending.subarray(0, chunk); pending = pending.slice(chunk);
+      if (ws && ws.readyState === 1 && running) ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: i16ToB64(floatTo16(part)) }));
+    }
+  }
+
+  const WORKLET_SRC = `class C extends AudioWorkletProcessor{process(inputs){const ch=inputs[0]&&inputs[0][0];if(ch){this.port.postMessage(ch.slice(0));}return true;}}registerProcessor('live-capture',C);`;
+
+  async function startMic() {
+    const c = ensureCtx();
+    const aec = $('aec').checked;
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: aec, noiseSuppression: true, autoGainControl: true } });
+    srcNode = c.createMediaStreamSource(stream);
+    try {
+      const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+      await c.audioWorklet.addModule(url);
+      workletNode = new AudioWorkletNode(c, 'live-capture');
+      workletNode.port.onmessage = e => onCapture(e.data, c.sampleRate);
+      srcNode.connect(workletNode);
+      const sink = c.createGain(); sink.gain.value = 0; workletNode.connect(sink); sink.connect(c.destination);
+      log(`Микрофон: AudioWorklet, AEC=${aec}, rate=${c.sampleRate}`, 'sys');
+    } catch (e) {
+      procNode = c.createScriptProcessor(4096, 1, 1);
+      procNode.onaudioprocess = ev => onCapture(ev.inputBuffer.getChannelData(0), c.sampleRate);
+      srcNode.connect(procNode); procNode.connect(c.destination);
+      log(`Микрофон: ScriptProcessor (fallback), AEC=${aec}`, 'sys');
+    }
+    $('dotMic').className = 'dot on';
+  }
+  function stopMic() {
+    try { workletNode && workletNode.disconnect(); } catch (e) {}
+    try { procNode && procNode.disconnect(); } catch (e) {}
+    try { srcNode && srcNode.disconnect(); } catch (e) {}
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = workletNode = procNode = srcNode = null;
+    $('dotMic').className = 'dot';
+  }
+
+  // ---------- WS ----------
+  function fmt(s) { s = Math.max(0, Math.floor(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+  async function start() {
+    const id = ($('assistantId').value || $('assistant').value || '').trim();
+    if (!id) { log('Укажите ассистента', 'err'); return; }
+    $('btnStart').disabled = true;
+    trEl.innerHTML = ''; lastTurn = null; $('fn').innerHTML = ''; $('backend').textContent = '';
+    $('usage').textContent = '—'; $('ctx').textContent = '—';
+    try { await startMic(); } catch (e) { log('Микрофон недоступен: ' + e.message, 'err'); $('btnStart').disabled = false; return; }
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/live/${encodeURIComponent(id)}?token=${encodeURIComponent(token)}`);
+    $('dotWs').className = 'dot warn';
+    ws.onopen = () => { log('WS открыт, ждём session.started…', 'sys'); };
+    ws.onclose = ev => {
+      $('dotWs').className = 'dot' + (ev.code === 1000 || ev.code === 1005 ? '' : ' err');
+      log(`WS закрыт code=${ev.code}${ev.reason ? ' reason=' + ev.reason : ''}` + (ev.code === 4403 ? ' (нет доступа: нужен владелец или админ)' : ''), ev.code >= 4000 ? 'err' : 'dim');
+      finish();
+    };
+    ws.onerror = () => log('WS ошибка', 'err');
+    ws.onmessage = ev => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      switch (m.type) {
+        case 'session.started':
+          running = true; startedAt = Date.now();
+          $('dotWs').className = 'dot on'; $('btnStop').disabled = false;
+          $('sessionInfo').textContent = `Сессия ${m.session_id} · ${m.assistant_name} · голос ${m.voice} · ${m.audio_rate} Гц · бэкенд ${m.backend_model} · функции: ${(m.functions || []).join(', ') || 'нет'} · tools=${m.tools_schema}`;
+          $('backendModel').textContent = m.backend_model || '';
+          log(`session.started ${m.session_id}`, 'sys');
+          timer = setInterval(() => $('elapsed').textContent = fmt((Date.now() - startedAt) / 1000), 500);
+          break;
+        case 'audio.delta': playPcm(m.delta); break;
+        case 'transcript.delta': addTranscript(m.role, m.delta); break;
+        case 'delegation.created': log(`delegation.created id=${m.delegation_id} target=${m.target}`, 'fn'); break;
+        case 'backend.text.delta': $('backend').textContent += m.delta || ''; $('backend').scrollTop = 1e9; break;
+        case 'function_call': {
+          log(`function_call ${m.name}(${typeof m.arguments === 'string' ? m.arguments : JSON.stringify(m.arguments)})`, 'fn');
+          const d = document.createElement('div'); d.className = 'c'; d.id = 'fn-' + m.call_id;
+          d.textContent = `▶ ${m.name} ${typeof m.arguments === 'string' ? m.arguments : JSON.stringify(m.arguments)}`;
+          $('fn').appendChild(d); break;
+        }
+        case 'function_result': {
+          log(`function_result ${m.name} → ${JSON.stringify(m.result).slice(0, 300)}`, 'fn');
+          const d = $('fn-' + m.call_id) || $('fn').appendChild(document.createElement('div'));
+          d.textContent += `\n✓ ${JSON.stringify(m.result).slice(0, 600)}`; break;
+        }
+        case 'usage':
+          if (m.seconds != null) $('usage').textContent = m.seconds;
+          if (m.context_usage_ratio != null) $('ctx').textContent = Math.round(m.context_usage_ratio * 100) + '%';
+          break;
+        case 'session.closed':
+          log(`session.closed reason=${m.reason} usage=${JSON.stringify(m.usage)}`, 'sys');
+          if (m.usage && m.usage.seconds != null) $('usage').textContent = m.usage.seconds;
+          break;
+        case 'error': log(`error ${m.code || ''}: ${m.message || JSON.stringify(m)}`, 'err'); break;
+        case 'pong': break;
+        case 'event':
+          if ($('showRaw').checked) log(JSON.stringify(m.event).slice(0, 400), 'dim');
+          break;
+        default: if ($('showRaw').checked) log(JSON.stringify(m).slice(0, 400), 'dim');
+      }
+    };
+  }
+
+  function stop() {
+    $('btnStop').disabled = true;
+    if (ws && ws.readyState === 1) { ws.send(JSON.stringify({ type: 'session.close' })); log('Отправлен session.close, ждём итоговый usage…', 'sys'); }
+    running = false; stopMic();
+    setTimeout(() => { if (ws && ws.readyState === 1) ws.close(); }, 8000);
+  }
+  function finish() {
+    running = false; stopMic(); flushPlayback();
+    if (timer) { clearInterval(timer); timer = null; }
+    $('btnStart').disabled = !token; $('btnStop').disabled = true; ws = null;
+  }
+
+  $('btnStart').onclick = start;
+  $('btnStop').onclick = stop;
+  $('assistant').onchange = () => { $('assistantId').value = $('assistant').value; };
+  window.addEventListener('beforeunload', () => { try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'session.close' })); } catch (e) {} });
+})();
+</script>
+</body>
+</html>
