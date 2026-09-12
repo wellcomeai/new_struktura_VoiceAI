@@ -42,10 +42,10 @@
   --transition: var(--dur) var(--ease-out);
 
   /* Раскладка */
-  --topbar-h: 56px;
-  --left-w: 300px;
-  --right-w: 320px;
-  --gap: 12px;
+  --topbar-h: 48px;
+  --left-w: 268px;
+  --right-w: 288px;
+  --gap: 10px;
   --chat-max: 820px;
   --font-brand: 'Unbounded', var(--vf-font-display);
 }
@@ -81,7 +81,7 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .btn:active { transform: scale(.98); }
 .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 .icon-btn {
-  width: 34px; height: 34px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--vf-text-3);
+  width: 32px; height: 32px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--vf-text-3);
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; text-decoration: none; flex: 0 0 auto;
   transition: background var(--vf-fast), color var(--vf-fast);
 }
@@ -105,22 +105,22 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .nav-sep { width: 1px; height: 22px; background: var(--vf-border); margin: 0 6px; flex: 0 0 auto; }
 .nav-logo { display: flex; align-items: center; gap: 9px; padding: 4px 8px 4px 4px; border-radius: 10px; color: var(--vf-text); }
 .nav-logo:hover { background: var(--vf-surface-2); }
-.nav-logo-img { width: 30px; height: 30px; border-radius: 9px; object-fit: contain; display: block; }
+.nav-logo-img { width: 26px; height: 26px; border-radius: 9px; object-fit: contain; display: block; }
 .nav-logo-icon { width: 30px; height: 30px; border-radius: 9px; background: var(--vf-accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; flex: 0 0 auto; }
-.nav-logo-text { font-family: var(--vf-font-display); font-size: 18px; font-weight: 800; letter-spacing: -.03em; line-height: 1; background: linear-gradient(135deg, #2563eb, #3b82f6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.nav-logo-text { font-family: var(--vf-font-display); font-size: 17px; font-weight: 800; letter-spacing: -.03em; line-height: 1; background: linear-gradient(135deg, #2563eb, #3b82f6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 
 /* Переключатель агентов */
 .agent-switch { position: relative; }
 .agent-trigger {
-  display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px 0 6px; border: 1px solid transparent; border-radius: 10px;
+  display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 10px 0 6px; border: 1px solid transparent; border-radius: 10px;
   background: transparent; cursor: pointer; color: var(--vf-text); transition: background var(--vf-fast), border-color var(--vf-fast); max-width: 420px;
 }
 .agent-trigger:hover, .agent-switch.open .agent-trigger { background: var(--vf-surface-2); border-color: var(--vf-border); }
 .agent-switch.no-dropdown .agent-trigger { cursor: default; }
 .agent-switch.no-dropdown .agent-trigger:hover { background: transparent; border-color: transparent; }
-.agent-trigger-avatar { width: 28px; height: 28px; border-radius: 8px; background: var(--vf-accent-soft); color: var(--vf-accent); font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.agent-trigger-avatar { width: 26px; height: 26px; border-radius: 8px; background: var(--vf-accent-soft); color: var(--vf-accent); font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .agent-trigger-main { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-.nav-agent-name { font-size: 14px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.nav-agent-name { font-size: 13.5px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
 .nav-agent-status { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--vf-success); margin-top: 1px; }
 .nav-agent-status.off { color: var(--vf-text-4); }
 .agent-trigger-chevron { font-size: 11px; color: var(--vf-text-4); transition: transform var(--vf-fast); }
@@ -151,7 +151,7 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .type-badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 500; background: var(--vf-surface-3); color: var(--vf-text-2); white-space: nowrap; }
 
 /* Тумблер «Активен» */
-.toggle-wrap { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 12px; border: 1px solid var(--vf-border); border-radius: 999px; background: var(--vf-surface); transition: background var(--vf-fast), border-color var(--vf-fast); }
+.toggle-wrap { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 12px; border: 1px solid var(--vf-border); border-radius: 999px; background: var(--vf-surface); transition: background var(--vf-fast), border-color var(--vf-fast); }
 .toggle-wrap:has(input:checked) { background: var(--vf-success-soft); border-color: transparent; }
 .toggle-label { font-size: 12.5px; font-weight: 500; color: var(--vf-text-3); white-space: nowrap; }
 .toggle-label.on { color: var(--vf-success); }
@@ -164,7 +164,7 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .switch input:focus-visible + .slider { box-shadow: 0 0 0 3px var(--vf-accent-ring); }
 
 /* Подписка и кредиты (чип в топбаре) */
-.sub-badge { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px 0 12px; border: 1px solid var(--vf-border-strong); border-radius: 999px; background: var(--vf-surface); font-size: 12.5px; white-space: nowrap; }
+.sub-badge { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 12px; border: 1px solid var(--vf-border-strong); border-radius: 999px; background: var(--vf-surface); font-size: 12.5px; white-space: nowrap; }
 .sub-status { font-weight: 600; font-size: 12px; }
 .sub-status.active { color: var(--vf-success); }
 .sub-status.trial { color: var(--vf-accent); }
@@ -190,14 +190,14 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .panel-inner { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 .col-left .panel-inner { width: var(--left-w); }
 .col-right .panel-inner { width: var(--right-w); }
-.panel-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 2px; }
-.panel-title { display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 4px; margin-bottom: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--vf-text-3); }
+.panel-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; height: 24px; padding: 0 4px; margin-bottom: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--vf-text-3); }
 .panel-title .icon-btn { width: 28px; height: 28px; color: var(--vf-text-4); }
 .col-right .panel-title { flex-direction: row-reverse; }
 
 /* Язычки на краях чата (как в ChatGPT) */
 .handle { position: absolute; top: 50%; transform: translateY(-50%); width: 24px; height: 72px; display: flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; padding: 0; z-index: 5; color: var(--vf-text-2); }
-.handle-l { left: 1px; } .handle-r { right: 1px; }
+.handle-l { left: -4px; } .handle-r { right: -4px; }
 .handle .bar { width: 4px; height: 28px; border-radius: 999px; background: var(--vf-border-strong); transition: opacity var(--vf-fast), background var(--vf-fast); }
 .handle .hic { position: absolute; width: 14px; height: 14px; opacity: 0; transition: opacity var(--vf-fast), transform var(--vf-fast); fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .handle:hover .bar { opacity: 0; }
@@ -207,35 +207,35 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .handle:focus-visible .bar { background: var(--vf-accent); }
 
 /* ---------- Карточки панелей ---------- */
-.card { background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: var(--vf-r-md); box-shadow: var(--vf-shadow-1); padding: 12px 14px; transition: box-shadow var(--vf-normal), border-color var(--vf-normal); }
+.card { background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: var(--vf-r-md); box-shadow: var(--vf-shadow-1); padding: 10px 12px; transition: box-shadow var(--vf-normal), border-color var(--vf-normal); }
 .card:hover { border-color: var(--vf-border-strong); }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; border: none; margin-bottom: 10px; }
-.card-head-title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--vf-text); }
-.card-head-title i { width: 22px; height: 22px; border-radius: 6px; background: var(--vf-accent-soft); color: var(--vf-accent); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0; border: none; margin-bottom: 8px; }
+.card-head-title { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--vf-text); }
+.card-head-title i { width: 20px; height: 20px; border-radius: 6px; background: var(--vf-accent-soft); color: var(--vf-accent); font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
 .card-link { font-size: 12px; color: var(--vf-accent); cursor: pointer; font-weight: 500; white-space: nowrap; background: none; border: none; padding: 0; }
 .card-link:hover { text-decoration: underline; }
 
 /* Статистика */
-.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.stat-card { background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: var(--vf-r-md); padding: 12px 14px; box-shadow: var(--vf-shadow-1); min-width: 0; transition: box-shadow var(--vf-normal), transform var(--dur-slow) var(--ease-spring); }
+.stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-card { background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: var(--vf-r-md); padding: 10px 12px; box-shadow: var(--vf-shadow-1); min-width: 0; transition: box-shadow var(--vf-normal), transform var(--dur-slow) var(--ease-spring); }
 .stat-card:hover { border-color: var(--vf-border-strong); }
-.stat-icon { width: 26px; height: 26px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; margin-bottom: 8px; }
+.stat-icon { width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 11px; margin-bottom: 6px; }
 .stat-icon.blue { background: var(--vf-accent-soft); color: var(--vf-accent); }
 .stat-icon.green { background: var(--vf-success-soft); color: var(--vf-success); }
-.stat-num { font-family: var(--vf-font-display); font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.stat-label { font-size: 12px; color: var(--vf-text-2); margin-top: 4px; }
+.stat-num { font-family: var(--vf-font-display); font-size: 24px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 11.5px; color: var(--vf-text-2); margin-top: 3px; }
 .stat-go { font-size: 11.5px; color: var(--vf-accent); cursor: pointer; margin-top: 7px; display: inline-block; font-weight: 500; }
 .stat-go:hover { text-decoration: underline; }
 .stat-links { display: flex; gap: 4px 10px; margin-top: 2px; flex-wrap: wrap; }
 .stat-links .stat-go { margin-top: 5px; }
 
 /* Списки звонков */
-.call-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--vf-border); }
+.call-item { display: flex; align-items: center; gap: 9px; padding: 7px 0; border-top: 1px solid var(--vf-border); }
 .call-item:first-child { border-top: none; padding-top: 2px; }
 .avatar { width: 28px; height: 28px; border-radius: 8px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; background: var(--vf-accent-soft); color: var(--vf-accent); }
 .call-info { flex: 1; min-width: 0; }
-.call-name { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.call-meta { font-size: 12px; color: var(--vf-text-3); margin-top: 1px; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; }
+.call-name { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.call-meta { font-size: 11.5px; color: var(--vf-text-3); margin-top: 1px; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; }
 .call-dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 auto; }
 .call-dot.answered { background: var(--vf-success); }
 .call-dot.no_answer { background: var(--vf-danger); }
@@ -259,7 +259,7 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 
 /* Документы агента */
 .docs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.doc-card { background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: 8px; padding: 9px 10px; cursor: pointer; min-width: 0; transition: background var(--vf-fast), border-color var(--vf-fast); }
+.doc-card { background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: 8px; padding: 8px 9px; cursor: pointer; min-width: 0; transition: background var(--vf-fast), border-color var(--vf-fast); }
 .doc-card:hover { background: var(--vf-surface-2); border-color: var(--vf-border-strong); }
 .doc-card.wide { grid-column: 1 / -1; }
 .doc-card-ic { width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 10.5px; margin-bottom: 6px; }
@@ -268,7 +268,7 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 
 /* Карточка агента */
 .agent-card-body { display: flex; align-items: flex-start; gap: 12px; }
-.agent-avatar-lg { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-family: var(--vf-font-display); font-size: 18px; font-weight: 800; flex: 0 0 auto; }
+.agent-avatar-lg { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #2563eb, #3b82f6); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-family: var(--vf-font-display); font-size: 18px; font-weight: 800; flex: 0 0 auto; }
 .agent-name-lg { font-size: 15px; font-weight: 600; }
 .agent-status-lg { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--vf-success); margin-top: 3px; }
 .agent-status-lg.off { color: var(--vf-text-4); }
@@ -276,14 +276,14 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .agent-id { font-size: 11px; color: var(--vf-text-4); margin-top: 6px; font-family: var(--vf-font-mono); }
 
 /* Задачи */
-.task-item { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--vf-border); }
+.task-item { display: flex; gap: 9px; padding: 7px 0; border-top: 1px solid var(--vf-border); }
 .task-item:first-child { border-top: none; padding-top: 2px; }
 .task-date { width: 44px; flex: 0 0 auto; text-align: center; }
 .task-date .d { font-size: 17px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .task-date .m { font-size: 10px; color: var(--vf-text-4); text-transform: uppercase; letter-spacing: .04em; }
 .task-date .t { font-size: 11px; color: var(--vf-accent); font-weight: 600; margin-top: 3px; font-variant-numeric: tabular-nums; }
 .task-body { flex: 1; min-width: 0; }
-.task-title { font-size: 12.5px; font-weight: 500; }
+.task-title { font-size: 12.5px; line-height: 1.35; font-weight: 500; }
 .task-desc { font-size: 12px; color: var(--vf-text-3); margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
 .task-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 5px; gap: 6px; }
 .task-contact { font-size: 11.5px; color: var(--vf-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -314,29 +314,27 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .cd-sms-body { white-space: pre-wrap; word-break: break-word; }
 
 /* ---------- Чат ---------- */
-.chat-col { position: relative; min-width: 0; display: flex; flex-direction: column; background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: var(--vf-r-lg); box-shadow: var(--vf-shadow-2); overflow: hidden; }
-.chat-header { display: flex; align-items: center; gap: 11px; padding: 10px 14px 10px 18px; border-bottom: 1px solid var(--vf-border); }
-.chat-header-title { font-size: 14px; font-weight: 600; }
-.chat-header-sub { font-size: 12.5px; color: var(--vf-text-3); margin-top: 1px; }
-.chat-new-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--vf-text-2); font-size: 12.5px; font-weight: 500; cursor: pointer; flex: 0 0 auto; margin-right: 18px; transition: background var(--vf-fast), color var(--vf-fast); }
-.chat-new-btn:hover { background: var(--vf-surface-3); color: var(--vf-text); }
-.chat-new-btn:disabled { opacity: .55; cursor: not-allowed; }
+.chat-col { position: relative; min-width: 0; min-height: 0; height: 100%; display: flex; flex-direction: column; background: transparent; }
+/* Слот орба внутри капсулы ввода (presence.js вставляет .agent-orb первым ребёнком .chat-header) */
+.chat-header { display: flex; align-items: center; flex: 0 0 auto; align-self: center; margin-left: 2px; }
+.chat-header:empty { display: none; }
+#chat-new-btn:disabled { opacity: .5; cursor: not-allowed; }
 
 /* Приветствие */
-.chat-welcome { width: 100%; max-width: var(--chat-max); margin: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px 18px; gap: 8px; animation: welcomeIn .35s ease; }
+.chat-welcome { width: 100%; max-width: var(--chat-max); margin: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px 18px 40px; gap: 8px; animation: welcomeIn .35s ease; }
 @keyframes welcomeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .chat-welcome-img { width: 56px; height: 56px; object-fit: contain; margin-bottom: 6px; }
 .chat-welcome-title { font-family: var(--font-brand); font-size: 22px; font-weight: 600; letter-spacing: -.01em; line-height: 1.3; margin-top: 4px; }
 .chat-welcome-sub { font-size: 14px; color: var(--vf-text-2); max-width: 460px; line-height: 1.55; margin-bottom: 10px; }
 .chat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; width: 100%; max-width: 560px; }
-.chat-tile { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 13px; background: var(--vf-surface-2); border: 1px solid transparent; border-radius: 12px; cursor: pointer; text-align: left; transition: border-color var(--vf-fast), background var(--vf-fast), box-shadow var(--vf-fast); }
-.chat-tile:hover { background: var(--vf-surface); border-color: var(--vf-border); box-shadow: var(--vf-shadow-2); }
-.chat-tile-ic { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; background: var(--vf-surface); border: 1px solid var(--vf-border); color: var(--vf-accent); flex: 0 0 auto; transition: transform var(--dur) var(--ease-spring); }
+.chat-tile { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 11px 12px; background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: 12px; cursor: pointer; text-align: left; box-shadow: var(--vf-shadow-1); transition: border-color var(--vf-fast), box-shadow var(--vf-fast), transform var(--vf-fast); }
+.chat-tile:hover { border-color: var(--vf-border-strong); box-shadow: var(--vf-shadow-2); transform: translateY(-1px); }
+.chat-tile-ic { width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: var(--vf-accent-soft); color: var(--vf-accent); flex: 0 0 auto; transition: transform var(--dur) var(--ease-spring); }
 .chat-tile:hover .chat-tile-ic { transform: scale(1.1) rotate(-4deg); }
 .chat-tile-label { font-size: 12.5px; font-weight: 500; color: var(--vf-text); line-height: 1.3; }
 
 /* Сообщения */
-.chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px 12px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 28px 10px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 .msg { display: flex; gap: 10px; align-items: flex-end; width: 100%; max-width: var(--chat-max); animation: msgIn .2s ease; }
 .msg.assistant { align-items: flex-start; }
 @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -348,14 +346,15 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .msg-avatar img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .msg-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
 .msg.assistant .msg-body { max-width: calc(100% - 38px); }
-.msg-bubble { padding: 10px 15px; border-radius: 16px; font-size: 15px; line-height: 1.55; word-break: break-word; }
-.msg.assistant .msg-bubble.answer { background: transparent; border: none; padding: 3px 0 0; border-radius: 0; color: var(--vf-text); font-size: 15px; line-height: 1.65; max-width: 720px; }
+.msg-bubble { padding: 0; border-radius: 0; font-size: 14px; line-height: 1.6; word-break: break-word; }
+.msg.assistant .msg-bubble.answer { background: transparent; border: none; padding: 3px 0 0; border-radius: 0; color: var(--vf-text); font-size: 14px; line-height: 1.65; max-width: 720px; }
 .msg.assistant .msg-bubble.answer:empty { display: none; }
-.msg.user .msg-body { max-width: 82%; align-items: flex-end; }
-.msg.user .msg-bubble.user-chip { background: var(--vf-accent); color: #fff; border-bottom-right-radius: 6px; width: fit-content; max-width: 100%; }
-.msg-time { font-size: 11px; color: var(--vf-text-4); padding: 0 6px; }
+.msg.user .msg-body { max-width: 72%; align-items: flex-end; }
+/* Сообщение пользователя без пузыря: справа, чуть плотнее по начертанию, с тонкой меткой */
+.msg.user .msg-bubble.user-chip { background: transparent; color: var(--vf-text); font-weight: 500; text-align: right; width: fit-content; max-width: 100%; padding: 6px 12px 6px 0; border-right: 2px solid var(--vf-accent); }
+.msg-time { font-size: 11px; color: var(--vf-text-4); padding: 0; }
 .msg.assistant .msg-time { padding: 0; }
-.msg.user .msg-time { text-align: right; }
+.msg.user .msg-time { text-align: right; padding-right: 12px; }
 /* Markdown внутри ответа */
 .msg-bubble.md > *:first-child { margin-top: 0; }
 .msg-bubble.md > *:last-child { margin-bottom: 0; }
@@ -433,10 +432,10 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .debug-entry-detail { font-size: 10.5px; color: var(--vf-text-4); font-family: var(--vf-font-mono); background: var(--vf-surface-2); padding: 4px 8px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; }
 
 /* Поле ввода */
-.chat-input-area { width: 100%; max-width: var(--chat-max); margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 14px; border: 1px solid var(--vf-border-strong); border-radius: 18px; background: var(--vf-surface); box-shadow: var(--vf-shadow-1); transition: border-color var(--vf-fast), box-shadow var(--vf-fast); }
-.chat-input-area:focus-within { border-color: var(--vf-accent); box-shadow: 0 0 0 3px var(--vf-accent-ring); }
-.chat-foot { padding: 8px 24px 12px; }
-.chat-input { flex: 1; min-width: 0; border: none; background: transparent; resize: none; font-size: 15px; line-height: 1.5; padding: 8px 0; max-height: 120px; min-height: 36px; color: var(--vf-text); outline: none; }
+.chat-input-area { width: 100%; max-width: var(--chat-max); margin: 0 auto; display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 10px; border: 1px solid var(--vf-border); border-radius: 18px; background: var(--vf-surface); box-shadow: var(--vf-shadow-2); transition: border-color var(--vf-fast), box-shadow var(--vf-fast); }
+.chat-input-area:focus-within { border-color: var(--vf-accent); box-shadow: 0 0 0 3px var(--vf-accent-ring), var(--vf-shadow-2); }
+.chat-foot { padding: 6px 28px 6px; }
+.chat-input { flex: 1; min-width: 0; border: none; background: transparent; resize: none; font-size: 14px; line-height: 1.5; padding: 8px 0; max-height: 120px; min-height: 36px; color: var(--vf-text); outline: none; }
 .chat-input::placeholder { color: var(--vf-text-4); }
 /* Фокус показывает только капсула (.chat-input-area:focus-within); у самого textarea
    гасим кольцо :focus-visible из voicyfy.css, иначе внутри капсулы рисуется вторая рамка. */
@@ -452,12 +451,12 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .chat-send:hover { background: var(--vf-accent-hover); }
 .chat-send:disabled { background: var(--vf-border-strong); cursor: not-allowed; }
 .chat-send:active:not(:disabled) { transform: scale(.92); }
-.chat-hint { max-width: var(--chat-max); margin: 6px auto 0; font-size: 11px; color: var(--vf-text-4); text-align: center; }
+.chat-hint { display: none; }
 .kbd { font-family: var(--vf-font-mono); font-size: 10.5px; padding: 0 5px; border: 1px solid var(--vf-border-strong); border-bottom-width: 2px; border-radius: 4px; color: var(--vf-text-3); }
 
 /* Орб присутствия (инъектируется presence.js первым элементом .chat-header) */
-.agent-orb { position: relative; width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; }
-.agent-orb .orb-core { width: 30px; height: 30px; border-radius: 50%; background: radial-gradient(circle at 32% 28%, #93c5fd 0%, var(--vf-accent) 52%, var(--vf-accent-hover) 100%); box-shadow: 0 2px 8px rgba(37,99,235,.35), inset 0 1px 2px rgba(255,255,255,.55); position: relative; z-index: 1; animation: orb-breathe 3.4s ease-in-out infinite; }
+.agent-orb { position: relative; width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; margin-bottom: 5px; }
+.agent-orb .orb-core { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 32% 28%, #93c5fd 0%, var(--vf-accent) 52%, var(--vf-accent-hover) 100%); box-shadow: 0 2px 8px rgba(37,99,235,.35), inset 0 1px 2px rgba(255,255,255,.55); position: relative; z-index: 1; animation: orb-breathe 3.4s ease-in-out infinite; }
 .agent-orb .orb-ring { position: absolute; inset: -4px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--vf-accent); border-right-color: rgba(37,99,235,.4); opacity: 0; transition: opacity var(--dur) var(--ease-out); }
 @keyframes orb-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
 .agent-orb[data-state="thinking"] .orb-core { animation: orb-think .9s ease-in-out infinite; }
@@ -781,9 +780,6 @@ input[type=range] { accent-color: var(--vf-accent); }
   .chat-messages { padding: 14px 12px 8px; }
   .chat-foot { padding: 6px 10px 10px; }
   .chat-hint { display: none; }
-  .chat-header { padding-left: 12px; }
-  .chat-header-sub { display: none; }
-  .chat-new-btn { margin-right: 0; }
   .msg.user .msg-bubble.user-chip { max-width: 92%; }
 }
 
