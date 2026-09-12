@@ -86,7 +86,18 @@ if(typeof renderAgentHeader === 'function'){
   };
 }
 
+// Выход с платформы: свой обработчик, не зависящий от sidebar.js. Снимаем токен,
+// останавливаем фоновый опрос кредитов и уводим на страницу входа.
+function agentLogout(){
+  try{ localStorage.removeItem('auth_token'); }catch(e){ /* ignore */ }
+  try{ sessionStorage.removeItem('vf_is_admin'); }catch(e){ /* ignore */ }
+  try{ if(typeof creditsTimer !== 'undefined' && creditsTimer) clearInterval(creditsTimer); }catch(e){ /* ignore */ }
+  window.location.replace('/static/login.html');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  const lo = document.getElementById('logout-btn');
+  if(lo) lo.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); agentLogout(); });
   _panelsLoad();
   applyPanels();
   _panelsBind();
