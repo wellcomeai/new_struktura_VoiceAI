@@ -114,11 +114,12 @@ def resolve(user, provider: str) -> ResolvedKeys:
 
 def is_billable(user, provider: str) -> bool:
     """
-    Списывать ли минуты с кошелька: серверный режим и не админ.
-    Админ (well96well@gmail.com / is_admin) обходит биллинг.
+    Списывать ли минуты с кошелька: да, если разговор идёт на серверном ключе
+    платформы. Свой ключ в профиле — бесплатно.
+
+    Админы не исключение: списание с админского кошелька — способ видеть,
+    что биллинг работает, а пополнить его можно из админки.
     """
-    if user is not None and getattr(user, "is_admin", False):
-        return False
     return resolve(user, provider).is_server
 
 
