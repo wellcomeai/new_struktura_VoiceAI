@@ -433,6 +433,9 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .chat-foot { padding: 8px 24px 12px; }
 .chat-input { flex: 1; min-width: 0; border: none; background: transparent; resize: none; font-size: 14px; line-height: 1.5; padding: 8px 0; max-height: 120px; min-height: 36px; color: var(--vf-text); outline: none; }
 .chat-input::placeholder { color: var(--vf-text-4); }
+/* Фокус показывает только капсула (.chat-input-area:focus-within); у самого textarea
+   гасим кольцо :focus-visible из voicyfy.css, иначе внутри капсулы рисуется вторая рамка. */
+.chat-input:focus, .chat-input:focus-visible { outline: none !important; box-shadow: none !important; border-radius: 0; }
 .chat-send, .chat-mic { width: 34px; height: 34px; border-radius: 11px; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; flex: 0 0 auto; transition: background var(--vf-fast), color var(--vf-fast); }
 .chat-mic { background: transparent; color: var(--vf-text-3); }
 .chat-mic:hover { background: var(--vf-surface-3); color: var(--vf-text); }
