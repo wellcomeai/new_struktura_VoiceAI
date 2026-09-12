@@ -1021,8 +1021,8 @@ async def execute_assistant_function(
                     arguments=arguments,
                     result=result,
                     status="success" if "error" not in result else "error",
-                    chat_id=call_data.get("chat_id"),
-                    call_id=call_data.get("call_id")
+                    # У FunctionLog нет полей chat_id/call_id — с ними запись падала,
+                    # и вызовы функций из звонков не попадали в журнал.
                 )
                 
                 db.add(log_entry)
