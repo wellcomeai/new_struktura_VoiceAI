@@ -350,11 +350,11 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .msg.assistant .msg-bubble.answer { background: transparent; border: none; padding: 3px 0 0; border-radius: 0; color: var(--vf-text); font-size: 14px; line-height: 1.65; max-width: 720px; }
 .msg.assistant .msg-bubble.answer:empty { display: none; }
 .msg.user .msg-body { max-width: 72%; align-items: flex-end; }
-/* Сообщение пользователя без пузыря: справа, чуть плотнее по начертанию, с тонкой меткой */
-.msg.user .msg-bubble.user-chip { background: transparent; color: var(--vf-text); font-weight: 500; text-align: right; width: fit-content; max-width: 100%; padding: 6px 12px 6px 0; border-right: 2px solid var(--vf-accent); }
+/* Сообщение пользователя без пузыря: справа, отличается только начертанием — плотнее по весу и темнее */
+.msg.user .msg-bubble.user-chip { background: transparent; color: var(--vf-text); font-weight: 600; text-align: right; width: fit-content; max-width: 100%; padding: 6px 0; letter-spacing: -.005em; }
 .msg-time { font-size: 11px; color: var(--vf-text-4); padding: 0; }
 .msg.assistant .msg-time { padding: 0; }
-.msg.user .msg-time { text-align: right; padding-right: 12px; }
+.msg.user .msg-time { text-align: right; }
 /* Markdown внутри ответа */
 .msg-bubble.md > *:first-child { margin-top: 0; }
 .msg-bubble.md > *:last-child { margin-bottom: 0; }
