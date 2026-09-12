@@ -79,8 +79,9 @@ class TranscriptCollector:
         turns: List[Dict[str, str]] = []
         for f in ordered:
             if turns and turns[-1]["role"] == f["role"]:
-                sep = "" if (turns[-1]["text"].endswith(" ") or f["text"].startswith(" ")) else " "
-                turns[-1]["text"] += sep + f["text"]
+                # Фрагменты Live режутся посреди слов и сами несут пробелы там,
+                # где они нужны («Отвеч» + «аю», «ИИ» + «.») — клеим как есть.
+                turns[-1]["text"] += f["text"]
             else:
                 turns.append({"role": f["role"], "text": f["text"], "start_ms": f["start_ms"]})
         for t in turns:
