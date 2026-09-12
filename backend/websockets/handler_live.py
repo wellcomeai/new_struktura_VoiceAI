@@ -42,7 +42,7 @@ from backend.services import provider_keys
 from backend.services.conversation_service import ConversationService
 from backend.services.user_service import UserService
 from backend.services.voice_billing import VoiceBillingSession
-from backend.websockets.live_client import OpenAILiveClient, LIVE_MODEL
+from backend.websockets.live_client import OpenAILiveClient, LIVE_MODEL, LIVE_VOICES
 
 logger = get_logger(__name__)
 
@@ -134,7 +134,8 @@ def _authorize(db: Session, token: Optional[str], assistant: AssistantConfig) ->
     return None
 
 
-async def handle_live_connection(websocket: WebSocket, assistant_id: str, db: Session, token: Optional[str]):
+async def handle_live_connection(websocket: WebSocket, assistant_id: str, db: Session, token: Optional[str],
+                                 voice: Optional[str] = None):
     client_id = f"live_{uuid.uuid4().hex[:12]}"
     log = lambda msg, level="INFO": getattr(logger, level.lower())(f"[LIVE-HANDLER {client_id}] {msg}")
 
@@ -186,7 +187,8 @@ async def handle_live_connection(websocket: WebSocket, assistant_id: str, db: Se
         return
 
     # 3. Сессия GPT-Live
-    client = OpenAILiveClient(api_key, assistant, client_id, db_session=db, audio_rate=LIVE_AUDIO_RATE)
+    client = OpenAILiveClient(api_key, assistant, client_id, db_session=db, audio_rate=LIVE_AUDIO_RATE,
+                              voice_override=voice)
     if not await client.connect():
         await _send_json(websocket, {"type": "error", "code": "live_connect_failed",
                                      "message": "Не удалось открыть сессию gpt-live-1 (см. логи сервера)"})
@@ -198,6 +200,7 @@ async def handle_live_connection(websocket: WebSocket, assistant_id: str, db: Se
         "session_id": client.session_id,
         "model": LIVE_MODEL,
         "voice": client.voice,
+        "voices": LIVE_VOICES,
         "audio_rate": LIVE_AUDIO_RATE,
         "backend_model": client.delegation_model,
         "functions": client.enabled_functions,
