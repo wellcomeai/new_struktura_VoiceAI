@@ -4880,6 +4880,85 @@ async def admin_setup_fish_scenarios_sse(
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+@router.post("/admin/setup-openai-scenarios")
+async def admin_setup_openai_scenarios(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    ADMIN ONLY: Раскатать inbound_openai и outbound_openai с родительского
+    аккаунта на ВСЕ дочерние.
+
+    Нужен, чтобы обновлять ТОЛЬКО openai-сценарии, не трогая остальные
+    провайдеры (fish / cascade / yandex / cartesia раскатываются своими
+    эндпоинтами). Порядок работы: правим сценарий на родительском аккаунте
+    Voximplant → дёргаем этот эндпоинт → код разъезжается по дочерним.
+
+    Правило outbound_openai на дочерних аккаунтах обычно уже есть — тогда
+    обновляется только код сценариев; если правила нет, оно создаётся.
+    Запуск идемпотентен.
+
+    На большом числе аккаунтов может упереться в таймаут прокси (обработчик
+    продолжит работу, прогресс коммитится по каждому аккаунту). Чтобы видеть
+    ход — /admin/setup-openai-scenarios-stream.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        results = await _deploy_provider_scenarios(
+            db=db,
+            scenario_names=["inbound_openai", "outbound_openai"],
+            outbound_scenario="outbound_openai",
+        )
+
+        logger.info(
+            f"[TELEPHONY-ADMIN] OpenAI setup complete: "
+            f"added={results['scripts_added']} updated={results['scripts_updated']} "
+            f"rules={results['rules_created']} failed={results['failed']}"
+        )
+
+        return {"success": True, **results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] OpenAI setup error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/setup-openai-scenarios-stream")
+async def admin_setup_openai_scenarios_sse(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN: то же, что /admin/setup-openai-scenarios, но SSE-стримом —
+    видно аккаунт за аккаунтом и не упирается в таймаут прокси.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async def generate():
+        try:
+            async for event in _deploy_provider_scenarios_iter(
+                db=db,
+                scenario_names=["inbound_openai", "outbound_openai"],
+                outbound_scenario="outbound_openai",
+            ):
+                yield sse_event(event)
+                # Отдаём управление, чтобы кадр ушёл клиенту сразу, а не
+                # осел в буфере до конца обработки.
+                await asyncio.sleep(0)
+        except HTTPException as e:
+            yield sse_event({"type": "error", "detail": e.detail})
+        except Exception as e:
+            logger.error(f"[TELEPHONY-ADMIN] OpenAI SSE setup error: {e}", exc_info=True)
+            yield sse_event({"type": "error", "detail": str(e)})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
 @router.post("/admin/setup-yandex-scenarios")
 async def admin_setup_yandex_scenarios(
     db: Session = Depends(get_db),
