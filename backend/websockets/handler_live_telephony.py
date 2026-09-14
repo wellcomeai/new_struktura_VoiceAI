@@ -85,6 +85,16 @@ REPLY_GAP_SEC = 0.5          # пауза в потоке дельт, после
 # VAD для замера «конец речи абонента → первый звук модели». Параметры один в один
 # как в backend/static/live-test.html, иначе телефонное число не сравнить с
 # браузерным (там медиана 359 мс).
+# Модель шлёт аудио непрерывно, тишину — нулевыми сэмплами (в записи канал агента
+# между репликами ровно −180 dB, а gen_speed_x10 давал один замер на весь звонок).
+# Поэтому «первая дельта» наступает всегда и сразу: мерить по ней нельзя, нужен
+# первый ЗВУЧАЩИЙ кадр.
+MODEL_SILENCE_RMS = 0.005    # ниже этого считаем дельту тишиной
+GREETING_RETRY_SEC = 2.5     # ждём, пока модель поздоровается, и просим ещё раз
+GREETING_MAX_ATTEMPTS = 3    # у GPT-Live нет response.create — приветствие это
+                             # пожелание в instructions, модель вправе его отложить
+                             # (как в inbound_gemini: MAX_GREETING_ATTEMPTS)
+
 VAD_HANG_MS = 300            # столько тишины считаем концом фразы
 VAD_FLOOR_MIN = 0.008        # нижняя граница порога (амплитуда 0..1)
 VAD_FLOOR_MULT = 5
@@ -176,6 +186,10 @@ class LiveTelephonyBridge:
         self.model_ms: List[int] = []
         self.speech_end_epoch: List[int] = []
         self.lead_samples: List[int] = []   # фактический запас в Voximplant, раз в секунду
+        self.voiced_deltas = 0
+        self.silent_deltas = 0
+        self.model_voiced_seen = False
+        self.pending_greeting: Optional[str] = None
 
         self.transcript = TranscriptCollector()
         self.started_at = time.time()
@@ -324,8 +338,25 @@ class LiveTelephonyBridge:
         self.greeted = True
         greeting = self.first_phrase or (getattr(self.assistant, "greeting_message", None) or "").strip()
         if greeting:
+            self.pending_greeting = greeting
             await self.live.say_greeting(greeting)
             self.log(f"greeting requested: \"{greeting[:60]}\"")
+            asyncio.create_task(self._greeting_watchdog())
+
+    async def _greeting_watchdog(self):
+        """
+        Заставить модель заговорить нечем — response.create в GPT-Live нет, а
+        say_greeting это лишь текст в instructions. В одном из звонков модель
+        продержала приветствие 8 секунд и произнесла его только после «Алё»
+        абонента. Повторяем просьбу, пока от модели не пойдёт звучащее аудио —
+        так же, как inbound_gemini повторяет greeting.
+        """
+        for attempt in range(2, GREETING_MAX_ATTEMPTS + 1):
+            await asyncio.sleep(GREETING_RETRY_SEC)
+            if self.model_voiced_seen or self.stop_event.is_set() or self.live is None:
+                return
+            self.log(f"приветствие не прозвучало — попытка {attempt}/{GREETING_MAX_ATTEMPTS}", "warning")
+            await self.live.say_greeting(self.pending_greeting)
 
     async def _on_media(self, data: Dict[str, Any]):
         if self.live is None or not self.live.is_connected:
@@ -416,8 +447,14 @@ class LiveTelephonyBridge:
                     except Exception:
                         pcm = b""
                     if pcm:
-                        self._note_model_audio()
-                        self._note_delta(len(pcm))
+                        voiced = audioop.rms(pcm, 2) / 32768.0 > MODEL_SILENCE_RMS
+                        if voiced:
+                            self.voiced_deltas += 1
+                            self.model_voiced_seen = True
+                            self._note_model_audio()
+                        else:
+                            self.silent_deltas += 1
+                        self._note_delta(len(pcm), voiced)
                         self.out_queue.put_nowait(pcm)
                 elif etype in ("session.input_transcript.delta", "session.output_transcript.delta"):
                     role = "user" if etype.startswith("session.input") else "assistant"
@@ -475,7 +512,7 @@ class LiveTelephonyBridge:
             self.speech_end_epoch.append(int(self.speech_end_at * 1000))
 
     def _note_model_audio(self):
-        """Первый звук модели после того, как абонент замолчал."""
+        """Первый ЗВУЧАЩИЙ кадр модели после того, как абонент замолчал."""
         if not self.awaiting_model:
             return
         self.awaiting_model = False
@@ -486,8 +523,15 @@ class LiveTelephonyBridge:
         self.log(f"модель ответила через {ms} мс после конца речи абонента "
                  f"(медиана {_median(self.model_ms)} по {len(self.model_ms)})")
 
-    def _note_delta(self, nbytes: int):
-        """Пришёл кусок аудио от модели. Пауза дольше REPLY_GAP_SEC = новая реплика."""
+    def _note_delta(self, nbytes: int, voiced: bool):
+        """
+        Пришёл кусок аудио от модели. Пауза дольше REPLY_GAP_SEC = новая реплика.
+
+        Тишину игнорируем: поток от модели непрерывен, и если считать по нему,
+        границ реплик не будет вовсе — на весь звонок выходила одна «реплика».
+        """
+        if not voiced:
+            return
         now = time.time()
         if now - self.last_delta_at > REPLY_GAP_SEC:
             self._close_reply()
@@ -659,7 +703,8 @@ class LiveTelephonyBridge:
                    "gen_speed_x10_median": _median(self.gen_speed_x10),
                    "model_ms": self.model_ms[-40:], "model_ms_median": _median(self.model_ms),
                    "speech_end_epoch": self.speech_end_epoch[-40:],
-                   "lead_ms": self.lead_samples[-40:], "lead_ms_median": _median(self.lead_samples)}
+                   "lead_ms": self.lead_samples[-40:], "lead_ms_median": _median(self.lead_samples),
+                   "voiced_deltas": self.voiced_deltas, "silent_deltas": self.silent_deltas}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал

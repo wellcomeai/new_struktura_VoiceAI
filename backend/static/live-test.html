@@ -110,6 +110,10 @@
   // звонка: от момента, когда речь смолкла, до первого аудио от модели.
   const VAD_HANG_MS = 300;      // столько тишины считаем концом фразы
   const VAD_FLOOR_MIN = 0.008;  // нижняя граница порога, если микрофон очень тихий
+  // Модель шлёт аудио непрерывно, тишину — нулевыми сэмплами. Замер по факту
+  // прихода audio.delta поэтому бессмыслен: дельты идут всегда. Считаем только
+  // первый ЗВУЧАЩИЙ кадр.
+  const MODEL_SILENCE_RMS = 0.005;
   const $ = id => document.getElementById(id);
   const token = (() => { try { return localStorage.getItem('auth_token'); } catch (e) { return null; } })();
 
@@ -194,7 +198,11 @@
     }
   }
 
-  function noteAgentAudio() {
+  function noteAgentAudio(i16) {
+    // Тишину от модели не считаем ответом.
+    let sum = 0;
+    for (let i = 0; i < i16.length; i++) { const v = i16[i] / 32768; sum += v * v; }
+    if (Math.sqrt(sum / Math.max(1, i16.length)) <= MODEL_SILENCE_RMS) return;
     if (!awaitingReply) return;
     awaitingReply = false;
     const ms = Math.round(performance.now() - speechEndAt);
@@ -233,6 +241,7 @@
     const c = ensureCtx();
     const i16 = b64ToInt16(b64);
     if (!i16.length) return;
+    noteAgentAudio(i16);
     const buf = c.createBuffer(1, i16.length, TARGET_RATE);
     const ch = buf.getChannelData(0);
     for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
@@ -359,7 +368,7 @@
           log(`session.started ${m.session_id}`, 'sys');
           timer = setInterval(() => $('elapsed').textContent = fmt((Date.now() - startedAt) / 1000), 500);
           break;
-        case 'audio.delta': noteAgentAudio(); playPcm(m.delta); break;
+        case 'audio.delta': playPcm(m.delta); break;   // замер внутри playPcm
         case 'transcript.delta': addTranscript(m.role, m.delta); break;
         case 'delegation.created': log(`delegation.created id=${m.delegation_id} target=${m.target}`, 'fn'); break;
         case 'backend.text.delta': $('backend').textContent += m.delta || ''; $('backend').scrollTop = 1e9; break;

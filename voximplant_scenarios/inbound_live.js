@@ -304,6 +304,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 // Прямой аналог браузерного замера (там медиана 359 мс): конец речи
                 // абонента → первый звук модели, но точкой отсчёта служит момент,
                 // когда звук абонента дошёл ДО НАС.
+                // Сколько дельт от модели были звучащими, а сколько — нулевой тишиной.
+                // Если тишины подавляющее большинство — поток действительно непрерывный.
+                Logger.write("[Live] ⏱ дельты модели: звучащих " + (msg.voiced_deltas || 0) +
+                    ", тихих " + (msg.silent_deltas || 0));
                 Logger.write("[Live] ⏱ модель ответила через: медиана " +
                     (msg.model_ms_median === null || msg.model_ms_median === undefined ? "н/д" :
                      msg.model_ms_median + " мс") + ", все: [" + (msg.model_ms || []).join(", ") + "]");
