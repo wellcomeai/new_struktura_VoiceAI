@@ -80,6 +80,13 @@
     <label class="chk" style="margin-left:auto"><input type="checkbox" id="showRaw"> показывать все события</label>
     <label class="chk"><input type="checkbox" id="aec" checked> эхоподавление</label>
     <label class="chk" title="Прогнать микрофон через полосу 300-3400 Гц и 8 кГц — то же, что даёт модели телефонная линия"><input type="checkbox" id="phoneBand"> телефонный тракт</label>
+    <label class="chk" title="Размер куска, которым шлём аудио в OpenAI. Телефонный мост шлёт по 20 мс (50 сообщений в секунду), браузер по 100 мс (10)">кусок
+      <select id="chunkMs" style="margin-left:4px">
+        <option value="100" selected>100 мс</option>
+        <option value="20">20 мс (как телефон)</option>
+        <option value="200">200 мс</option>
+      </select>
+    </label>
   </div>
 
   <div class="grid">
@@ -106,7 +113,7 @@
 <script>
 (() => {
   const TARGET_RATE = 24000;
-  const CHUNK_MS = 100;
+  const CHUNK_MS = 100;          // дефолт; фактический размер берём из селектора
   // Замер задержки ответа — тем же способом, что и по стереозаписи телефонного
   // звонка: от момента, когда речь смолкла, до первого аудио от модели.
   const VAD_HANG_MS = 300;      // столько тишины считаем концом фразы
@@ -359,7 +366,7 @@
     let rs = resample(f32, srcRate, TARGET_RATE);
     if ($('phoneBand').checked) rs = telephonize(rs);
     const merged = new Float32Array(pending.length + rs.length); merged.set(pending); merged.set(rs, pending.length); pending = merged;
-    const chunk = Math.round(TARGET_RATE * CHUNK_MS / 1000);
+    const chunk = Math.round(TARGET_RATE * (parseInt($('chunkMs').value, 10) || CHUNK_MS) / 1000);
     while (pending.length >= chunk) {
       const part = pending.subarray(0, chunk); pending = pending.slice(chunk);
       if (ws && ws.readyState === 1 && running) ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: i16ToB64(floatTo16(part)) }));
@@ -373,6 +380,8 @@
     const aec = $('aec').checked;
     resetPhoneChain();
     if ($('phoneBand').checked) log('☎️ Телефонный тракт ВКЛ: модель получит 300-3400 Гц @ 8 кГц', 'sys');
+    const cms = parseInt($('chunkMs').value, 10) || CHUNK_MS;
+    log(`📦 Кусок ${cms} мс — ${Math.round(1000 / cms)} сообщений в секунду в OpenAI`, 'sys');
     stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: aec, noiseSuppression: true, autoGainControl: true } });
     srcNode = c.createMediaStreamSource(stream);
     try {
