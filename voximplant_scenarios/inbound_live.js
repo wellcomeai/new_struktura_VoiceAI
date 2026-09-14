@@ -269,6 +269,17 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 Logger.write("[Live] 🎙 session " + msg.session_id + " voice=" + msg.voice +
                     " backend=" + msg.backend_model + " functions=" + (msg.functions || []).join(","));
                 answerCall("live.started");
+            } else if (msg.type === "barge_in") {
+                // Абонент перебил ассистента. Сервер уже выбросил свою очередь,
+                // но полторы секунды речи (LEAD_LIMIT_MS) успели уйти в Voximplant
+                // и доиграют, если их не погасить здесь. У GPT-Live своего события
+                // о перебивании нет — сервер определяет его сам и присылает нам.
+                try {
+                    ws.clearMediaBuffer();
+                    Logger.write("[Live] ✂️ barge-in — буфер Voximplant очищен");
+                } catch (err) {
+                    Logger.write("[Live] ⚠️ clearMediaBuffer failed: " + err);
+                }
             } else if (msg.type === "function_call") {
                 Logger.write("🔧 FUNCTION CALL: " + msg.name + " " + JSON.stringify(msg.arguments));
             } else if (msg.type === "function_result") {
@@ -276,7 +287,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             } else if (msg.type === "call_summary") {
                 summaryDialog = msg.dialog || [];
                 summaryUsage = msg.usage_seconds;
-                Logger.write("[Live] 📝 call_summary: " + summaryDialog.length + " turns, usage=" + summaryUsage + "s");
+                Logger.write("[Live] 📝 call_summary: " + summaryDialog.length + " turns, usage=" + summaryUsage +
+                    "s, barge-in: " + (msg.barge_ins || 0) + " (сброшено " + (msg.barge_in_dropped_ms || 0) + " мс)");
                 for (var i = 0; i < summaryDialog.length; i++) {
                     Logger.write("   " + (summaryDialog[i].role === "user" ? "👤 USER: " : "🤖 AGENT: ") +
                         String(summaryDialog[i].text).substring(0, 100));

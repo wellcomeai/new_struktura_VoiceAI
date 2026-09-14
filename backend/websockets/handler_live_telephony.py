@@ -4,7 +4,11 @@
 Маршрут /ws/live/telephony/{assistant_id}. Сценарий voximplant_scenarios/inbound_live.js
 открывает ОДИН WebSocket и гоняет по нему аудио в обе стороны:
 call.sendMediaTo(ws) → нам, ws.sendMediaTo(call) → в трубку. Сессия GPT-Live
-живёт здесь, на сервере. VAD, перебивания, TTS — всё внутри модели.
+живёт здесь, на сервере. VAD и синтез — внутри модели: она сама решает, когда
+замолчать при перебивании. Но о своём решении она не сообщает — в GPT-Live нет
+события конца или прерывания реплики (гайд: "no timing fields or output-audio-done
+event"), — а уже сгенерированное аудио к этому моменту лежит в наших буферах.
+Гасим его сами: см. _maybe_barge_in / _flush_output.
 
 Протокол (сценарий → сервер):
   {type:"call_started", call_id, caller_number, called_number, chat_id,
@@ -20,6 +24,8 @@ call.sendMediaTo(ws) → нам, ws.sendMediaTo(call) → в трубку. Се�
   {event:"media", sequenceNumber, media:{timestamp, chunk, payload}}
   {type:"live.started", session_id, voice, backend_model, functions}
   {type:"function_call"|"function_result", ...}
+  {type:"barge_in"}                                  — абонент перебил ассистента:
+   сценарий зовёт ws.clearMediaBuffer() и гасит уже отправленное в Voximplant аудио
   {type:"call_summary", dialog:[{role,text,ts}], usage_seconds, session_id}
   {type:"error", error:{code, message}}
 
@@ -56,7 +62,13 @@ logger = get_logger(__name__)
 LIVE_RATE = 16000          # GPT-Live принимает pcm 16 кГц напрямую — без ресемплинга
 FRAME_MS = 20              # рекомендованный докой шаг медиа-кадра
 LEAD_LIMIT_MS = 1500       # насколько убегаем вперёд буфера Voximplant (лимит 10 с);
-                           # чем меньше — тем короче «хвост» после перебивания
+                           # при перебивании этот запас гасит clearMediaBuffer()
+BARGE_IN_MUTE_MS = 200     # окно после перебивания, в котором выбрасываем
+                           # долетающие дельты уже прерванной реплики
+BARGE_IN_COOLDOWN_MS = 1000  # не перебиваем повторно: одна фраза абонента даёт
+                             # десятки фрагментов транскрипта, реагируем на первый
+BARGE_IN_MIN_TAIL_MS = 400   # если ассистенту осталось договорить меньше этого,
+                             # не рубим — дешевле дать фразе закончиться
 SUMMARY_WAIT_SEC = 3.0
 
 # Кодек в StartEvent для Voximplant: имена из WebSocketAudioEncoding
@@ -109,6 +121,11 @@ class LiveTelephonyBridge:
         self.play_end_time = 0.0
         self.out_state = None
         self.frames_sent = 0
+        self.out_pending = bytearray()   # недобранный кадр (<20 мс), гасится при перебивании
+        self.mute_until = 0.0            # до какого момента игнорируем дельты
+        self.barge_ins = 0
+        self.barge_in_dropped_ms = 0
+        self.barge_in_cooldown_until = 0.0
 
         self.transcript = TranscriptCollector()
         self.started_at = time.time()
@@ -341,6 +358,8 @@ class LiveTelephonyBridge:
             async for event in self.live.receive_events():
                 etype = event.get("type")
                 if etype == "session.output_audio.delta":
+                    if time.time() < self.mute_until:
+                        continue          # хвост прерванной реплики — в трубку не отдаём
                     try:
                         self.out_queue.put_nowait(base64.b64decode(event.get("delta") or ""))
                     except Exception:
@@ -348,6 +367,8 @@ class LiveTelephonyBridge:
                 elif etype in ("session.input_transcript.delta", "session.output_transcript.delta"):
                     role = "user" if etype.startswith("session.input") else "assistant"
                     self.transcript.add(role, event.get("delta") or "", event.get("start_ms"), event.get("end_ms"))
+                    if role == "user":
+                        await self._maybe_barge_in(event.get("delta") or "")
                 elif etype == "live.function_call":
                     self.log(f"function_call {event.get('name')} {str(event.get('arguments'))[:120]}")
                     await self.send_json({"type": "function_call", "name": event.get("name"),
@@ -370,6 +391,69 @@ class LiveTelephonyBridge:
             self.stop_event.set()
 
     # ------------------------------------------------------------------
+    # Перебивание
+    # ------------------------------------------------------------------
+    def _is_speaking(self) -> bool:
+        """Играет ли сейчас реплика ассистента (по оценке конца воспроизведения)."""
+        return self.play_end_time > time.time()
+
+    def _flush_output(self) -> int:
+        """
+        Выбрасываем всё несыгранное и возвращаем сколько миллисекунд сбросили.
+
+        Модель генерирует заметно быстрее реального времени, поэтому к моменту
+        перебивания в очереди могут лежать секунды уже готовой речи. Свою очередь
+        гасим здесь, буфер Voximplant — сообщением barge_in сценарию.
+
+        play_end_time обнуляем обязательно: после clearMediaBuffer в Voximplant
+        пусто, а пейсинг-цикл продолжал бы считать, что запас на LEAD_LIMIT_MS уже
+        отправлен, и придержал бы СЛЕДУЮЩУЮ реплику на эти полторы секунды — та же
+        ловушка, что описана в handler_fish_tts («иначе следующая реплика простояла
+        бы в throttle из-за уже сброшенного аудио»).
+        """
+        dropped = len(self.out_pending)
+        self.out_pending.clear()
+        while True:
+            try:
+                dropped += len(self.out_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        self.play_end_time = 0.0
+        self.mute_until = time.time() + BARGE_IN_MUTE_MS / 1000
+        return (dropped // 2) * 1000 // LIVE_RATE
+
+    async def _maybe_barge_in(self, delta: str):
+        """
+        Абонент заговорил поверх ассистента.
+
+        Своего события «меня перебили» у GPT-Live нет, поэтому сигналом служит
+        первый же фрагмент распознанной речи абонента: он приходит именно потому,
+        что модель его услышала. Модель после этого замолкает сама — наша задача
+        только убрать то, что она успела сгенерировать заранее.
+
+        Cooldown обязателен. Одна фраза абонента разбирается на десятки фрагментов
+        транскрипта, а модель full-duplex и нередко начинает отвечать ещё до того,
+        как абонент договорил. Без задержки хвост той же самой фразы немедленно
+        сбрасывал бы уже НОВУЮ реплику — и так по кругу, пока абонент не замолчит.
+        """
+        now = time.time()
+        if now < self.barge_in_cooldown_until or not delta.strip() or not self._is_speaking():
+            return
+        # Ассистент уже договаривает: генерация кончилась (очередь пуста) и в
+        # Voximplant остался короткий хвост. Рубить его — значит обрывать фразу на
+        # полуслове из-за любого «ага». В виджете такой потери нет: там буфер
+        # микроскопический, здесь — до LEAD_LIMIT_MS готовой речи.
+        if (self.out_queue.empty() and not self.out_pending
+                and (self.play_end_time - now) * 1000 < BARGE_IN_MIN_TAIL_MS):
+            return
+        self.barge_in_cooldown_until = now + BARGE_IN_COOLDOWN_MS / 1000
+        dropped_ms = self._flush_output()
+        self.barge_ins += 1
+        self.barge_in_dropped_ms += dropped_ms
+        await self.send_json({"type": "barge_in"})
+        self.log(f"barge-in #{self.barge_ins} on \"{delta.strip()[:40]}\": dropped {dropped_ms} ms")
+
+    # ------------------------------------------------------------------
     # Сервер → Voximplant: кадры по 20 мс с ограничением опережения
     # ------------------------------------------------------------------
     async def _send_stream_start(self):
@@ -385,7 +469,9 @@ class LiveTelephonyBridge:
 
     async def _pump_out_audio(self):
         frame_bytes = int(LIVE_RATE * FRAME_MS / 1000) * 2
-        pending = bytearray()
+        # Буфер общий с _flush_output: иначе перебивание не достанет до кадров,
+        # которые уже разобраны из очереди, но ещё не отправлены.
+        pending = self.out_pending
         try:
             while not self.stop_event.is_set():
                 try:
@@ -433,7 +519,8 @@ class LiveTelephonyBridge:
 
         summary = {"type": "call_summary", "dialog": dialog, "usage_seconds": self.usage_seconds,
                    "session_id": self.live.session_id if self.live else None,
-                   "functions": (self.live.function_log if self.live else [])[-20:]}
+                   "functions": (self.live.function_log if self.live else [])[-20:],
+                   "barge_ins": self.barge_ins, "barge_in_dropped_ms": self.barge_in_dropped_ms}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал
