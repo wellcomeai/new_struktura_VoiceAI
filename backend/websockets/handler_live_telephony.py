@@ -60,7 +60,19 @@ from backend.websockets.live_client import OpenAILiveClient, LIVE_MODEL
 
 logger = get_logger(__name__)
 
-LIVE_RATE = 16000          # GPT-Live принимает pcm 16 кГц напрямую — без ресемплинга
+LIVE_RATE = 24000          # Частота сессии GPT-Live. 24 кГц — дефолт по доке
+                           # («the default»), 16 кГц тоже в списке поддержанных.
+                           # Держали 16 кГц, чтобы не ресемплить поток Voximplant,
+                           # но это последняя непроверенная переменная: в браузере
+                           # сессия идёт на 24 кГц и отвечает за 300-400 мс, на
+                           # телефоне на 16 кГц — 1.4-1.5 с, при том что всё
+                           # остальное измерено и исключено (наш сервер 0 мс,
+                           # буфер 100 мс, ритм входа ровный, перекорма нет,
+                           # эха по записи нет, полоса 300-3400 Гц не влияет).
+                           # Конвертацию 16↔24 кГц делают _to_live_pcm и
+                           # _from_live_pcm, сценарий и StartEvent не меняются:
+                           # Voximplant как отдавал и принимал PCM16 @ vox_rate,
+                           # так и продолжает. Откат — правка этой одной строки.
 FRAME_MS = 20              # рекомендованный докой шаг медиа-кадра
 LEAD_LIMIT_MS = 200        # Запас аудио, лежащий в буфере Voximplant. Это не просто
                            # защита от джиттера: модель отдаёт поток ровно в темпе
@@ -742,13 +754,16 @@ class LiveTelephonyBridge:
                     self.play_end_time = max(self.play_end_time, now) + FRAME_MS / 1000
                     if self.awaiting_first_frame:
                         self._note_first_frame()
+                    out = self._from_live_pcm(frame)
                     await self.send_json({
                         "event": "media", "sequenceNumber": self.sequence,
                         "media": {"timestamp": self.samples_sent, "chunk": self.chunk,
-                                  "payload": base64.b64encode(self._from_live_pcm(frame)).decode("ascii")},
+                                  "payload": base64.b64encode(out).decode("ascii")},
                     })
                     self.sequence += 1; self.chunk += 1; self.frames_sent += 1
-                    self.samples_sent += len(frame) // 2
+                    # Считаем сэмплы ушедшего наружу потока: при LIVE_RATE != vox_rate
+                    # счёт по кадру модели убежал бы быстрее реального времени.
+                    self.samples_sent += len(out) // (1 if self.vox_encoding in ("ULAW", "ALAW") else 2)
                     if self.frames_sent % 50 == 0:     # раз в секунду
                         self.lead_samples.append(int((self.play_end_time - time.time()) * 1000))
         except Exception as e:
