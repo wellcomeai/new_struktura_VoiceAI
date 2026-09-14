@@ -70,6 +70,7 @@
       <span>Сессия: <b id="elapsed">0:00</b></span>
       <span>Usage: <b id="usage">—</b> с</span>
       <span>Буфер: <b id="buffered">0</b> мс</span>
+      <span title="Конец вашей речи → первое аудио от модели">Ответ: <b id="lat">—</b></span>
       <span>Контекст: <b id="ctx">—</b></span>
     </div>
   </div>
@@ -105,6 +106,10 @@
 (() => {
   const TARGET_RATE = 24000;
   const CHUNK_MS = 100;
+  // Замер задержки ответа — тем же способом, что и по стереозаписи телефонного
+  // звонка: от момента, когда речь смолкла, до первого аудио от модели.
+  const VAD_HANG_MS = 300;      // столько тишины считаем концом фразы
+  const VAD_FLOOR_MIN = 0.008;  // нижняя граница порога, если микрофон очень тихий
   const $ = id => document.getElementById(id);
   const token = (() => { try { return localStorage.getItem('auth_token'); } catch (e) { return null; } })();
 
@@ -159,6 +164,53 @@
     }
     lastTurn.el.textContent += delta;
     trEl.scrollTop = trEl.scrollHeight;
+  }
+
+  // ---------- замер задержки ответа ----------
+  let vadSpeaking = false, vadSilenceSince = 0, speechEndAt = 0, awaitingReply = false;
+  let noiseFloor = 0.002, latencies = [];
+
+  function vadFeed(f32, srcRate) {
+    let sum = 0;
+    for (let i = 0; i < f32.length; i++) sum += f32[i] * f32[i];
+    const rms = Math.sqrt(sum / Math.max(1, f32.length));
+    const thr = Math.max(VAD_FLOOR_MIN, noiseFloor * 5);
+    const t = performance.now();
+    if (rms > thr) {
+      vadSpeaking = true; vadSilenceSince = 0;
+    } else {
+      // Порог подстраиваем ТОЛЬКО по тишине. Если обновлять его и во время речи,
+      // он за пару секунд догонит голос и оборвёт фразу на середине.
+      noiseFloor = rms < noiseFloor ? rms * 0.1 + noiseFloor * 0.9 : noiseFloor * 0.99 + rms * 0.01;
+    }
+    if (!vadSpeaking) return;
+    if (rms <= thr) {
+      if (!vadSilenceSince) vadSilenceSince = t;
+      else if (t - vadSilenceSince >= VAD_HANG_MS) {
+        // Точка отсчёта — момент, когда звук пропал, а не когда мы это заметили.
+        vadSpeaking = false; speechEndAt = vadSilenceSince; vadSilenceSince = 0;
+        awaitingReply = true;
+      }
+    }
+  }
+
+  function noteAgentAudio() {
+    if (!awaitingReply) return;
+    awaitingReply = false;
+    const ms = Math.round(performance.now() - speechEndAt);
+    if (ms < 20 || ms > 15000) return;            // не замер, а мусор
+    latencies.push(ms);
+    const srt = [...latencies].sort((a, b) => a - b);
+    const med = srt[srt.length >> 1];
+    $('lat').textContent = `${ms} мс (мед. ${med}, n=${srt.length})`;
+    log(`⏱ ответ через ${ms} мс после конца речи — медиана ${med} мс по ${srt.length} замерам`, 'sys');
+  }
+
+  function latencySummary() {
+    if (!latencies.length) return log('⏱ замеров задержки нет', 'sys');
+    const srt = [...latencies].sort((a, b) => a - b);
+    log(`⏱ ИТОГ: n=${srt.length}, мин ${srt[0]}, медиана ${srt[srt.length >> 1]}, макс ${srt[srt.length - 1]} мс`, 'sys');
+    log(`⏱ все замеры: [${latencies.join(', ')}]`, 'sys');
   }
 
   // ---------- аудио: воспроизведение ----------
@@ -228,6 +280,7 @@
 
   let pending = new Float32Array(0), peak = 0;
   function onCapture(f32, srcRate) {
+    vadFeed(f32, srcRate);
     let p = 0; for (let i = 0; i < f32.length; i += 8) p = Math.max(p, Math.abs(f32[i]));
     peak = Math.max(peak * 0.85, p);
     $('micLevel').style.width = Math.min(100, Math.round(peak * 140)) + '%';
@@ -299,13 +352,14 @@
       switch (m.type) {
         case 'session.started':
           running = true; startedAt = Date.now();
+          latencies = []; awaitingReply = false; $('lat').textContent = '—';
           $('dotWs').className = 'dot on'; $('btnStop').disabled = false;
           $('sessionInfo').textContent = `Сессия ${m.session_id} · ${m.assistant_name} · голос ${m.voice} · ${m.audio_rate} Гц · бэкенд ${m.backend_model} · функции: ${(m.functions || []).join(', ') || 'нет'} · tools=${m.tools_schema}`;
           $('backendModel').textContent = m.backend_model || '';
           log(`session.started ${m.session_id}`, 'sys');
           timer = setInterval(() => $('elapsed').textContent = fmt((Date.now() - startedAt) / 1000), 500);
           break;
-        case 'audio.delta': playPcm(m.delta); break;
+        case 'audio.delta': noteAgentAudio(); playPcm(m.delta); break;
         case 'transcript.delta': addTranscript(m.role, m.delta); break;
         case 'delegation.created': log(`delegation.created id=${m.delegation_id} target=${m.target}`, 'fn'); break;
         case 'backend.text.delta': $('backend').textContent += m.delta || ''; $('backend').scrollTop = 1e9; break;
@@ -342,6 +396,7 @@
     $('btnStop').disabled = true;
     if (ws && ws.readyState === 1) { ws.send(JSON.stringify({ type: 'session.close' })); log('Отправлен session.close, ждём итоговый usage…', 'sys'); }
     running = false; stopMic();
+    latencySummary();
     setTimeout(() => { if (ws && ws.readyState === 1) ws.close(); }, 8000);
   }
   function finish() {
