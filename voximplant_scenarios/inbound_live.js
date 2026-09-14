@@ -325,6 +325,21 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                     Logger.write("[Live] ⏱ сервер услышал концы фраз на (сек от начала записи): [" +
                         rel.join(", ") + "]");
                 }
+                // Всё остальное из call_summary печатаем как есть. Замеры на сервере
+                // появляются чаще, чем мы перезаливаем сценарий, и без этого блока
+                // каждый новый молча терялся бы — пришлось бы лезть в логи Render.
+                var KNOWN = ["type", "dialog", "functions", "usage_seconds", "session_id",
+                    "barge_ins", "barge_in_dropped_ms", "serve_ms", "serve_ms_median",
+                    "gen_speed_x10", "gen_speed_x10_median", "model_ms", "model_ms_median",
+                    "speech_end_epoch", "lead_ms", "lead_ms_median", "voiced_deltas",
+                    "silent_deltas"];
+                var extra = [];
+                for (var k in msg) {
+                    if (KNOWN.indexOf(k) === -1) extra.push(k + "=" + JSON.stringify(msg[k]));
+                }
+                if (extra.length) {
+                    Logger.write("[Live] ⏱ прочее: " + extra.join("  ").substring(0, 1500));
+                }
                 for (var i = 0; i < summaryDialog.length; i++) {
                     Logger.write("   " + (summaryDialog[i].role === "user" ? "👤 USER: " : "🤖 AGENT: ") +
                         String(summaryDialog[i].text).substring(0, 100));
