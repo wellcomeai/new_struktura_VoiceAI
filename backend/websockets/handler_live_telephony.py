@@ -79,6 +79,7 @@ BARGE_IN_MIN_TAIL_MS = 100   # если ассистенту осталось д
                              # не рубим — дешевле дать фразе закончиться.
                              # Держим НИЖЕ LEAD_LIMIT_MS: порог больше запаса означал
                              # бы «при пустой очереди не перебивать никогда».
+STATS_CAP = 20000            # потолок на списки замеров, чтобы длинный звонок не пух
 REPLY_GAP_SEC = 0.5          # пауза в потоке дельт, после которой считаем, что
                              # началась новая реплика (для замеров ниже)
 
@@ -111,6 +112,13 @@ def _median(values: List[int]) -> Optional[int]:
         return None
     ordered = sorted(values)
     return ordered[len(ordered) // 2]
+
+
+def _pct(values: List[int], p: float) -> Optional[int]:
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(len(ordered) - 1, int(len(ordered) * p))]
 
 
 def _extract_caller_name(system_prompt: str) -> Optional[str]:
@@ -189,6 +197,23 @@ class LiveTelephonyBridge:
         self.voiced_deltas = 0
         self.silent_deltas = 0
         self.model_voiced_seen = False
+
+        # Ритм входящего аудио от Voximplant. Если поток идёт не ровно по 20 мс,
+        # а пачками, то наш VAD ставит точку отсчёта по времени прихода пачки, а
+        # модель, чтобы увидеть тишину после реплики, ждёт СЛЕДУЮЩУЮ пачку —
+        # разница уезжает прямо в model_ms, причём одинаково на каждой реплике.
+        self.last_media_at = 0.0
+        self.in_gap_ms: List[int] = []      # интервалы между media-событиями
+        self.in_audio_ms: List[int] = []    # сколько аудио несёт одно событие
+
+        # Перекрёстная метрика на часах самой модели: конец речи абонента по
+        # input_transcript.end_ms → начало реплики по output_transcript.start_ms.
+        # Не зависит ни от нашего VAD, ни от сети — ни одна из наших эвристик
+        # сюда не входит. Доки предупреждают, что фрагменты могут приходить с
+        # опозданием и внахлёст, поэтому это сверка, а не замена model_ms.
+        self.user_end_ms: Optional[int] = None
+        self.await_assistant = False
+        self.turn_gap_ms: List[int] = []
         self.pending_greeting: Optional[str] = None
 
         self.transcript = TranscriptCollector()
@@ -370,6 +395,14 @@ class LiveTelephonyBridge:
             return
         pcm = self._to_live_pcm(raw)
         if pcm:
+            now = time.time()
+            if self.last_media_at and len(self.in_gap_ms) < STATS_CAP:
+                gap = int((now - self.last_media_at) * 1000)
+                if gap <= 5000:                       # пауза больше — это не ритм, а простой
+                    self.in_gap_ms.append(gap)
+            self.last_media_at = now
+            if len(self.in_audio_ms) < STATS_CAP:
+                self.in_audio_ms.append((len(pcm) // 2) * 1000 // LIVE_RATE)
             self._vad_feed(pcm)
             await self.live.send_audio(pcm)
 
@@ -458,9 +491,18 @@ class LiveTelephonyBridge:
                         self.out_queue.put_nowait(pcm)
                 elif etype in ("session.input_transcript.delta", "session.output_transcript.delta"):
                     role = "user" if etype.startswith("session.input") else "assistant"
-                    self.transcript.add(role, event.get("delta") or "", event.get("start_ms"), event.get("end_ms"))
+                    start_ms, end_ms = event.get("start_ms"), event.get("end_ms")
+                    self.transcript.add(role, event.get("delta") or "", start_ms, end_ms)
                     if role == "user":
+                        if isinstance(end_ms, int):
+                            self.user_end_ms = max(self.user_end_ms or 0, end_ms)
+                            self.await_assistant = True
                         await self._maybe_barge_in(event.get("delta") or "")
+                    elif self.await_assistant and isinstance(start_ms, int) and self.user_end_ms is not None:
+                        self.await_assistant = False
+                        gap = start_ms - self.user_end_ms
+                        if 0 <= gap <= 15000 and len(self.turn_gap_ms) < STATS_CAP:
+                            self.turn_gap_ms.append(gap)
                 elif etype == "live.function_call":
                     self.log(f"function_call {event.get('name')} {str(event.get('arguments'))[:120]}")
                     await self.send_json({"type": "function_call", "name": event.get("name"),
@@ -699,6 +741,17 @@ class LiveTelephonyBridge:
         dialog = [{"role": t["role"], "text": t["text"], "ts": base_ts + int(t.get("start_ms") or 0)} for t in turns]
         elapsed = int(time.time() - self.started_at)
         self.log(f"finished: turns={len(dialog)} frames_sent={self.frames_sent} usage={self.usage_seconds}s elapsed={elapsed}s")
+        self.log(
+            f"вход от Voximplant: событий {len(self.in_gap_ms) + 1}, интервал "
+            f"медиана {_median(self.in_gap_ms)} мс, p95 {_pct(self.in_gap_ms, 0.95)} мс, "
+            f"макс {max(self.in_gap_ms) if self.in_gap_ms else None} мс; "
+            f"аудио в событии медиана {_median(self.in_audio_ms)} мс "
+            f"(ровный поток = интервал ≈ аудио в событии)"
+        )
+        self.log(
+            f"разрыв реплик по часам модели: медиана {_median(self.turn_gap_ms)} мс "
+            f"по {len(self.turn_gap_ms)}, все: {self.turn_gap_ms[-20:]}"
+        )
 
         summary = {"type": "call_summary", "dialog": dialog, "usage_seconds": self.usage_seconds,
                    "session_id": self.live.session_id if self.live else None,
@@ -710,7 +763,11 @@ class LiveTelephonyBridge:
                    "model_ms": self.model_ms[-40:], "model_ms_median": _median(self.model_ms),
                    "speech_end_epoch": self.speech_end_epoch[-40:],
                    "lead_ms": self.lead_samples[-40:], "lead_ms_median": _median(self.lead_samples),
-                   "voiced_deltas": self.voiced_deltas, "silent_deltas": self.silent_deltas}
+                   "voiced_deltas": self.voiced_deltas, "silent_deltas": self.silent_deltas,
+                   "in_gap_ms_median": _median(self.in_gap_ms), "in_gap_ms_p95": _pct(self.in_gap_ms, 0.95),
+                   "in_gap_ms_max": max(self.in_gap_ms) if self.in_gap_ms else None,
+                   "in_audio_ms_median": _median(self.in_audio_ms),
+                   "turn_gap_ms": self.turn_gap_ms[-40:], "turn_gap_ms_median": _median(self.turn_gap_ms)}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал
