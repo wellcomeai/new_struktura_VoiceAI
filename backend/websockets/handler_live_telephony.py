@@ -491,8 +491,14 @@ class LiveTelephonyBridge:
         thr = max(VAD_FLOOR_MIN, self.vad_noise_floor * VAD_FLOOR_MULT)
         now = time.time()
         if rms > thr:
+            # Речь возобновилась — прошлая пауза была ВНУТРИ фразы, а не концом.
+            # Без сброса точка отсчёта залипает в первой паузе, и в model_ms
+            # попадает хвост речи самого абонента (в браузере это давало
+            # 1600-2000 мс там, где модель отвечала за 400).
             self.vad_speaking = True
             self.vad_silence_since = 0.0
+            self.awaiting_model = False
+            self.speech_end_at = 0.0
             return
         # Порог двигаем ТОЛЬКО по тишине: если обновлять его и во время речи, он за
         # пару секунд догоняет голос и рвёт фразу на середине.
