@@ -206,6 +206,23 @@ class LiveTelephonyBridge:
         self.in_gap_ms: List[int] = []      # интервалы между media-событиями
         self.in_audio_ms: List[int] = []    # сколько аудио несёт одно событие
 
+        # Перекорм входа. Мы пересылаем каждый кадр в OpenAI сразу, один в один,
+        # без пейсинга. Если Voximplant отдаёт аудио чуть быстрее реального
+        # времени, очередь на входе OpenAI растёт, его таймлайн отстаёт от
+        # настенных часов всё сильнее — и ВСЁ, что он говорит, выходит позже.
+        # Это объясняет и постоянную добавку, и её рост по ходу звонка.
+        # feed_drift = (сколько аудио скормили) - (сколько прошло времени).
+        # У честного реального времени он держится около нуля.
+        self.media_t0 = 0.0
+        self.fed_audio_ms = 0
+        self.last_drift_at = 0.0
+        self.feed_drift_ms: List[int] = []
+
+        # Насколько таймлайн модели отстаёт от наших настенных часов. Считаем по
+        # приходу фрагментов транскрипта: их start_ms/end_ms — часы OpenAI.
+        self.live_started_at = 0.0
+        self.tr_lag_ms: List[int] = []
+
         # Перекрёстная метрика на часах самой модели: конец речи абонента по
         # input_transcript.end_ms → начало реплики по output_transcript.start_ms.
         # Не зависит ни от нашего VAD, ни от сети — ни одна из наших эвристик
@@ -401,8 +418,17 @@ class LiveTelephonyBridge:
                 if gap <= 5000:                       # пауза больше — это не ритм, а простой
                     self.in_gap_ms.append(gap)
             self.last_media_at = now
+            audio_ms = (len(pcm) // 2) * 1000 // LIVE_RATE
             if len(self.in_audio_ms) < STATS_CAP:
-                self.in_audio_ms.append((len(pcm) // 2) * 1000 // LIVE_RATE)
+                self.in_audio_ms.append(audio_ms)
+            if not self.media_t0:
+                self.media_t0 = now
+                self.last_drift_at = now
+            self.fed_audio_ms += audio_ms
+            if now - self.last_drift_at >= 2.0:          # снимок раз в 2 с
+                self.last_drift_at = now
+                if len(self.feed_drift_ms) < STATS_CAP:
+                    self.feed_drift_ms.append(int(self.fed_audio_ms - (now - self.media_t0) * 1000))
             self._vad_feed(pcm)
             await self.live.send_audio(pcm)
 
@@ -460,6 +486,7 @@ class LiveTelephonyBridge:
             await self.send_error("live_connect_failed", "Failed to open gpt-live-1 session")
             self.stop_event.set()
             return
+        self.live_started_at = time.time()
         await self.send_json({
             "type": "live.started", "session_id": self.live.session_id, "voice": self.live.voice,
             "backend_model": self.live.delegation_model, "functions": self.live.enabled_functions,
@@ -493,6 +520,9 @@ class LiveTelephonyBridge:
                     role = "user" if etype.startswith("session.input") else "assistant"
                     start_ms, end_ms = event.get("start_ms"), event.get("end_ms")
                     self.transcript.add(role, event.get("delta") or "", start_ms, end_ms)
+                    ts_ms = end_ms if role == "user" else start_ms
+                    if self.live_started_at and isinstance(ts_ms, int) and len(self.tr_lag_ms) < STATS_CAP:
+                        self.tr_lag_ms.append(int((time.time() - self.live_started_at) * 1000) - ts_ms)
                     if role == "user":
                         if isinstance(end_ms, int):
                             self.user_end_ms = max(self.user_end_ms or 0, end_ms)
@@ -752,6 +782,18 @@ class LiveTelephonyBridge:
             f"разрыв реплик по часам модели: медиана {_median(self.turn_gap_ms)} мс "
             f"по {len(self.turn_gap_ms)}, все: {self.turn_gap_ms[-20:]}"
         )
+        d = self.feed_drift_ms
+        self.log(
+            f"перекорм входа (скормлено аудио минус прошло времени): "
+            f"старт {d[0] if d else None} мс → финиш {d[-1] if d else None} мс, "
+            f"макс {max(d) if d else None} мс, снимки: {d[-20:]} "
+            f"(реальное время = около нуля; растёт = очередь на входе OpenAI пухнет)"
+        )
+        lag = self.tr_lag_ms
+        self.log(
+            f"таймлайн модели отстаёт от настенных часов: старт {lag[0] if lag else None} мс → "
+            f"финиш {lag[-1] if lag else None} мс, медиана {_median(lag)} мс по {len(lag)}"
+        )
 
         summary = {"type": "call_summary", "dialog": dialog, "usage_seconds": self.usage_seconds,
                    "session_id": self.live.session_id if self.live else None,
@@ -767,7 +809,13 @@ class LiveTelephonyBridge:
                    "in_gap_ms_median": _median(self.in_gap_ms), "in_gap_ms_p95": _pct(self.in_gap_ms, 0.95),
                    "in_gap_ms_max": max(self.in_gap_ms) if self.in_gap_ms else None,
                    "in_audio_ms_median": _median(self.in_audio_ms),
-                   "turn_gap_ms": self.turn_gap_ms[-40:], "turn_gap_ms_median": _median(self.turn_gap_ms)}
+                   "turn_gap_ms": self.turn_gap_ms[-40:], "turn_gap_ms_median": _median(self.turn_gap_ms),
+                   "feed_drift_ms": self.feed_drift_ms[-30:],
+                   "feed_drift_first": self.feed_drift_ms[0] if self.feed_drift_ms else None,
+                   "feed_drift_last": self.feed_drift_ms[-1] if self.feed_drift_ms else None,
+                   "tr_lag_first": self.tr_lag_ms[0] if self.tr_lag_ms else None,
+                   "tr_lag_last": self.tr_lag_ms[-1] if self.tr_lag_ms else None,
+                   "tr_lag_median": _median(self.tr_lag_ms)}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал
