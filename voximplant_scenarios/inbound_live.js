@@ -309,6 +309,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                      msg.model_ms_median + " мс") + ", все: [" + (msg.model_ms || []).join(", ") + "]");
                 // Те же моменты в таймлайне записи. Сверив их с реальными концами фраз
                 // на стереодорожке, получаем лаг доставки аудио Voximplant → сервер.
+                // Фактический запас аудио в буфере Voximplant. Он же — постоянная
+                // добавка к задержке: абонент слышит каждый звук на столько позже.
+                Logger.write("[Live] ⏱ запас в буфере Voximplant: медиана " +
+                    (msg.lead_ms_median === null || msg.lead_ms_median === undefined ? "н/д" :
+                     msg.lead_ms_median + " мс") + ", все: [" + (msg.lead_ms || []).join(", ") + "]");
                 if (recordStartedAt && (msg.speech_end_epoch || []).length) {
                     var rel = msg.speech_end_epoch.map(function(e) {
                         return ((e - recordStartedAt) / 1000).toFixed(2);

@@ -27,7 +27,7 @@ event"), — а уже сгенерированное аудио к этому �
   {type:"barge_in"}                                  — абонент перебил ассистента:
    сценарий зовёт ws.clearMediaBuffer() и гасит уже отправленное в Voximplant аудио
   {type:"call_summary", dialog:[{role,text,ts}], usage_seconds, session_id,
-   serve_ms, gen_speed_x10, model_ms, speech_end_epoch — замеры задержки}
+   serve_ms, gen_speed_x10, model_ms, speech_end_epoch, lead_ms — замеры задержки}
   {type:"error", error:{code, message}}
 
 Диалог в conversations пишет сценарий через /api/voximplant/log (там же запись
@@ -62,14 +62,23 @@ logger = get_logger(__name__)
 
 LIVE_RATE = 16000          # GPT-Live принимает pcm 16 кГц напрямую — без ресемплинга
 FRAME_MS = 20              # рекомендованный докой шаг медиа-кадра
-LEAD_LIMIT_MS = 1500       # насколько убегаем вперёд буфера Voximplant (лимит 10 с);
-                           # при перебивании этот запас гасит clearMediaBuffer()
+LEAD_LIMIT_MS = 200        # Запас аудио, лежащий в буфере Voximplant. Это не просто
+                           # защита от джиттера: модель отдаёт поток ровно в темпе
+                           # речи, поэтому стоит ей один раз выдать пачку — запас
+                           # упирается в этот потолок и залипает там до конца звонка,
+                           # рассасываться нечему. Абонент слышит КАЖДЫЙ звук на
+                           # LEAD_LIMIT_MS позже. Было 1500 — ровно столько лишней
+                           # задержки и намерили (телефон 1800 мс против 359 мс в
+                           # браузере через тот же сервер и ту же модель).
+                           # При перебивании запас гасит clearMediaBuffer().
 BARGE_IN_MUTE_MS = 200     # окно после перебивания, в котором выбрасываем
                            # долетающие дельты уже прерванной реплики
 BARGE_IN_COOLDOWN_MS = 1000  # не перебиваем повторно: одна фраза абонента даёт
                              # десятки фрагментов транскрипта, реагируем на первый
-BARGE_IN_MIN_TAIL_MS = 400   # если ассистенту осталось договорить меньше этого,
-                             # не рубим — дешевле дать фразе закончиться
+BARGE_IN_MIN_TAIL_MS = 100   # если ассистенту осталось договорить меньше этого,
+                             # не рубим — дешевле дать фразе закончиться.
+                             # Держим НИЖЕ LEAD_LIMIT_MS: порог больше запаса означал
+                             # бы «при пустой очереди не перебивать никогда».
 REPLY_GAP_SEC = 0.5          # пауза в потоке дельт, после которой считаем, что
                              # началась новая реплика (для замеров ниже)
 
@@ -166,6 +175,7 @@ class LiveTelephonyBridge:
         self.awaiting_model = False
         self.model_ms: List[int] = []
         self.speech_end_epoch: List[int] = []
+        self.lead_samples: List[int] = []   # фактический запас в Voximplant, раз в секунду
 
         self.transcript = TranscriptCollector()
         self.started_at = time.time()
@@ -617,6 +627,8 @@ class LiveTelephonyBridge:
                     })
                     self.sequence += 1; self.chunk += 1; self.frames_sent += 1
                     self.samples_sent += len(frame) // 2
+                    if self.frames_sent % 50 == 0:     # раз в секунду
+                        self.lead_samples.append(int((self.play_end_time - time.time()) * 1000))
         except Exception as e:
             self.log(f"audio pump error: {e}", "error")
 
@@ -646,7 +658,8 @@ class LiveTelephonyBridge:
                    "gen_speed_x10": self.gen_speed_x10[-40:],
                    "gen_speed_x10_median": _median(self.gen_speed_x10),
                    "model_ms": self.model_ms[-40:], "model_ms_median": _median(self.model_ms),
-                   "speech_end_epoch": self.speech_end_epoch[-40:]}
+                   "speech_end_epoch": self.speech_end_epoch[-40:],
+                   "lead_ms": self.lead_samples[-40:], "lead_ms_median": _median(self.lead_samples)}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал
