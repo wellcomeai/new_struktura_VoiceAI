@@ -26,7 +26,8 @@ event"), — а уже сгенерированное аудио к этому �
   {type:"function_call"|"function_result", ...}
   {type:"barge_in"}                                  — абонент перебил ассистента:
    сценарий зовёт ws.clearMediaBuffer() и гасит уже отправленное в Voximplant аудио
-  {type:"call_summary", dialog:[{role,text,ts}], usage_seconds, session_id}
+  {type:"call_summary", dialog:[{role,text,ts}], usage_seconds, session_id,
+   serve_ms, gen_speed_x10 — замеры задержки, см. _note_delta}
   {type:"error", error:{code, message}}
 
 Диалог в conversations пишет сценарий через /api/voximplant/log (там же запись
@@ -69,12 +70,21 @@ BARGE_IN_COOLDOWN_MS = 1000  # не перебиваем повторно: од�
                              # десятки фрагментов транскрипта, реагируем на первый
 BARGE_IN_MIN_TAIL_MS = 400   # если ассистенту осталось договорить меньше этого,
                              # не рубим — дешевле дать фразе закончиться
+REPLY_GAP_SEC = 0.5          # пауза в потоке дельт, после которой считаем, что
+                             # началась новая реплика (для замеров ниже)
 SUMMARY_WAIT_SEC = 3.0
 
 # Кодек в StartEvent для Voximplant: имена из WebSocketAudioEncoding
 # (см. комментарий в handler_fish_tts.py — "PCM16" @ 8000 Voximplant отвергает).
 PCM_ENCODING_BY_RATE = {8000: "PCM8", 16000: "PCM16"}
 EXCLUDED_FUNCTIONS = ["hangup_call"]
+
+
+def _median(values: List[int]) -> Optional[int]:
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
 
 
 def _extract_caller_name(system_prompt: str) -> Optional[str]:
@@ -126,6 +136,17 @@ class LiveTelephonyBridge:
         self.barge_ins = 0
         self.barge_in_dropped_ms = 0
         self.barge_in_cooldown_until = 0.0
+
+        # Замеры задержки. serve_ms — сколько наш сервер держал реплику от первой
+        # дельты модели до первого кадра, ушедшего в Voximplant: это ровно наш
+        # вклад в задержку, без телефонной сети. gen_speed_x10 — во сколько раз
+        # (×10) модель отдала аудио быстрее реального времени.
+        self.reply_t0 = 0.0
+        self.reply_bytes = 0
+        self.last_delta_at = 0.0
+        self.awaiting_first_frame = False
+        self.serve_ms: List[int] = []
+        self.gen_speed_x10: List[int] = []
 
         self.transcript = TranscriptCollector()
         self.started_at = time.time()
@@ -361,9 +382,12 @@ class LiveTelephonyBridge:
                     if time.time() < self.mute_until:
                         continue          # хвост прерванной реплики — в трубку не отдаём
                     try:
-                        self.out_queue.put_nowait(base64.b64decode(event.get("delta") or ""))
+                        pcm = base64.b64decode(event.get("delta") or "")
                     except Exception:
-                        pass
+                        pcm = b""
+                    if pcm:
+                        self._note_delta(len(pcm))
+                        self.out_queue.put_nowait(pcm)
                 elif etype in ("session.input_transcript.delta", "session.output_transcript.delta"):
                     role = "user" if etype.startswith("session.input") else "assistant"
                     self.transcript.add(role, event.get("delta") or "", event.get("start_ms"), event.get("end_ms"))
@@ -389,6 +413,39 @@ class LiveTelephonyBridge:
             self.log(f"live event pump error: {e}", "error")
         finally:
             self.stop_event.set()
+
+    # ------------------------------------------------------------------
+    # Замеры задержки
+    # ------------------------------------------------------------------
+    def _note_delta(self, nbytes: int):
+        """Пришёл кусок аудио от модели. Пауза дольше REPLY_GAP_SEC = новая реплика."""
+        now = time.time()
+        if now - self.last_delta_at > REPLY_GAP_SEC:
+            self._close_reply()
+            self.reply_t0 = now
+            self.reply_bytes = 0
+            self.awaiting_first_frame = True
+        self.last_delta_at = now
+        self.reply_bytes += nbytes
+
+    def _close_reply(self):
+        """Реплика кончилась — считаем, насколько модель обогнала реальное время."""
+        audio_ms = (self.reply_bytes // 2) * 1000 // LIVE_RATE
+        if self.reply_t0 and audio_ms >= 200:
+            gen_ms = max(1, int((self.last_delta_at - self.reply_t0) * 1000))
+            self.gen_speed_x10.append(audio_ms * 10 // gen_ms)
+        self.reply_t0 = 0.0
+        self.reply_bytes = 0
+
+    def _note_first_frame(self):
+        """Первый кадр реплики ушёл в Voximplant — фиксируем наш вклад в задержку."""
+        self.awaiting_first_frame = False
+        if not self.reply_t0:
+            return
+        ttfb = int((time.time() - self.reply_t0) * 1000)
+        self.serve_ms.append(ttfb)
+        self.log(f"reply #{len(self.serve_ms)}: первый кадр в Voximplant через {ttfb} мс "
+                 f"после первой дельты модели")
 
     # ------------------------------------------------------------------
     # Перебивание
@@ -420,6 +477,8 @@ class LiveTelephonyBridge:
                 break
         self.play_end_time = 0.0
         self.mute_until = time.time() + BARGE_IN_MUTE_MS / 1000
+        self.awaiting_first_frame = False
+        self._close_reply()
         return (dropped // 2) * 1000 // LIVE_RATE
 
     async def _maybe_barge_in(self, delta: str):
@@ -490,6 +549,8 @@ class LiveTelephonyBridge:
                         await asyncio.sleep((lead_ms - LEAD_LIMIT_MS) / 1000)
                         now = time.time()
                     self.play_end_time = max(self.play_end_time, now) + FRAME_MS / 1000
+                    if self.awaiting_first_frame:
+                        self._note_first_frame()
                     await self.send_json({
                         "event": "media", "sequenceNumber": self.sequence,
                         "media": {"timestamp": self.samples_sent, "chunk": self.chunk,
@@ -511,6 +572,7 @@ class LiveTelephonyBridge:
             if closed and isinstance(closed.get("usage"), dict):
                 self.usage_seconds = closed["usage"].get("seconds", self.usage_seconds)
 
+        self._close_reply()
         turns = self.transcript.turns()
         base_ts = int(self.started_at * 1000)
         dialog = [{"role": t["role"], "text": t["text"], "ts": base_ts + int(t.get("start_ms") or 0)} for t in turns]
@@ -520,7 +582,10 @@ class LiveTelephonyBridge:
         summary = {"type": "call_summary", "dialog": dialog, "usage_seconds": self.usage_seconds,
                    "session_id": self.live.session_id if self.live else None,
                    "functions": (self.live.function_log if self.live else [])[-20:],
-                   "barge_ins": self.barge_ins, "barge_in_dropped_ms": self.barge_in_dropped_ms}
+                   "barge_ins": self.barge_ins, "barge_in_dropped_ms": self.barge_in_dropped_ms,
+                   "serve_ms": self.serve_ms[-40:], "serve_ms_median": _median(self.serve_ms),
+                   "gen_speed_x10": self.gen_speed_x10[-40:],
+                   "gen_speed_x10_median": _median(self.gen_speed_x10)}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал

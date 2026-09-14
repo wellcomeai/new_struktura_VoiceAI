@@ -202,7 +202,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         attachMedia();
 
         try {
-            call.record({ stereo: false, lossless: false, hd_audio: true });
+            // stereo: абонент и агент попадают в разные каналы. Без этого они
+            // смешаны в один и по записи нельзя измерить ни задержку ответа,
+            // ни наличие эха агента во входящем канале.
+            call.record({ stereo: true, lossless: false, hd_audio: true });
             Logger.write("🎙️ Recording started");
         } catch (recordError) {
             Logger.write("⚠️ Recording failed: " + recordError);
@@ -289,6 +292,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 summaryUsage = msg.usage_seconds;
                 Logger.write("[Live] 📝 call_summary: " + summaryDialog.length + " turns, usage=" + summaryUsage +
                     "s, barge-in: " + (msg.barge_ins || 0) + " (сброшено " + (msg.barge_in_dropped_ms || 0) + " мс)");
+                // Вклад нашего сервера в задержку: от первой дельты модели до первого
+                // кадра, ушедшего в Voximplant. Всё, что сверх этого, — телефонная сеть.
+                Logger.write("[Live] ⏱ сервер держал реплику: медиана " + (msg.serve_ms_median === null ||
+                    msg.serve_ms_median === undefined ? "н/д" : msg.serve_ms_median + " мс") +
+                    ", все: [" + (msg.serve_ms || []).join(", ") + "]");
+                Logger.write("[Live] ⏱ скорость генерации (×10 от реального времени): медиана " +
+                    (msg.gen_speed_x10_median === null || msg.gen_speed_x10_median === undefined ? "н/д" :
+                     msg.gen_speed_x10_median) + ", все: [" + (msg.gen_speed_x10 || []).join(", ") + "]");
                 for (var i = 0; i < summaryDialog.length; i++) {
                     Logger.write("   " + (summaryDialog[i].role === "user" ? "👤 USER: " : "🤖 AGENT: ") +
                         String(summaryDialog[i].text).substring(0, 100));
