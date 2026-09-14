@@ -70,6 +70,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var tAlert = Date.now();
 
     // Транскрипт от сервера (приходит в call_summary при завершении)
+    var recordStartedAt = 0;      // для перевода замеров сервера в таймлайн записи
     var summaryDialog = null;
     var summaryUsage = null;
     var summaryResolve = null;
@@ -300,6 +301,21 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 Logger.write("[Live] ⏱ скорость генерации (×10 от реального времени): медиана " +
                     (msg.gen_speed_x10_median === null || msg.gen_speed_x10_median === undefined ? "н/д" :
                      msg.gen_speed_x10_median) + ", все: [" + (msg.gen_speed_x10 || []).join(", ") + "]");
+                // Прямой аналог браузерного замера (там медиана 359 мс): конец речи
+                // абонента → первый звук модели, но точкой отсчёта служит момент,
+                // когда звук абонента дошёл ДО НАС.
+                Logger.write("[Live] ⏱ модель ответила через: медиана " +
+                    (msg.model_ms_median === null || msg.model_ms_median === undefined ? "н/д" :
+                     msg.model_ms_median + " мс") + ", все: [" + (msg.model_ms || []).join(", ") + "]");
+                // Те же моменты в таймлайне записи. Сверив их с реальными концами фраз
+                // на стереодорожке, получаем лаг доставки аудио Voximplant → сервер.
+                if (recordStartedAt && (msg.speech_end_epoch || []).length) {
+                    var rel = msg.speech_end_epoch.map(function(e) {
+                        return ((e - recordStartedAt) / 1000).toFixed(2);
+                    });
+                    Logger.write("[Live] ⏱ сервер услышал концы фраз на (сек от начала записи): [" +
+                        rel.join(", ") + "]");
+                }
                 for (var i = 0; i < summaryDialog.length; i++) {
                     Logger.write("   " + (summaryDialog[i].role === "user" ? "👤 USER: " : "🤖 AGENT: ") +
                         String(summaryDialog[i].text).substring(0, 100));
@@ -338,6 +354,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }, ANSWER_TIMEOUT_MS);
 
     call.addEventListener(CallEvents.RecordStarted, function(event) {
+        recordStartedAt = Date.now();
         if (event.url) { record_url = event.url; Logger.write("🎙️ RecordStarted: " + record_url); }
     });
     call.addEventListener(CallEvents.RecordStopped, function(event) {

@@ -27,7 +27,7 @@ event"), — а уже сгенерированное аудио к этому �
   {type:"barge_in"}                                  — абонент перебил ассистента:
    сценарий зовёт ws.clearMediaBuffer() и гасит уже отправленное в Voximplant аудио
   {type:"call_summary", dialog:[{role,text,ts}], usage_seconds, session_id,
-   serve_ms, gen_speed_x10 — замеры задержки, см. _note_delta}
+   serve_ms, gen_speed_x10, model_ms, speech_end_epoch — замеры задержки}
   {type:"error", error:{code, message}}
 
 Диалог в conversations пишет сценарий через /api/voximplant/log (там же запись
@@ -72,6 +72,13 @@ BARGE_IN_MIN_TAIL_MS = 400   # если ассистенту осталось д
                              # не рубим — дешевле дать фразе закончиться
 REPLY_GAP_SEC = 0.5          # пауза в потоке дельт, после которой считаем, что
                              # началась новая реплика (для замеров ниже)
+
+# VAD для замера «конец речи абонента → первый звук модели». Параметры один в один
+# как в backend/static/live-test.html, иначе телефонное число не сравнить с
+# браузерным (там медиана 359 мс).
+VAD_HANG_MS = 300            # столько тишины считаем концом фразы
+VAD_FLOOR_MIN = 0.008        # нижняя граница порога (амплитуда 0..1)
+VAD_FLOOR_MULT = 5
 SUMMARY_WAIT_SEC = 3.0
 
 # Кодек в StartEvent для Voximplant: имена из WebSocketAudioEncoding
@@ -147,6 +154,18 @@ class LiveTelephonyBridge:
         self.awaiting_first_frame = False
         self.serve_ms: List[int] = []
         self.gen_speed_x10: List[int] = []
+
+        # model_ms — «конец речи абонента → первый звук модели», прямой аналог
+        # браузерного замера. speech_end_epoch — те же моменты в абсолютном времени:
+        # сверив их с записью, видно, с каким лагом звук абонента вообще до нас
+        # доезжает (единственный неизмеренный участок цепочки).
+        self.vad_speaking = False
+        self.vad_silence_since = 0.0
+        self.vad_noise_floor = 0.002
+        self.speech_end_at = 0.0
+        self.awaiting_model = False
+        self.model_ms: List[int] = []
+        self.speech_end_epoch: List[int] = []
 
         self.transcript = TranscriptCollector()
         self.started_at = time.time()
@@ -310,6 +329,7 @@ class LiveTelephonyBridge:
             return
         pcm = self._to_live_pcm(raw)
         if pcm:
+            self._vad_feed(pcm)
             await self.live.send_audio(pcm)
 
     def _to_live_pcm(self, raw: bytes) -> bytes:
@@ -386,6 +406,7 @@ class LiveTelephonyBridge:
                     except Exception:
                         pcm = b""
                     if pcm:
+                        self._note_model_audio()
                         self._note_delta(len(pcm))
                         self.out_queue.put_nowait(pcm)
                 elif etype in ("session.input_transcript.delta", "session.output_transcript.delta"):
@@ -417,6 +438,44 @@ class LiveTelephonyBridge:
     # ------------------------------------------------------------------
     # Замеры задержки
     # ------------------------------------------------------------------
+    def _vad_feed(self, pcm: bytes):
+        """Ищем конец фразы абонента во входящем аудио — точка отсчёта для model_ms."""
+        rms = audioop.rms(pcm, 2) / 32768.0
+        thr = max(VAD_FLOOR_MIN, self.vad_noise_floor * VAD_FLOOR_MULT)
+        now = time.time()
+        if rms > thr:
+            self.vad_speaking = True
+            self.vad_silence_since = 0.0
+            return
+        # Порог двигаем ТОЛЬКО по тишине: если обновлять его и во время речи, он за
+        # пару секунд догоняет голос и рвёт фразу на середине.
+        self.vad_noise_floor = (rms * 0.1 + self.vad_noise_floor * 0.9
+                                if rms < self.vad_noise_floor
+                                else self.vad_noise_floor * 0.99 + rms * 0.01)
+        if not self.vad_speaking:
+            return
+        if not self.vad_silence_since:
+            self.vad_silence_since = now
+        elif (now - self.vad_silence_since) * 1000 >= VAD_HANG_MS:
+            # Точка отсчёта — когда звук пропал, а не когда мы это заметили.
+            self.vad_speaking = False
+            self.speech_end_at = self.vad_silence_since
+            self.vad_silence_since = 0.0
+            self.awaiting_model = True
+            self.speech_end_epoch.append(int(self.speech_end_at * 1000))
+
+    def _note_model_audio(self):
+        """Первый звук модели после того, как абонент замолчал."""
+        if not self.awaiting_model:
+            return
+        self.awaiting_model = False
+        ms = int((time.time() - self.speech_end_at) * 1000)
+        if ms < 20 or ms > 15000:
+            return
+        self.model_ms.append(ms)
+        self.log(f"модель ответила через {ms} мс после конца речи абонента "
+                 f"(медиана {_median(self.model_ms)} по {len(self.model_ms)})")
+
     def _note_delta(self, nbytes: int):
         """Пришёл кусок аудио от модели. Пауза дольше REPLY_GAP_SEC = новая реплика."""
         now = time.time()
@@ -585,7 +644,9 @@ class LiveTelephonyBridge:
                    "barge_ins": self.barge_ins, "barge_in_dropped_ms": self.barge_in_dropped_ms,
                    "serve_ms": self.serve_ms[-40:], "serve_ms_median": _median(self.serve_ms),
                    "gen_speed_x10": self.gen_speed_x10[-40:],
-                   "gen_speed_x10_median": _median(self.gen_speed_x10)}
+                   "gen_speed_x10_median": _median(self.gen_speed_x10),
+                   "model_ms": self.model_ms[-40:], "model_ms_median": _median(self.model_ms),
+                   "speech_end_epoch": self.speech_end_epoch[-40:]}
         self.summary_sent = await self.send_json(summary)
         if not self.summary_sent and dialog:
             # Сценарий уже ушёл — сохраняем сами, чтобы диалог не пропал
