@@ -14,6 +14,32 @@ router = APIRouter()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 🙈 Функции, скрытые из витрины
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Из каталога их не показываем, но из реестра не убираем: ассистент, у
+# которого такая функция уже включена, продолжает её вызывать — исполнение
+# идёт по сохранённому конфигу через get_enabled_functions()/execute_function(),
+# а не по этому списку.
+HIDDEN_FROM_CATALOG = {
+    "start_browser_task",            # Управление браузером
+    "google_calendar_create_event",  # Google Календарь: создать событие
+    "google_calendar_find_events",   # Google Календарь: найти события
+    "query_llm",                     # Запрос к текстовой LLM (ChatGPT)
+    "search_contact_by_phone",       # Поиск контакта по телефону (CRM)
+    "create_crm_voicyfy_task",       # Создать задачу в CRM
+    "query_orchestrator",            # Agent Orchestrator
+    "show_image",                    # Показ изображения
+    "gmail_send_email",              # Gmail: отправить письмо
+    "gmail_fetch_emails",            # Gmail: прочитать письма
+}
+
+
+def visible_definitions(definitions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Отфильтровать каталог для UI."""
+    return [d for d in definitions if d.get("name") not in HIDDEN_FROM_CATALOG]
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 🌐 Публичный эндпоинт (без авторизации)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -28,7 +54,7 @@ def get_public_functions_catalog():
     GET /api/functions/public/catalog
     """
     try:
-        definitions = get_all_definitions()
+        definitions = visible_definitions(get_all_definitions())
         return [
             {
                 "name": d.get("name"),
@@ -62,7 +88,7 @@ def get_functions(
         List[Dict[str, Any]]: Список определений функций
     """
     try:
-        return get_all_definitions()
+        return visible_definitions(get_all_definitions())
     except Exception as e:
         logger.error(f"Error getting functions: {str(e)}")
         raise HTTPException(
@@ -82,7 +108,7 @@ def get_functions_openai_format(
         List[Dict[str, Any]]: Список определений функций для OpenAI
     """
     try:
-        return get_all_openai_definitions()
+        return visible_definitions(get_all_openai_definitions())
     except Exception as e:
         logger.error(f"Error getting OpenAI functions: {str(e)}")
         raise HTTPException(

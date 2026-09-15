@@ -303,7 +303,7 @@
   const SILENCE_PRESETS = [[300, 'Быстрая', '300 мс'], [650, 'Сбалансированная', '650 мс'], [1000, 'Терпеливая', '1000 мс']];
   const DEFAULT_GREETING = 'Здравствуйте! Чем я могу вам помочь?';
 
-  const state = { tariffs: {}, assistants: [], current: null, isNew: false, model: null, voice: {}, functions: [], enabledFunctions: new Set(), options: {}, kbs: [], dirty: false, saving: false };
+  const state = { tariffs: {}, assistants: [], current: null, isNew: false, model: null, voice: {}, functions: [], enabledFunctions: new Set(), savedFunctions: [], options: {}, kbs: [], dirty: false, saving: false };
 
   const $ = id => document.getElementById(id);
   const esc = VF.esc;
@@ -488,7 +488,8 @@
     $('f-sheet').value = d.google_sheet_id || '';
     $('f-active').checked = d.is_active !== false;
     $('prompt-count').textContent = ($('f-prompt').value || '').length;
-    state.enabledFunctions = new Set((d.functions || []).map(f => typeof f === 'string' ? f : f.name).filter(Boolean));
+    state.savedFunctions = (d.functions || []).map(f => typeof f === 'string' ? { name: f } : f).filter(f => f && f.name);
+    state.enabledFunctions = new Set(state.savedFunctions.map(f => f.name));
     state.voice = extractVoice(d, type);
     renderModels(); renderVoiceSettings(); renderFunctions(); updateTabAvailability();
   }
@@ -644,7 +645,16 @@
   function updateSheetBlock() { $('sheet-block').style.display = Array.from(state.enabledFunctions).some(n => /sheet/i.test(n)) ? '' : 'none'; }
   function functionsPayload() {
     if (!state.enabledFunctions.size) return null;
-    return state.functions.filter(f => state.enabledFunctions.has(f.name)).map(f => ({ name: f.name, description: f.description || ('Функция ' + f.name) }));
+    const entry = f => ({ name: f.name, description: f.description || ('Функция ' + f.name) });
+    const list = state.functions.filter(f => state.enabledFunctions.has(f.name)).map(entry);
+    // Часть функций скрыта из каталога (backend/api/functions.py). Если такая
+    // уже включена у ассистента — в списке её нет, но и выкидывать её из
+    // конфига при сохранении нельзя: ассистент продолжает её вызывать.
+    const known = new Set(state.functions.map(f => f.name));
+    state.savedFunctions.forEach(f => {
+      if (!known.has(f.name) && state.enabledFunctions.has(f.name)) list.push(entry(f));
+    });
+    return list.length ? list : null;
   }
 
   // ===================================================================
