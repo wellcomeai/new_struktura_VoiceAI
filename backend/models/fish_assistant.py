@@ -5,7 +5,7 @@ Fish Audio TTS provider integration — config only, call logic lives in Voximpl
 
 Тракт звонка (сценарии inbound_fish / outbound_fish на родительском аккаунте):
 
-    Voximplant ⇄ OpenAI Realtime (gpt-realtime-2.1-mini, output_modalities=["text"])
+    Voximplant ⇄ OpenAI Realtime (gpt-realtime-2.1, output_modalities=["text"])
                     │  модель сама транскрибирует речь, отдельный ASR не нужен
                     ▼
                  текст ответа
@@ -34,7 +34,9 @@ from backend.models.base import Base
 DEFAULT_FISH_MODEL = "s2.1-pro"  # ✅ v6.0: платная модель (free-уровень без гарантий)
 
 # Модель OpenAI Realtime, которая ведёт диалог и транскрибирует речь.
-DEFAULT_FISH_LLM_MODEL = "gpt-realtime-2.1-mini"
+# Настройкой не является: выбор из UI убран, значение одно для всех агентов
+# (телефонный конфиг отдаёт сценарию именно эту константу, а не колонку в БД).
+DEFAULT_FISH_LLM_MODEL = "gpt-realtime-2.1"
 
 # Частота дискретизации PCM, которую прокси запрашивает у Fish и отдаёт
 # в звонок. 8000 — телефонный тракт Voximplant (PCM16_8KHZ по умолчанию).
@@ -54,10 +56,11 @@ FISH_TEMPERATURE_MIN, FISH_TEMPERATURE_MAX = 0.0, 1.0
 # отваливаться с 400 при сохранении.
 FISH_MODELS = ["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"]
 
-# То, что показываем в селекторе. ✅ v6.0: на серверных ключах синтез
-# переведён на платную s2.1-pro; free-уровень остаётся принимаемым API
-# для существующих ассистентов.
-FISH_SELECTABLE_MODELS = ["s2.1-pro", "s2.1-pro-free"]
+# То, что показываем в селекторе. Вариант ровно один: синтез везде идёт на
+# платной s2.1-pro. Free-уровень и старые s1/s2-pro остаются в FISH_MODELS —
+# API их принимает, чтобы правки существующих агентов не падали с 400, но
+# при первом же пересохранении из UI такой агент переедет на s2.1-pro.
+FISH_SELECTABLE_MODELS = ["s2.1-pro"]
 
 # low — быстрее всего начинает говорить, normal — лучшее качество.
 FISH_LATENCY_MODES = ["low", "balanced", "normal"]
@@ -90,7 +93,10 @@ class FishAssistantConfig(Base):
     # Скорость речи Fish (prosody.speed, 0.5–2.0). 1.0 — обычный темп.
     voice_speed = Column(Float, default=1.0, nullable=True)
 
-    # LLM settings (OpenAI Realtime на ключе пользователя)
+    # LLM settings (OpenAI Realtime на ключе пользователя).
+    # Колонка историческая: пользователь модель не выбирает, в звонок уходит
+    # DEFAULT_FISH_LLM_MODEL. У старых записей здесь может лежать другое
+    # значение — оно ни на что не влияет.
     llm_model = Column(String(100), default=DEFAULT_FISH_LLM_MODEL, nullable=False)
     language = Column(String(10), default="ru", nullable=False)
 

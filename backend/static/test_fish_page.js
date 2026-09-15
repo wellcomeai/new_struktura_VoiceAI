@@ -32,7 +32,7 @@ const AGENT = {
     fish_latency: "balanced",
     sample_rate: 8000,
     voice_speed: 1.0,
-    llm_model: "gpt-realtime-2.1-mini",
+    llm_model: "gpt-realtime-2.1",
     language: "ru",
     temperature: 0.7,
     greeting_message: "Здравствуйте!",
@@ -53,12 +53,11 @@ const API = {
         subscription_active: true, plan_code: "profi", breakdown: { fish: 1 },
     },
     "/api/fish-assistants/options": {
-        models: ["s1", "s2-pro", "s2.1-pro", "s2.1-pro-free"],
+        models: ["s2.1-pro"],
         default_model: "s2.1-pro",
         latency_modes: ["low", "balanced", "normal"],
         default_latency: "balanced",
-        llm_models: ["gpt-realtime-2.1-mini", "gpt-realtime-1.5"],
-        default_llm_model: "gpt-realtime-2.1-mini",
+        llm_model: "gpt-realtime-2.1",
         sample_rate: 8000,
         speed: { min: 0.5, max: 2.0, default: 1.0 },
         temperature: { min: 0.0, max: 1.0, default: 0.7 },
@@ -137,11 +136,11 @@ const API = {
 
     const model = await page.inputValue("#agent-model");
     const latency = await page.inputValue("#agent-latency");
-    const llm = await page.inputValue("#agent-llm-model");
     check(model === "s2.1-pro", "модель синтеза не подставилась: " + model);
     check(latency === "balanced", "латентность не подставилась: " + latency);
-    check(llm === "gpt-realtime-2.1-mini", "диалоговая модель не подставилась: " + llm);
-    console.log("✅ селекты заполнены: " + model + " / " + latency + " / " + llm);
+    check(await page.$("#agent-llm-model") === null,
+          "селектор диалоговой модели остался на странице");
+    console.log("✅ селекты заполнены: " + model + " / " + latency);
 
     const voice = await page.inputValue("#agent-voice");
     check(voice === "", "поле голоса не очищено: " + voice);
@@ -188,7 +187,7 @@ const API = {
     check(posted.fish_voice_id === "abc123voice", "fish_voice_id не передан: " + JSON.stringify(posted));
     check(posted.fish_model === "s2.1-pro", "fish_model не передан: " + JSON.stringify(posted));
     check(posted.fish_latency === "balanced", "fish_latency не передан: " + JSON.stringify(posted));
-    check(posted.llm_model === "gpt-realtime-2.1-mini", "llm_model не передан: " + JSON.stringify(posted));
+    check(!("llm_model" in posted), "llm_model больше не настройка, но ушёл: " + JSON.stringify(posted));
     check(posted.voice_speed === 1.25, "скорость не передана: " + JSON.stringify(posted));
     check(posted.temperature === 0.35, "живость не передана: " + JSON.stringify(posted));
     check(!("voice_role" in posted) && !("max_tokens" in posted),

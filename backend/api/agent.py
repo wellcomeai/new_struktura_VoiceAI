@@ -1058,6 +1058,8 @@ async def update_agent(
                     va.fish_latency = _valid_fish_latency(update_data["fish_latency"])
                 if update_data.get("voice_speed") is not None:
                     va.voice_speed = update_data["voice_speed"]
+                # Мозг диалога не настраивается — приводим запись к константе.
+                va.llm_model = DEFAULT_FISH_LLM_MODEL
 
     # ── Регенерация промпта через gpt-4o-mini — ТОЛЬКО для старых агентов ──
     if docs_changed and not agent.uses_hardcoded_prompt:

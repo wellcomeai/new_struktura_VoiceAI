@@ -496,7 +496,7 @@
     switch (type) {
       case 'openai': return { voice: d.voice || 'alloy' };
       case 'gemini': return { voice: d.voice || 'Aoede' };
-      case 'fish': return { fish_voice_id: d.fish_voice_id || '', fish_model: d.fish_model || null, fish_latency: d.fish_latency || 'balanced', voice_speed: d.voice_speed != null ? d.voice_speed : 1.0, llm_model: d.llm_model || null, temperature: d.temperature != null ? d.temperature : 0.7 };
+      case 'fish': return { fish_voice_id: d.fish_voice_id || '', fish_model: d.fish_model || null, fish_latency: d.fish_latency || 'balanced', voice_speed: d.voice_speed != null ? d.voice_speed : 1.0, temperature: d.temperature != null ? d.temperature : 0.7 };
       case 'yandex': return { voice: d.voice || 'marina', voice_role: d.voice_role || '', model: YANDEX_MODEL };
       case 'cascade': return { tts_provider: d.tts_provider || 'voxtts', tts_voice: d.tts_voice || 'Anna', silence_duration_ms: d.silence_duration_ms || 300 };
       default: return {};
@@ -570,17 +570,16 @@
     if (type === 'fish') {
       VF.skeleton(box, 2, 'skeleton-line');
       const o = (await loadOptions('fish')) || {}; if (state.model !== 'fish') return;
-      const models = o.models || ['s2.1-pro'], lat = o.latency_modes || ['low', 'balanced', 'normal'], llms = o.llm_models || ['gpt-realtime-2.1-mini', 'gpt-realtime-1.5'];
-      if (!v.fish_model) v.fish_model = o.default_model || models[0];
-      if (!v.llm_model) v.llm_model = o.default_llm_model || llms[0];
+      const models = o.models || ['s2.1-pro'], lat = o.latency_modes || ['low', 'balanced', 'normal'];
+      // Модель синтеза в витрине одна — выбранное значение всегда приводим к ней.
+      v.fish_model = o.default_model || models[0];
       box.innerHTML = `
         <div class="form-row">
           <div class="field"><label class="label">Voice ID (Fish Audio)</label><input class="input" data-vf="fish_voice_id" value="${esc(v.fish_voice_id)}" placeholder="reference_id голоса из fish.audio"><div class="hint">Пусто — голос по умолчанию. Можно клонировать свой голос: загрузите образец в кабинете Fish Audio и вставьте сюда reference_id.</div></div>
-          <div class="field"><label class="label">Модель синтеза</label><div id="sel-fish-model"></div></div>
+          <div class="field"><label class="label">Модель синтеза</label><div id="sel-fish-model"></div><div class="hint">Единственная доступная модель Fish Audio — премиальная s2.1-pro.</div></div>
         </div>
         <div class="form-row">
           <div class="field"><label class="label">Задержка</label><div id="sel-fish-latency"></div></div>
-          <div class="field"><label class="label">Мозг диалога</label><div id="sel-llm"></div></div>
         </div>
         <div class="form-row">
           <div class="field"><label class="label">Скорость речи</label><div class="range-row"><input type="range" class="range" data-vf="voice_speed" min="0.5" max="2" step="0.05" value="${v.voice_speed}"><span class="range-val" data-out="voice_speed">${v.voice_speed}</span></div></div>
@@ -588,7 +587,6 @@
         </div>`;
       mkSelect('sel-fish-model', models, v.fish_model, 'fish_model');
       mkSelect('sel-fish-latency', lat, v.fish_latency, 'fish_latency');
-      mkSelect('sel-llm', llms, v.llm_model, 'llm_model');
       bindInputs(); return;
     }
     if (type === 'yandex') {
@@ -662,7 +660,7 @@
     switch (type) {
       case 'openai': return Object.assign(common, { voice: v.voice || 'alloy', language: 'ru' });
       case 'gemini': return Object.assign(common, { voice: v.voice || 'Aoede', language: 'ru' });
-      case 'fish': return Object.assign(common, { fish_voice_id: v.fish_voice_id || null, fish_model: v.fish_model || undefined, fish_latency: v.fish_latency || 'balanced', voice_speed: v.voice_speed != null ? v.voice_speed : 1.0, llm_model: v.llm_model || undefined, temperature: v.temperature != null ? v.temperature : 0.7, language: 'ru' });
+      case 'fish': return Object.assign(common, { fish_voice_id: v.fish_voice_id || null, fish_model: v.fish_model || undefined, fish_latency: v.fish_latency || 'balanced', voice_speed: v.voice_speed != null ? v.voice_speed : 1.0, temperature: v.temperature != null ? v.temperature : 0.7, language: 'ru' });
       case 'yandex': return Object.assign(common, { model: YANDEX_MODEL, voice: v.voice || 'marina', voice_role: v.voice_role || null, language: 'ru' });
       case 'cascade': return Object.assign(common, { tts_provider: v.tts_provider || 'voxtts', tts_voice: v.tts_voice || 'Anna', silence_duration_ms: v.silence_duration_ms || 300, tts_lang: 'ru', asr_lang: 'ru', is_telephony_enabled: true });
     }

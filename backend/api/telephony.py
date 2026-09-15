@@ -99,6 +99,7 @@ from backend.models.voximplant_child import (
     VoximplantVerificationStatus
 )
 from backend.models.sms_message import SmsMessage
+from backend.models.fish_assistant import DEFAULT_FISH_LLM_MODEL
 from backend.services.voximplant_partner import (
     VoximplantPartnerService,
     get_voximplant_partner_service,
@@ -1979,7 +1980,7 @@ async def get_my_numbers(
                         FishAssistantConfig.id == num.assistant_id
                     ).first()
                     assistant_name = assistant.name if assistant else None
-                    assistant_model = assistant.llm_model if assistant else None
+                    assistant_model = DEFAULT_FISH_LLM_MODEL if assistant else None
 
             # 🆕 Если номер привязан к автономному агенту — берём имя агента
             agent_name = None
@@ -3403,8 +3404,10 @@ def get_outbound_config(
             google_sheet_id=google_sheet_id,
             model=(
                 "gpt-realtime-1.5" if assistant_type == "openai"
+                # Fish: мозг диалога не настраивается, поэтому отдаём константу,
+                # а не колонку — у старых агентов там лежит прежняя модель.
                 else (assistant.model if assistant_type in ("gemini", "yandex")
-                      else (assistant.llm_model if assistant_type == "fish" else None))
+                      else (DEFAULT_FISH_LLM_MODEL if assistant_type == "fish" else None))
             ),
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
@@ -5763,8 +5766,9 @@ def get_scenario_config(
             google_sheet_id=google_sheet_id,
             model=(
                 "gpt-realtime-1.5" if phone_record.assistant_type == "openai"
+                # Fish: см. выше — модель диалога фиксирована константой.
                 else (assistant.model if phone_record.assistant_type in ("gemini", "yandex")
-                      else (assistant.llm_model if phone_record.assistant_type == "fish" else None))
+                      else (DEFAULT_FISH_LLM_MODEL if phone_record.assistant_type == "fish" else None))
             ),
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,

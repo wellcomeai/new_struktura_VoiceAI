@@ -3,7 +3,7 @@
 REST API endpoints for Fish Audio voice assistants management.
 
 Fish Audio — TTS-провайдер. Диалог ведёт OpenAI Realtime
-(gpt-realtime-2.1-mini, output_modalities=["text"]) прямо в сценарии
+(gpt-realtime-2.1, output_modalities=["text"]) прямо в сценарии
 Voximplant, озвучивает Fish через наш прокси /ws/fish/tts/{assistant_id}.
 Оба ключа пользовательские: openai_api_key (LLM) и fish_api_key (TTS).
 
@@ -57,7 +57,7 @@ class FishAssistantCreate(BaseModel):
     fish_latency: str = Field(default=DEFAULT_FISH_LATENCY, description=f"Latency mode: {FISH_LATENCY_MODES}")
     sample_rate: int = Field(default=DEFAULT_FISH_SAMPLE_RATE, ge=8000, le=48000, description="PCM sample rate, Hz")
     voice_speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Скорость речи Fish (prosody.speed)")
-    llm_model: str = Field(default=DEFAULT_FISH_LLM_MODEL, max_length=100, description="OpenAI Realtime model")
+    # llm_model настройкой не является: диалог всегда ведёт DEFAULT_FISH_LLM_MODEL.
     language: str = Field(default="ru", max_length=10, description="Dialog language")
     temperature: float = Field(default=0.7, ge=0.0, le=1.0, description="Живость интонации Fish (0–1)")
     greeting_message: Optional[str] = Field(
@@ -79,7 +79,6 @@ class FishAssistantUpdate(BaseModel):
     fish_latency: Optional[str] = None
     sample_rate: Optional[int] = Field(None, ge=8000, le=48000)
     voice_speed: Optional[float] = Field(None, ge=0.5, le=2.0)
-    llm_model: Optional[str] = Field(None, max_length=100)
     language: Optional[str] = Field(None, max_length=10)
     temperature: Optional[float] = Field(None, ge=0.0, le=1.0)
     greeting_message: Optional[str] = Field(None, max_length=500)
@@ -164,7 +163,9 @@ def to_response(assistant: FishAssistantConfig) -> FishAssistantResponse:
         fish_latency=assistant.fish_latency or DEFAULT_FISH_LATENCY,
         sample_rate=assistant.sample_rate or DEFAULT_FISH_SAMPLE_RATE,
         voice_speed=assistant.voice_speed,
-        llm_model=assistant.llm_model or DEFAULT_FISH_LLM_MODEL,
+        # В звонок всегда уходит константа, поэтому и в ответе она же:
+        # у старых агентов в колонке может лежать модель, которая не работает.
+        llm_model=DEFAULT_FISH_LLM_MODEL,
         language=assistant.language or "ru",
         temperature=assistant.temperature,
         greeting_message=assistant.greeting_message,
@@ -226,8 +227,8 @@ def get_fish_options():
         "default_model": DEFAULT_FISH_MODEL,
         "latency_modes": FISH_LATENCY_MODES,
         "default_latency": DEFAULT_FISH_LATENCY,
-        "llm_models": [DEFAULT_FISH_LLM_MODEL, "gpt-realtime-1.5"],
-        "default_llm_model": DEFAULT_FISH_LLM_MODEL,
+        # Мозг диалога не настраивается — отдаём одно значение справочно.
+        "llm_model": DEFAULT_FISH_LLM_MODEL,
         "sample_rate": DEFAULT_FISH_SAMPLE_RATE,
         "speed": {"min": FISH_SPEED_MIN, "max": FISH_SPEED_MAX, "default": 1.0},
         "temperature": {
@@ -346,7 +347,7 @@ def create_fish_assistant(
             fish_latency=assistant_data.fish_latency,
             sample_rate=assistant_data.sample_rate,
             voice_speed=assistant_data.voice_speed,
-            llm_model=assistant_data.llm_model,
+            llm_model=DEFAULT_FISH_LLM_MODEL,
             language=assistant_data.language,
             temperature=assistant_data.temperature,
             greeting_message=assistant_data.greeting_message,
@@ -412,6 +413,9 @@ def update_fish_assistant(
         update_data = assistant_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(assistant, field, value)
+
+        # Мозг диалога не настраивается: приводим запись к актуальной модели.
+        assistant.llm_model = DEFAULT_FISH_LLM_MODEL
 
         db.commit()
         db.refresh(assistant)

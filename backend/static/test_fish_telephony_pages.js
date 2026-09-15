@@ -31,7 +31,7 @@ const NUMBER = {
     assistant_type: "fish",
     assistant_id: FISH_AGENT.id,
     assistant_name: FISH_AGENT.name,
-    assistant_model: "gpt-realtime-2.1-mini",
+    assistant_model: "gpt-realtime-2.1",
     agent_config_id: null,
     agent_name: null,
     first_phrase: null,
