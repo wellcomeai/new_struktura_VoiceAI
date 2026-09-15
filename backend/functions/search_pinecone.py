@@ -14,6 +14,45 @@ from backend.functions.registry import register_function
 
 logger = get_logger(__name__)
 
+# Сколько текста базы знаний отдаём модели за один вызов функции — суммарно
+# по всем найденным фрагментам. До этого лимита не было вообще: размер ответа
+# определялся нарезкой базы, а она рубит текст только по пустой строке, так
+# что база, вставленная одним куском, уезжала в модель целиком.
+MAX_RESULT_CHARS = 1000
+
+# Огрызок короче этого в ответ не кладём: пользы от него нет, а место в
+# бюджете он занимает. Поэтому последний фрагмент либо влезает осмысленным
+# куском, либо не добавляется вовсе.
+MIN_FRAGMENT_CHARS = 200
+
+# Границы top_k. Параметр приходит от модели, и без потолка она может
+# запросить хоть сотню фрагментов.
+TOP_K_DEFAULT, TOP_K_MIN, TOP_K_MAX = 3, 1, 10
+
+
+def _clamp_top_k(value: Any) -> int:
+    """top_k из аргументов модели → целое в допустимых границах."""
+    try:
+        top_k = int(value)
+    except (TypeError, ValueError):
+        return TOP_K_DEFAULT
+    return max(TOP_K_MIN, min(TOP_K_MAX, top_k))
+
+
+def _trim(text: str, limit: int) -> str:
+    """Обрезать текст до limit символов по границе предложения или слова."""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    # Предпочитаем конец предложения, иначе конец слова — рвать слово посередине
+    # незачем, модель потом это зачитывает вслух.
+    for sep in (". ", "! ", "? ", "\n", " "):
+        pos = cut.rfind(sep)
+        if pos >= limit // 2:
+            return cut[:pos + len(sep)].strip()
+    return cut.strip()
+
+
 def extract_namespace_from_prompt(prompt: str) -> Optional[str]:
     """
     Извлекает namespace Pinecone из системного промпта ассистента.
@@ -65,8 +104,13 @@ class PineconeSearchFunction(FunctionBase):
                 },
                 "top_k": {
                     "type": "integer",
-                    "description": "Количество результатов для возврата",
-                    "default": 3
+                    "description": (
+                        f"Количество результатов для возврата "
+                        f"({TOP_K_MIN}–{TOP_K_MAX}, по умолчанию {TOP_K_DEFAULT})"
+                    ),
+                    "default": TOP_K_DEFAULT,
+                    "minimum": TOP_K_MIN,
+                    "maximum": TOP_K_MAX,
                 }
             },
             "required": ["query"]
@@ -145,7 +189,7 @@ class PineconeSearchFunction(FunctionBase):
         
         try:
             query = arguments.get("query")
-            top_k = arguments.get("top_k", 3)
+            top_k = _clamp_top_k(arguments.get("top_k", TOP_K_DEFAULT))
 
             # Проверка обязательных параметров
             if not query:
@@ -293,22 +337,49 @@ class PineconeSearchFunction(FunctionBase):
             # Обрабатываем результаты
             results = pinecone_response.json()
             
-            # Форматируем результаты в более читаемый вид
+            # Форматируем результаты и укладываемся в бюджет MAX_RESULT_CHARS.
+            # Фрагменты идут от самого релевантного к менее релевантным (так их
+            # отдаёт Pinecone), поэтому просто набираем, пока есть место.
             formatted_results = []
+            budget = MAX_RESULT_CHARS
+            truncated = False
+
             for match in results.get("matches", []):
-                formatted_match = {
+                metadata = dict(match.get("metadata") or {})
+                text = metadata.get("text") or ""
+
+                if text:
+                    if budget < MIN_FRAGMENT_CHARS:
+                        truncated = True
+                        break
+                    if len(text) > budget:
+                        text = _trim(text, budget)
+                        truncated = True
+                    metadata["text"] = text
+                    budget -= len(text)
+
+                formatted_results.append({
                     "id": match.get("id"),
                     "score": match.get("score"),
-                    "metadata": match.get("metadata", {})
-                }
-                formatted_results.append(formatted_match)
-            
+                    "metadata": metadata,
+                })
+
+            chars_returned = MAX_RESULT_CHARS - budget
+            logger.info(
+                f"[PINECONE] namespace={namespace} top_k={top_k} "
+                f"matches={len(results.get('matches', []))} "
+                f"returned={len(formatted_results)} chars={chars_returned}"
+                + (" (обрезано)" if truncated else "")
+            )
+
             return {
                 "success": True,
                 "query": query,
                 "namespace": namespace,
                 "results": formatted_results,
-                "total": len(formatted_results)
+                "total": len(formatted_results),
+                "chars_returned": chars_returned,
+                "truncated": truncated,
             }
             
         except Exception as e:
