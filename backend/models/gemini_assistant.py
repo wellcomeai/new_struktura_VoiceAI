@@ -10,11 +10,22 @@ from sqlalchemy.orm import relationship
 
 from backend.models.base import Base
 
+# Модель Gemini Live по умолчанию — единственный источник правды для дефолта:
+# отсюда его берут и колонка ниже, и схема создания ассистента
+# (api/gemini_assistants.py). Значение уходит в сценарий телефонии как есть;
+# версию сценарий определяет по подстроке «3.1» (inbound_gemini), от неё
+# зависит протокол: sendRealtimeInput вместо sendClientContent, thinkingLevel
+# вместо thinkingBudget и момент включения дуплекса.
+#
+# Виджет эту колонку НЕ читает: там модель зашита в gemini_client.py, а для
+# 3.1 есть отдельный стек (handler_gemini_31 + /ws/gemini-31/{id}).
+DEFAULT_GEMINI_MODEL = "models/gemini-3.1-flash-live-preview"
+
 
 class GeminiAssistantConfig(Base):
     """
     Configuration for a Gemini voice assistant.
-    Uses Google Gemini Live API (gemini-2.5-flash-native-audio-preview-09-2025)
+    Uses Google Gemini Live API (DEFAULT_GEMINI_MODEL).
     """
     __tablename__ = "gemini_assistant_configs"
     
@@ -57,7 +68,7 @@ class GeminiAssistantConfig(Base):
     enable_thinking = Column(Boolean, default=False, nullable=False)
     thinking_budget = Column(Integer, default=1024, nullable=True)  # Token budget for thinking
     enable_screen_context = Column(Boolean, default=False, nullable=False)  # For future UI
-    model = Column(String(100), default="models/gemini-2.5-flash-native-audio-preview-12-2025", nullable=False)
+    model = Column(String(100), default=DEFAULT_GEMINI_MODEL, nullable=False)
     
     # Relationships
     user = relationship("User", back_populates="gemini_assistants")

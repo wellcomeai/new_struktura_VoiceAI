@@ -22,7 +22,9 @@ from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.db.session import get_db
 from backend.models.user import User
-from backend.models.gemini_assistant import GeminiAssistantConfig, GeminiConversation
+from backend.models.gemini_assistant import (
+    GeminiAssistantConfig, GeminiConversation, DEFAULT_GEMINI_MODEL,
+)
 from backend.core.dependencies import get_current_user, check_assistant_limit
 from backend.services.assistant_limit_service import exclude_agent_owned
 
@@ -58,7 +60,7 @@ class GeminiAssistantCreate(BaseModel):
     enable_thinking: bool = Field(default=False, description="Enable thinking mode")
     thinking_budget: Optional[int] = Field(default=1024, ge=128, le=4096, description="Thinking token budget")
     enable_screen_context: bool = Field(default=False, description="Enable screen context")
-    model: str = Field(default="models/gemini-2.5-flash-native-audio-preview-12-2025", description="Gemini model name")
+    model: str = Field(default=DEFAULT_GEMINI_MODEL, description="Gemini model name")
 
 
 class GeminiAssistantUpdate(BaseModel):
