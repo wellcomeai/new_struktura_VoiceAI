@@ -335,6 +335,39 @@ async function saveContactInfo(){
   }catch(e){ showToast('Ошибка сети', 'error'); }
 }
 
+// Удалить ВСЕ контакты агента (кнопка в шапке списка).
+// Фильтр поиска не учитывается — сносим всю базу обзвона, поэтому счётчик
+// для подтверждения берём отдельным запросом без search.
+async function deleteAllContacts(){
+  const btn = document.getElementById('contacts-delete-all-btn');
+  let total = 0;
+  try{
+    const r = await apiFetch(API + '/contacts?limit=1&offset=0');
+    if(!r || r.status !== 200){ showToast('Не удалось получить список контактов', 'error'); return; }
+    total = (await r.json()).total || 0;
+  }catch(e){ showToast('Ошибка сети', 'error'); return; }
+
+  if(!total){ showToast('Контактов нет', 'error'); return; }
+
+  const msg = `Удалить все контакты агента (${total} ${pluralRu(total,'контакт','контакта','контактов')})? `
+    + 'Вместе с ними удалятся запланированные звонки и вся история разговоров. Действие необратимо.';
+  if(!confirm(msg)) return;
+
+  if(btn) btn.disabled = true;
+  try{
+    const r = await apiFetch(API + '/contacts', { method:'DELETE' });
+    if(!r || r.status !== 200){ showToast('Не удалось удалить контакты', 'error'); return; }
+    const data = await r.json();
+    document.getElementById('contacts-search').value = '';
+    await loadContactsList('');
+    loadStats();
+    if(typeof loadTasks === 'function') loadTasks();
+    const cnt = data.deleted || 0;
+    showToast(`Удалено ${cnt} ${pluralRu(cnt,'контакт','контакта','контактов')}`, 'success');
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+  finally { if(btn) btn.disabled = false; }
+}
+
 async function deleteContactFromModal(contactId, label){
   if(!confirm(`Удалить контакт "${label}"? Это удалит всю историю звонков с ним.`)) return;
   try{

@@ -2646,6 +2646,48 @@ def update_agent_contact(
     return contact.to_dict()
 
 
+@router.delete("/contacts")
+def delete_agent_contacts_bulk(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Удалить ВСЕ контакты агента — кнопка «Удалить все» в списке контактов.
+
+    Сносит ровно то, что показывает GET /contacts: контакты этого агента,
+    их задачи и (каскадом по FK) историю звонков. Задачи удаляем явно и
+    первыми — по тем же причинам, что и в удалении одного контакта.
+
+    Уже начатый звонок этим не отменяется: если задача успела уйти в работу,
+    Voximplant доведёт её до конца.
+    """
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    contact_ids = db.query(AgentContact.id).filter(
+        AgentContact.agent_config_id == agent.id
+    ).scalar_subquery()
+
+    tasks_removed = db.query(Task).filter(
+        Task.user_id == current_user.id,
+        Task.agent_contact_id.in_(contact_ids),
+    ).delete(synchronize_session=False)
+
+    deleted = db.query(AgentContact).filter(
+        AgentContact.agent_config_id == agent.id
+    ).delete(synchronize_session=False)
+
+    db.commit()
+
+    logger.info(
+        f"[AGENT] Bulk deleted {deleted} contacts for user {current_user.id}, "
+        f"agent {agent.id} ({tasks_removed} tasks removed)"
+    )
+    return {"detail": "deleted", "deleted": deleted, "tasks_removed": tasks_removed}
+
+
 @router.delete("/contacts/{contact_id}")
 def delete_agent_contact(
     contact_id: str,
