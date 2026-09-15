@@ -497,8 +497,8 @@
       case 'openai': return { voice: d.voice || 'alloy' };
       case 'gemini': return { voice: d.voice || 'Aoede' };
       case 'fish': return { fish_voice_id: d.fish_voice_id || '', fish_model: d.fish_model || null, fish_latency: d.fish_latency || 'balanced', voice_speed: d.voice_speed != null ? d.voice_speed : 1.0, temperature: d.temperature != null ? d.temperature : 0.7 };
-      case 'yandex': return { voice: d.voice || 'marina', voice_role: d.voice_role || '', model: YANDEX_MODEL };
-      case 'cascade': return { tts_provider: d.tts_provider || 'voxtts', tts_voice: d.tts_voice || 'Anna', silence_duration_ms: d.silence_duration_ms || 300 };
+      case 'yandex': return { voice: d.voice || 'marina', model: YANDEX_MODEL };
+      case 'cascade': return { tts_voice: d.tts_voice || 'Anna', silence_duration_ms: d.silence_duration_ms || 300 };
       default: return {};
     }
   }
@@ -594,30 +594,27 @@
       const o = (await loadOptions('yandex')) || {}; if (state.model !== 'yandex') return;
       const voices = o.voices && o.voices.length ? o.voices : YANDEX_VOICES_FALLBACK;
       voiceGrid(voices.map(id => [id, id]), v.voice, id => { state.voice.voice = id; renderVoiceSettings(); setDirty(true); });
-      box.insertAdjacentHTML('beforeend', `<div class="field" style="margin-top:14px;"><label class="label">Роль голоса</label><input class="input" data-vf="voice_role" value="${esc(v.voice_role || '')}" placeholder="например: friendly, strict"><div class="hint">Необязательно. Модель распознавания и синтеза: ${YANDEX_MODEL}.</div></div>`);
+      box.insertAdjacentHTML('beforeend', `<div class="hint" style="margin-top:14px;">Модель распознавания и синтеза: ${YANDEX_MODEL}.</div>`);
       bindInputs(); return;
     }
     if (type === 'cascade') {
       VF.skeleton(box, 2, 'skeleton-line');
       const o = (await loadOptions('cascade')) || {}; if (state.model !== 'cascade') return;
+      // Провайдер синтеза каскада один — VoxTTS, выбора нет: сценарии Voximplant
+      // другие всё равно не умеют. Из справочника берём только его голоса.
+      const provider = o.provider || 'voxtts';
       const providers = o.providers || { voxtts: { name: 'VoxTTS (Voximplant)', voices: [{ id: 'Anna', name: 'Anna' }] } };
-      if (!providers[v.tts_provider]) v.tts_provider = Object.keys(providers)[0];
-      const voicesOf = p => (providers[p] && providers[p].voices) || [];
-      if (!voicesOf(v.tts_provider).find(x => x.id === v.tts_voice) && voicesOf(v.tts_provider).length) v.tts_voice = voicesOf(v.tts_provider)[0].id;
+      const voices = (providers[provider] && providers[provider].voices) || [];
+      if (!voices.find(x => x.id === v.tts_voice) && voices.length) v.tts_voice = voices[0].id;
       box.innerHTML = `
         <div class="form-row">
-          <div class="field"><label class="label">Провайдер синтеза</label><div id="sel-tts-provider"></div></div>
           <div class="field"><label class="label">Голос</label><div id="sel-tts-voice"></div></div>
         </div>
         <div class="field"><label class="label">Пауза перед ответом</label>
           <div class="presets">${SILENCE_PRESETS.map(([ms, l, sub]) => `<div class="preset${v.silence_duration_ms === ms ? ' selected' : ''}" data-ms="${ms}" tabindex="0">${l}<small>${sub}</small></div>`).join('')}</div>
           <div class="hint">Меньше пауза, быстрее ответ, но ассистент чаще перебивает. Распознавание и синтез в Каскаде оплачиваются с баланса телефонии.</div></div>`;
-      const voiceOpts = p => voicesOf(p).map(x => ({ value: x.id, label: x.name || x.id, sub: x.gender === 'female' ? 'жен.' : (x.gender === 'male' ? 'муж.' : '') }));
-      const voiceSel = VF.select(box.querySelector('#sel-tts-voice'), { options: voiceOpts(v.tts_provider), value: v.tts_voice, onChange: val => { state.voice.tts_voice = val; setDirty(true); } });
-      VF.select(box.querySelector('#sel-tts-provider'), {
-        options: Object.keys(providers).map(k => ({ value: k, label: providers[k].name || k })), value: v.tts_provider,
-        onChange: val => { state.voice.tts_provider = val; const vo = voiceOpts(val); voiceSel.setOptions({ options: vo }); state.voice.tts_voice = vo.length ? vo[0].value : null; voiceSel.set(state.voice.tts_voice, true); setDirty(true); },
-      });
+      const voiceOpts = voices.map(x => ({ value: x.id, label: x.name || x.id, sub: x.gender === 'female' ? 'жен.' : (x.gender === 'male' ? 'муж.' : '') }));
+      VF.select(box.querySelector('#sel-tts-voice'), { options: voiceOpts, value: v.tts_voice, onChange: val => { state.voice.tts_voice = val; setDirty(true); } });
       box.querySelectorAll('.preset').forEach(el => {
         const pick = () => { state.voice.silence_duration_ms = parseInt(el.dataset.ms, 10); box.querySelectorAll('.preset').forEach(x => x.classList.toggle('selected', x === el)); setDirty(true); };
         el.addEventListener('click', pick); el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
@@ -661,8 +658,8 @@
       case 'openai': return Object.assign(common, { voice: v.voice || 'alloy', language: 'ru' });
       case 'gemini': return Object.assign(common, { voice: v.voice || 'Aoede', language: 'ru' });
       case 'fish': return Object.assign(common, { fish_voice_id: v.fish_voice_id || null, fish_model: v.fish_model || undefined, fish_latency: v.fish_latency || 'balanced', voice_speed: v.voice_speed != null ? v.voice_speed : 1.0, temperature: v.temperature != null ? v.temperature : 0.7, language: 'ru' });
-      case 'yandex': return Object.assign(common, { model: YANDEX_MODEL, voice: v.voice || 'marina', voice_role: v.voice_role || null, language: 'ru' });
-      case 'cascade': return Object.assign(common, { tts_provider: v.tts_provider || 'voxtts', tts_voice: v.tts_voice || 'Anna', silence_duration_ms: v.silence_duration_ms || 300, tts_lang: 'ru', asr_lang: 'ru', is_telephony_enabled: true });
+      case 'yandex': return Object.assign(common, { model: YANDEX_MODEL, voice: v.voice || 'marina', language: 'ru' });
+      case 'cascade': return Object.assign(common, { tts_voice: v.tts_voice || 'Anna', silence_duration_ms: v.silence_duration_ms || 300, tts_lang: 'ru', asr_lang: 'ru', is_telephony_enabled: true });
     }
     return common;
   }

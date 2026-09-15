@@ -161,7 +161,7 @@ class CascadeAssistantCreate(BaseModel):
     openrouter_model:  str            = Field(default="meta-llama/llama-3.3-70b-instruct")
     temperature:       float          = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens:        int            = Field(default=1024, ge=1, le=8192)
-    tts_provider:      str            = Field(default="voxtts")
+    # tts_provider настройкой не является — всегда CASCADE_TTS_PROVIDER.
     tts_voice:         str            = Field(default="Anna")
     tts_lang:          str            = Field(default="ru")
     asr_lang:          str            = Field(default="ru")
@@ -180,7 +180,6 @@ class CascadeAssistantUpdate(BaseModel):
     openrouter_model:  Optional[str]   = None
     temperature:       Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens:        Optional[int]   = Field(None, ge=1, le=8192)
-    tts_provider:      Optional[str]   = None
     tts_voice:         Optional[str]   = None
     tts_lang:          Optional[str]   = None
     asr_lang:          Optional[str]   = None
@@ -230,6 +229,12 @@ class CascadeApiKeysStatus(BaseModel):
 # ============================================================================
 # CONSTANTS
 # ============================================================================
+
+# Провайдер синтеза каскада. Настройкой не является: сценарии Voximplant
+# (inbound_cascade / outbound_cascade) умеют только VoxTTS и на любом другом
+# значении молча откатываются на него же — поэтому выбор из UI убран, а всё
+# остальное в TTS_PROVIDERS остаётся справочником голосов.
+CASCADE_TTS_PROVIDER = "voxtts"
 
 TTS_PROVIDERS = {
     "voxtts": {
@@ -318,26 +323,20 @@ def validate_audio_format(fmt: str) -> str:
     return fmt if fmt in valid_formats else "audio/pcm"
 
 
-def validate_cascade_tts(provider: Optional[str], voice: Optional[str]) -> None:
+def validate_cascade_tts(voice: Optional[str]) -> None:
     """
-    Проверить пару TTS-провайдер + голос каскад-ассистента.
+    Проверить голос каскад-ассистента. Провайдер всегда VoxTTS.
 
     Без этой проверки неизвестный голос молча заменялся дефолтным уже на
     звонке — интеграция по API-ключу получала не тот голос, который просила.
     """
-    if provider is not None and provider not in TTS_PROVIDERS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown TTS provider. Available: {list(TTS_PROVIDERS.keys())}",
-        )
     if voice is None:
         return
-    provider_voices = TTS_PROVIDERS.get(provider or "voxtts", {}).get("voices", [])
-    valid = [v["id"] for v in provider_voices]
+    valid = [v["id"] for v in TTS_PROVIDERS[CASCADE_TTS_PROVIDER]["voices"]]
     if voice not in valid:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown TTS voice for provider '{provider or 'voxtts'}'. Available: {valid}",
+            detail=f"Unknown TTS voice for provider '{CASCADE_TTS_PROVIDER}'. Available: {valid}",
         )
 
 
@@ -362,7 +361,8 @@ def cascade_to_response(a: GrokAssistantConfig) -> CascadeAssistantResponse:
         id=str(a.id), user_id=str(a.user_id), name=a.name, description=a.description,
         system_prompt=a.system_prompt, greeting_message=a.greeting_message,
         openrouter_model=a.openrouter_model, temperature=a.temperature, max_tokens=a.max_tokens,
-        tts_provider=a.tts_provider, tts_voice=a.tts_voice,
+        # В звонок всегда уходит VoxTTS — его же показываем в ответе.
+        tts_provider=CASCADE_TTS_PROVIDER, tts_voice=a.tts_voice,
         tts_lang=a.tts_lang or "ru", asr_lang=a.asr_lang or "ru",
         silence_duration_ms=a.silence_duration_ms or 300,
         functions=a.functions, google_sheet_id=a.google_sheet_id,
@@ -448,7 +448,11 @@ def update_cascade_api_keys(
 
 @router.get("/cascade/tts-providers")
 def get_cascade_tts_providers():
-    return {"providers": TTS_PROVIDERS}
+    """Голоса каскада. Провайдер один — VoxTTS, выбора в UI нет."""
+    return {
+        "providers": {CASCADE_TTS_PROVIDER: TTS_PROVIDERS[CASCADE_TTS_PROVIDER]},
+        "provider": CASCADE_TTS_PROVIDER,
+    }
 
 
 # ============================================================================
@@ -614,14 +618,14 @@ def create_cascade_assistant(
     # ✅ Каскад работает на СЕРВЕРНОМ ключе OpenAI (settings.OPENAI_API_KEY),
     # пользовательский ключ больше не требуется. Расход LLM оплачивается
     # кредитами каскада (cascade_credits_balance).
-    validate_cascade_tts(data.tts_provider, data.tts_voice)
+    validate_cascade_tts(data.tts_voice)
 
     assistant = GrokAssistantConfig(
         user_id=current_user.id, assistant_type="cascade",
         name=data.name, description=data.description,
         system_prompt=data.system_prompt, greeting_message=data.greeting_message,
         openrouter_model=data.openrouter_model, temperature=data.temperature, max_tokens=data.max_tokens,
-        tts_provider=data.tts_provider, tts_voice=data.tts_voice,
+        tts_provider=CASCADE_TTS_PROVIDER, tts_voice=data.tts_voice,
         tts_lang=data.tts_lang, asr_lang=data.asr_lang,
         silence_duration_ms=data.silence_duration_ms,
         functions=data.functions, google_sheet_id=data.google_sheet_id,
@@ -656,10 +660,12 @@ def update_cascade_assistant(
     current_user: User = Depends(get_current_user_flexible)
 ):
     a = get_cascade_or_404(assistant_id, str(current_user.id), db)
-    # Голос проверяем против провайдера, который будет у ассистента после апдейта
-    validate_cascade_tts(data.tts_provider or a.tts_provider, data.tts_voice)
+    validate_cascade_tts(data.tts_voice)
     for key, value in data.dict(exclude_unset=True).items():
         setattr(a, key, value)
+    # Провайдер не настраивается: приводим запись к VoxTTS. У старых агентов
+    # в колонке мог остаться другой — он всё равно не работал.
+    a.tts_provider = CASCADE_TTS_PROVIDER
     db.commit()
     db.refresh(a)
     logger.info(f"[CASCADE] Updated: {assistant_id}")

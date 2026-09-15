@@ -76,7 +76,7 @@ class YandexAssistantCreate(BaseModel):
     system_prompt: Optional[str] = Field(None, description="System instructions for assistant")
     model: str = Field(default=DEFAULT_YANDEX_MODEL, description="Yandex Realtime model")
     voice: str = Field(default="marina", description="Yandex voice (marina, dasha, alexander, ...)")
-    voice_role: Optional[str] = Field(None, description="Voice role/амплуа (optional)")
+    # voice_role (амплуа) настройкой не является — из UI и API убрано.
     language: str = Field(default="ru", description="Language code")
     greeting_message: Optional[str] = Field(
         default="Здравствуйте! Чем я могу вам помочь?",
@@ -96,7 +96,6 @@ class YandexAssistantUpdate(BaseModel):
     system_prompt: Optional[str] = None
     model: Optional[str] = None
     voice: Optional[str] = None
-    voice_role: Optional[str] = None
     language: Optional[str] = None
     greeting_message: Optional[str] = Field(None, max_length=500)
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
@@ -163,7 +162,8 @@ def assistant_to_response(assistant: YandexAssistantConfig) -> "YandexAssistantR
         system_prompt=assistant.system_prompt,
         model=assistant.model,
         voice=assistant.voice,
-        voice_role=assistant.voice_role,
+        # Амплуа снято с использования: в звонок не уходит, поэтому и в ответе пусто.
+        voice_role=None,
         language=assistant.language,
         greeting_message=assistant.greeting_message,
         temperature=assistant.temperature,
@@ -378,7 +378,6 @@ def create_yandex_assistant(
             system_prompt=assistant_data.system_prompt,
             model=assistant_data.model or DEFAULT_YANDEX_MODEL,
             voice=assistant_data.voice or "marina",
-            voice_role=assistant_data.voice_role,
             language=assistant_data.language or "ru",
             greeting_message=assistant_data.greeting_message,
             temperature=assistant_data.temperature,
@@ -436,6 +435,9 @@ def update_yandex_assistant(
 
         for key, value in update_data.items():
             setattr(assistant, key, value)
+
+        # Амплуа голоса больше не настраивается — чистим у старых записей.
+        assistant.voice_role = None
 
         db.commit()
         db.refresh(assistant)

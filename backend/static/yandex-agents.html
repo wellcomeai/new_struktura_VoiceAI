@@ -1128,11 +1128,6 @@
 
             <div class="form-row">
               <div class="form-group">
-                <label for="agent-voice-role">Амплуа голоса (role)</label>
-                <input type="text" class="form-control" id="agent-voice-role" placeholder="например: friendly (опционально)">
-                <p class="hint">Оставьте пустым, если амплуа не нужно</p>
-              </div>
-              <div class="form-group">
                 <label for="agent-language">Язык</label>
                 <input type="text" class="form-control" id="agent-language" value="ru">
               </div>
@@ -1716,7 +1711,7 @@
             <p class="agent-description">${agent.description ? escapeHtml(agent.description) : 'Нет описания'}</p>
             <div class="agent-meta">
               <span><i class="fas fa-microchip"></i> ${escapeHtml(agent.model)}</span>
-              <span><i class="fas fa-microphone"></i> ${escapeHtml(agent.voice)}${agent.voice_role ? ' / ' + escapeHtml(agent.voice_role) : ''}</span>
+              <span><i class="fas fa-microphone"></i> ${escapeHtml(agent.voice)}</span>
               <span><i class="fas fa-calendar"></i> ${new Date(agent.created_at).toLocaleDateString('ru-RU')}</span>
             </div>
           </div>
@@ -1763,7 +1758,6 @@
       document.getElementById('agent-greeting').value = agent.greeting_message || 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = agent.description || '';
       document.getElementById('agent-system-prompt').value = agent.system_prompt || '';
-      document.getElementById('agent-voice-role').value = agent.voice_role || '';
       document.getElementById('agent-language').value = agent.language || 'ru';
       document.getElementById('agent-max-tokens').value = agent.max_tokens ?? 4096;
       document.getElementById('agent-active').value = String(!!agent.is_active);
@@ -1804,7 +1798,6 @@
         system_prompt: document.getElementById('agent-system-prompt').value.trim() || null,
         model: document.getElementById('agent-model').value,
         voice: document.getElementById('agent-voice').value,
-        voice_role: document.getElementById('agent-voice-role').value.trim() || null,
         language: document.getElementById('agent-language').value.trim() || 'ru',
         temperature: parseFloat(document.getElementById('agent-temperature').value) || 0.7,
         max_tokens: parseInt(document.getElementById('agent-max-tokens').value, 10) || 4096,
@@ -2043,7 +2036,6 @@
       document.getElementById('agent-greeting').value = 'Здравствуйте! Чем я могу вам помочь?';
       document.getElementById('agent-description').value = '';
       document.getElementById('agent-system-prompt').value = '';
-      document.getElementById('agent-voice-role').value = '';
       document.getElementById('agent-language').value = 'ru';
       document.getElementById('agent-temperature').value = '0.7';
       document.getElementById('temperature-value').textContent = '0.7';

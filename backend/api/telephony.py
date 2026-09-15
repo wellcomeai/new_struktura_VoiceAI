@@ -100,6 +100,7 @@ from backend.models.voximplant_child import (
 )
 from backend.models.sms_message import SmsMessage
 from backend.models.fish_assistant import DEFAULT_FISH_LLM_MODEL
+from backend.api.grok_assistants import CASCADE_TTS_PROVIDER
 from backend.services.voximplant_partner import (
     VoximplantPartnerService,
     get_voximplant_partner_service,
@@ -3415,7 +3416,8 @@ def get_outbound_config(
             voice_speed=voice_speed,
             cartesia_api_key=cartesia_api_key,
             openrouter_model=assistant.openrouter_model if assistant_type == "cascade" else None,
-            tts_provider=assistant.tts_provider if assistant_type == "cascade" else None,
+            # Провайдер синтеза каскада не настраивается — всегда VoxTTS.
+            tts_provider=CASCADE_TTS_PROVIDER if assistant_type == "cascade" else None,
             tts_voice=assistant.tts_voice if assistant_type == "cascade" else None,
             tts_lang=assistant.tts_lang if assistant_type == "cascade" else None,
             asr_lang=assistant.asr_lang if assistant_type == "cascade" else None,
@@ -3424,7 +3426,7 @@ def get_outbound_config(
                 (assistant.silence_duration_ms or 300) if assistant_type == "cascade" else None
             ),
             folder_id=folder_id,
-            voice_role=assistant.voice_role if assistant_type == "yandex" else None,
+            voice_role=None,  # амплуа голоса Яндекса больше не настраивается
             fish_voice_id=assistant.fish_voice_id if assistant_type == "fish" else None,
             fish_model=assistant.fish_model if assistant_type == "fish" else None,
             fish_latency=assistant.fish_latency if assistant_type == "fish" else None,
@@ -5776,7 +5778,8 @@ def get_scenario_config(
             voice_speed=voice_speed,
             cartesia_api_key=cartesia_api_key,
             openrouter_model=assistant.openrouter_model if phone_record.assistant_type == "cascade" else None,
-            tts_provider=assistant.tts_provider if phone_record.assistant_type == "cascade" else None,
+            # Провайдер синтеза каскада не настраивается — всегда VoxTTS.
+            tts_provider=CASCADE_TTS_PROVIDER if phone_record.assistant_type == "cascade" else None,
             tts_voice=assistant.tts_voice if phone_record.assistant_type == "cascade" else None,
             tts_lang=assistant.tts_lang if phone_record.assistant_type == "cascade" else None,
             asr_lang=assistant.asr_lang if phone_record.assistant_type == "cascade" else None,
@@ -5786,7 +5789,7 @@ def get_scenario_config(
                 if phone_record.assistant_type == "cascade" else None
             ),
             folder_id=folder_id,
-            voice_role=assistant.voice_role if phone_record.assistant_type == "yandex" else None,
+            voice_role=None,  # амплуа голоса Яндекса больше не настраивается
             fish_voice_id=assistant.fish_voice_id if phone_record.assistant_type == "fish" else None,
             fish_model=assistant.fish_model if phone_record.assistant_type == "fish" else None,
             fish_latency=assistant.fish_latency if phone_record.assistant_type == "fish" else None,

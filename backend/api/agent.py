@@ -31,6 +31,7 @@ from backend.models.yandex_assistant import (
     YandexAssistantConfig, YandexConversation, DEFAULT_YANDEX_MODEL,
 )
 from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
+from backend.api.grok_assistants import CASCADE_TTS_PROVIDER
 from backend.models.fish_assistant import (
     FishAssistantConfig, FISH_MODELS, FISH_LATENCY_MODES,
     DEFAULT_FISH_MODEL, DEFAULT_FISH_LATENCY, DEFAULT_FISH_SAMPLE_RATE,
@@ -465,7 +466,7 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
             name=f"{name} Voice", system_prompt=prompt, greeting_message="",
             openrouter_model="openai/gpt-realtime-2.1-mini",
             temperature=0.7, max_tokens=1024,
-            tts_provider="voxtts", tts_voice=cascade_voice,
+            tts_provider=CASCADE_TTS_PROVIDER, tts_voice=cascade_voice,
             tts_lang="ru", asr_lang="ru",
             is_active=True, is_public=False, is_telephony_enabled=True,
             functions=_default_voice_functions(),
