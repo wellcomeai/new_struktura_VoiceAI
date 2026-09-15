@@ -1449,6 +1449,78 @@ def ensure_task_assistant_fk_on_delete():
         logger.error(f"❌ ensure_task_assistant_fk_on_delete error: {e}")
 
 
+def ensure_pinecone_user_owned():
+    """
+    Идемпотентно доводит `pinecone_configs` до модели v6.0, где база знаний
+    принадлежит пользователю, а не ассистенту.
+
+    1. Снимает NOT NULL с `assistant_id`. Таблица создавалась, когда БЗ жёстко
+       висела на OpenAI-ассистенте; с v6.0 бэкенд вставляет строку с
+       assistant_id=NULL и user_id=<владелец> (api/knowledge_base.py), и на
+       старой базе это падало с NotNullViolation — создать БЗ было нельзя.
+       check_and_fix_all_missing_columns() умеет только ДОБАВЛЯТЬ колонки,
+       поэтому ограничение снимаем здесь.
+
+    2. Переводит FK `assistant_id` на ON DELETE SET NULL. Со CASCADE удаление
+       старого OpenAI-ассистента уносило с собой и базу знаний, хотя она уже
+       принадлежит пользователю и могла быть подключена к другим ассистентам
+       строкой «Pinecone namespace: <ns>» в промпте.
+    """
+    try:
+        from sqlalchemy import text, inspect
+        inspector = inspect(engine)
+        if not inspector.has_table('pinecone_configs'):
+            return
+
+        # ── 1. NOT NULL ──────────────────────────────────────────────────
+        column = next(
+            (c for c in inspector.get_columns('pinecone_configs')
+             if c['name'] == 'assistant_id'),
+            None,
+        )
+        if column is not None and not column.get('nullable', True):
+            with engine.connect() as conn:
+                conn.execute(text(
+                    'ALTER TABLE pinecone_configs '
+                    'ALTER COLUMN assistant_id DROP NOT NULL'
+                ))
+                conn.commit()
+            logger.info("✅ pinecone_configs.assistant_id is nullable now")
+
+        # ── 2. ON DELETE SET NULL ────────────────────────────────────────
+        # Имя constraint'а читаем из БД, а не угадываем: таблица создавалась
+        # разными механизмами и могла получить своё.
+        for fk in inspector.get_foreign_keys('pinecone_configs'):
+            if (fk.get('constrained_columns') or []) != ['assistant_id']:
+                continue
+            name, target = fk.get('name'), fk.get('referred_table')
+            if not name or not target:
+                continue
+            if (fk.get('options') or {}).get('ondelete', '').upper() == 'SET NULL':
+                break  # уже починен — не берём лишний раз ACCESS EXCLUSIVE
+
+            # DROP и ADD в одной транзакции: если ADD не пройдёт, вернётся старый.
+            with engine.connect() as conn:
+                trans = conn.begin()
+                try:
+                    conn.execute(text(f'ALTER TABLE pinecone_configs DROP CONSTRAINT "{name}"'))
+                    conn.execute(text(
+                        f'ALTER TABLE pinecone_configs ADD CONSTRAINT "{name}" '
+                        f'FOREIGN KEY (assistant_id) REFERENCES {target}(id) '
+                        f'ON DELETE SET NULL'
+                    ))
+                    trans.commit()
+                    logger.info(
+                        "✅ pinecone_configs.assistant_id FK switched to ON DELETE SET NULL"
+                    )
+                except Exception as e:
+                    trans.rollback()
+                    logger.error(f"❌ Failed to fix FK {name} on pinecone_configs: {e}")
+            break
+    except Exception as e:
+        logger.error(f"❌ ensure_pinecone_user_owned error: {e}")
+
+
 def ensure_agent_knowledge_base_columns():
     """
     Идемпотентно добавляет колонки базы знаний (Pinecone) в agent_configs.
@@ -2111,6 +2183,10 @@ async def startup_event():
 
                 # 🆕 Шаг 14: Колонки базы знаний (Pinecone) в agent_configs
                 ensure_agent_knowledge_base_columns()
+
+                # 🆕 Шаг 14.1 (v6.0): БЗ принадлежит пользователю —
+                #            pinecone_configs.assistant_id nullable + SET NULL
+                ensure_pinecone_user_owned()
 
                 # 🆕 Шаг 15: Колонки публичного HTTP-канала в agent_configs
                 ensure_agent_public_access_columns()
