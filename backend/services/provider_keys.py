@@ -53,8 +53,21 @@ class ResolvedKeys:
         return bool(self.api_key)
 
 
+def _clean(value: Optional[str]) -> Optional[str]:
+    """
+    Ключ без обрамляющих пробелов и переводов строки. Скопированный с лишним
+    символом ключ провайдер отвергает (Fish Audio — HTTP 401 на WS), поэтому
+    чистим и то, что пришло из профиля, и то, что лежит в окружении.
+    """
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    return value or None
+
+
 def _pick(user_value: Optional[str], server_value: Optional[str], part: str,
           server_parts: List[str]) -> Optional[str]:
+    user_value, server_value = _clean(user_value), _clean(server_value)
     if user_value:
         return user_value
     if server_value:

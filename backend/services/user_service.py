@@ -225,7 +225,8 @@ class UserService:
 
             # 🆕 Fish: обработка Fish Audio API ключа
             if 'fish_api_key' in update_data:
-                user.fish_api_key = update_data.pop('fish_api_key')
+                _fish_key = update_data.pop('fish_api_key')
+                user.fish_api_key = (_fish_key.strip() or None) if isinstance(_fish_key, str) else _fish_key
 
             if 'yandex_folder_id' in update_data:
                 user.yandex_folder_id = update_data.pop('yandex_folder_id')

@@ -499,6 +499,13 @@ class _FishTTSSession:
             await self._close_socket(fish)
 
 
+def _mask_key(key: Optional[str]) -> str:
+    """Первые и последние три символа ключа — для логов."""
+    if not key or len(key) < 8:
+        return "<short>"
+    return f"{key[:3]}...{key[-3:]} (len={len(key)})"
+
+
 async def handle_fish_tts_connection(
     websocket: WebSocket,
     assistant_id: str,
@@ -537,6 +544,7 @@ async def handle_fish_tts_connection(
         # Списание за звонок идёт по отчёту сценария (/api/voximplant/log).
         _resolved = provider_keys.resolve(user, "fish")
         api_key = _resolved.tts_api_key
+        key_source = "server (FISH_API_KEY)" if "fish" in _resolved.server_parts else "user profile"
 
         if not api_key:
             logger.warning(f"[FISH-TTS] No Fish API key for assistant {assistant_id}")
@@ -549,7 +557,14 @@ async def handle_fish_tts_connection(
         try:
             await session.connect_fish()
         except Exception as e:
-            logger.error(f"[FISH-TTS] Cannot connect to Fish Audio: {e}")
+            # 401 от Fish — отклонён именно этот ключ: пишем, чей он, чтобы
+            # по логу было видно, что проверять (профиль владельца или env).
+            logger.error(
+                f"[FISH-TTS] Cannot connect to Fish Audio: {e} | "
+                f"assistant_id={assistant_id} user_id={assistant.user_id} "
+                f"key_source={key_source} key={_mask_key(api_key)} "
+                f"model={assistant.fish_model or DEFAULT_FISH_MODEL}"
+            )
             await websocket.close(code=1011, reason="TTS provider unavailable")
             return
 
