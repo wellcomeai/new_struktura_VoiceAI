@@ -1,7 +1,7 @@
 {
   "name": "Voicyfy",
   "short_name": "Voicyfy",
-  "description": "Создавайте голосовых ассистентов на основе OpenAI за минуты",
+  "description": "Голосовые ИИ-ассистенты и агент для бизнеса за десять минут, без программирования",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

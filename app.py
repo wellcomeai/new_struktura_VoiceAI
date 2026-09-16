@@ -54,6 +54,7 @@ from backend.api import (
     agent_max_account,  # ✅ Личный аккаунт MAX агента (PyMax)
     credits,  # ✅ Система кредитов оркестратора
     wallet,  # ✅ v6.0: Единый кошелёк + тарифы голосовых моделей
+    seo,  # ✅ robots.txt, sitemap.xml, llms.txt
 )
 from backend.models.base import create_tables
 from backend.db.session import engine
@@ -223,6 +224,7 @@ app.include_router(agent_telegram_account.router, prefix="/api/agent/telegram-ac
 app.include_router(agent_max_account.router, prefix="/api/agent/max-account", tags=["Agent MAX Account"])  # ✅ Личный MAX-аккаунт агента (PyMax)
 app.include_router(credits.router, tags=["Credits"])  # ✅ Кредиты оркестратора (prefix /api/credits встроен)
 app.include_router(wallet.router, tags=["Wallet"])  # ✅ v6.0: единый кошелёк + тарифы (prefix /api/wallet встроен)
+app.include_router(seo.router, tags=["SEO"])  # ✅ robots.txt, sitemap.xml, llms.txt для поисковиков и ИИ-краулеров
 
 # ============================================================================
 # STATIC FILES
