@@ -1899,20 +1899,6 @@
           </div>
         </div>
 
-        <div class="form-group" id="gemini-model-group" style="display:none;">
-          <label>Модель Gemini</label>
-          <select id="bind-gemini-model" class="form-control">
-            <option value="models/gemini-2.5-flash-native-audio-preview-12-2025">
-              Gemini 2.5 Flash — стабильная
-            </option>
-            <option value="gemini-3.1-flash-live-preview">
-              Gemini 3.1 Flash Live — меньше латентность (новая)
-            </option>
-          </select>
-          <div class="form-helper" style="font-size:0.75rem; color:var(--text-light); margin-top:0.3rem;">
-            Модель будет применена для всех звонков через этого ассистента
-          </div>
-        </div>
 
       </div>
       <div class="modal-footer">
@@ -3068,8 +3054,6 @@
         document.getElementById('bind-phone-id').value = phoneId;
         document.getElementById('bind-assistant-modal').querySelector('.modal-title').textContent =
           `Привязать ассистента к ${formatPhoneNumber(phoneNumber)}`;
-        document.getElementById('gemini-model-group').style.display = 'none';
-        document.getElementById('bind-gemini-model').value = 'models/gemini-2.5-flash-native-audio-preview-12-2025';
         loadAssistantsForBind();
         bindAssistantModal.classList.add('show');
       }
@@ -3138,8 +3122,6 @@
           search: groups.reduce((n, g) => n + g.options.length, 0) > 8,
           onChange: (value) => {
             document.getElementById('bind-assistant-value').value = value || '';
-            const geminiModelGroup = document.getElementById('gemini-model-group');
-            geminiModelGroup.style.display = bindSelection().type === 'gemini' ? 'block' : 'none';
             updateBindHint();
           }
         });
@@ -3218,10 +3200,11 @@
           await api.post('/telephony/bind-assistant', {
             phone_number_id: phoneId,
             assistant_type: assistantType,
-            assistant_id: assistantId,
-            gemini_model: assistantType === 'gemini'
-              ? document.getElementById('bind-gemini-model').value
-              : null
+            assistant_id: assistantId
+            // gemini_model не отправляем: модель Gemini не выбирается вручную,
+            // у ассистента остаётся та, что стоит в его настройках
+            // (по умолчанию DEFAULT_GEMINI_MODEL). Поле в API оставлено для
+            // обратной совместимости с внешними интеграциями.
           });
           
           showNotification('Ассистент успешно привязан!', 'success');
