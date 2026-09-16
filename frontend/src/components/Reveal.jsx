@@ -33,6 +33,7 @@ export function Reveal({ children, className, as = 'div', delay = 0, y = 24, x =
   return (
     <M
       className={className}
+      data-reveal=""
       variants={{
         hidden: (side) => ({ opacity: 0, y: (side || 1) * y, x }),
         show: { opacity: 1, y: 0, x: 0, transition: { duration: 0.6, ease: EASE, delay } },
@@ -59,6 +60,7 @@ export function Stagger({ children, className, as = 'div', stagger = 0.08, delay
     <SideContext.Provider value={st.side}>
       <M
         className={className}
+        data-reveal=""
         initial={reduce ? false : 'hidden'}
         animate={reduce || st.inView ? 'show' : 'hidden'}
         viewport={{ once: false, amount, margin: '-32px 0px -32px 0px' }}
@@ -79,6 +81,7 @@ export function Item({ children, className, as = 'div', y = 26, x = 0, scale = 1
   return (
     <M
       className={className}
+      data-reveal=""
       custom={side}
       variants={{
         hidden: (s) => ({ opacity: 0, y: (s || 1) * y, x, scale, rotate }),

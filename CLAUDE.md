@@ -188,6 +188,18 @@ cd .. && git add -A backend/static/landing frontend
 Проверка перед коммитом — в `git status` рядом с правками в `frontend/src/**`
 обязаны быть изменения в `backend/static/landing/`. Если их нет — сборка не выполнена.
 
+### Пререндер лендинга (SEO)
+
+`npm run build` после сборки запускает `frontend/scripts/prerender.mjs`: он рендерит
+`App` в строку (`src/entry-server.jsx`) и вставляет готовый HTML в `#root` бандла плюс
+JSON-LD FAQPage из `components/Faq.jsx`. В браузере `main.jsx` гидрирует разметку.
+Поэтому компоненты лендинга **не должны обращаться к `window`/`document`/`localStorage`
+во время рендера** — только в `useEffect` и обработчиках. Случайности (shuffle, Date)
+тоже только после монтирования, иначе серверная и клиентская разметка разойдутся.
+SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/api/seo.py`;
+новую публичную страницу добавляйте в `PUBLIC_PAGES`, страницу кабинета — в `PRIVATE_PATHS`
+и ставьте ей `<meta name="robots" content="noindex, nofollow">`.
+
 ## v6.0: единый ЛК, серверные ключи и кошелёк (ветка 0909-refactoring-v1)
 
 - **Одна страница ассистентов** `backend/static/voice-assistants.html` заменяет `agents.html`,

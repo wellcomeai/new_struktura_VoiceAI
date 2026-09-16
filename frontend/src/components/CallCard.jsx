@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import Icon from './Icon';
 import ModelLogo, { MODELS } from './ModelLogo';
@@ -65,9 +65,17 @@ function shuffle(list) {
 }
 
 function CallCard() {
-  const order = useMemo(() => shuffle(SCENES.map((s) => s.key)), []);
+  // Порядок сцен случайный, но перемешиваем после монтирования: при
+  // пререндере сервер и клиент должны отрисовать одну и ту же первую сцену.
+  const [order, setOrder] = useState(() => SCENES.map((s) => s.key));
   const [pos, setPos] = useState(0);
   const [sceneKey, setSceneKey] = useState(order[0]);
+  useEffect(() => {
+    const next = shuffle(SCENES.map((s) => s.key));
+    setOrder(next);
+    setPos(0);
+    setSceneKey(next[0]);
+  }, []);
   const [shown, setShown] = useState(0);
   const [seconds, setSeconds] = useState(0);
   const [run, setRun] = useState(0);

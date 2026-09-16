@@ -551,3 +551,9 @@ html.lenis, html.lenis body { height: auto; }
   .cc-live, .vf-wave i { animation: none; }
   .cc-msg { transition: none; }
 }
+
+/* Пререндер: блоки появления приходят из HTML скрытыми (opacity: 0).
+   При prefers-reduced-motion и без JS показываем их сразу. */
+@media (prefers-reduced-motion: reduce) {
+  .lp [data-reveal] { opacity: 1 !important; transform: none !important; }
+}
