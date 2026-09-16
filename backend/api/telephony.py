@@ -399,6 +399,9 @@ class MyNumberInfo(BaseModel):
     agent_name: Optional[str] = None
     first_phrase: Optional[str] = None
     is_active: bool
+    # Номер отдан в пул тестовых номеров: входящие обслуживаются только по
+    # активной аренде, собственная привязка админа на нём не работает.
+    is_test_pool: bool = False
     phone_next_renewal: Optional[str] = None
     phone_price: Optional[float] = None
 
@@ -2010,6 +2013,7 @@ async def get_my_numbers(
                 agent_name=agent_name,
                 first_phrase=num.first_phrase,
                 is_active=num.is_active,
+                is_test_pool=bool(getattr(num, "is_test_pool", False)),
                 phone_next_renewal=vox_info.get("phone_next_renewal"),
                 phone_price=vox_info.get("phone_price"),
             ))
@@ -2191,7 +2195,34 @@ async def bind_assistant_to_number(
         # Обновляем Rule в Voximplant (DELETE + RECREATE)
         # =====================================================================
         await rebind_inbound_rule(child_account, phone_record, effective_type, "[TELEPHONY]")
-        
+
+        # =====================================================================
+        # Номер из тестового пула: выводим его из пула.
+        #
+        # Пул живёт по арендам — /api/telephony/config пускает звонок на такой
+        # номер только при активной аренде (TestNumberLease) и игнорирует
+        # собственную привязку владельца. Поэтому «привязал ассистента из ЛК, а
+        # звонки падают с Config invalid» — это не баг сценария, а тестовый
+        # номер, который всё ещё числится в пуле. Раз админ сажает на номер
+        # своего ассистента, номер перестаёт быть тестовым: активную аренду
+        # закрываем, флаг снимаем.
+        # =====================================================================
+        left_test_pool = False
+        if getattr(phone_record, "is_test_pool", False):
+            from backend.services.test_number_service import TestNumberService
+            lease = TestNumberService.active_lease_for_phone(db, phone_record.id)
+            if lease:
+                # Освобождение снимет текущую привязку арендатора — делаем это
+                # до записи новой, иначе она была бы затёрта.
+                TestNumberService._release_lease(db, lease, "admin_bind")
+            phone_record.is_test_pool = False
+            left_test_pool = True
+            logger.info(
+                f"[TELEPHONY] 🧪 Number {phone_record.phone_number} removed from test pool "
+                f"(admin {current_user.email} bound own assistant)"
+                + (f", lease {lease.id} released" if lease else "")
+            )
+
         # Обновляем привязку в БД. Сохраняем РЕАЛЬНЫЙ голосовой тип/ID (чтобы
         # /config и сценарий работали как обычно), а привязку к агенту фиксируем
         # отдельным полем agent_config_id (None — если это обычный ассистент).
@@ -2209,9 +2240,14 @@ async def bind_assistant_to_number(
         bound_label = "Агент" if bound_agent_config_id else "Ассистент"
         logger.info(f"[TELEPHONY] ✅ {bound_label} {request.assistant_id} (voice={effective_type}) bound to {phone_record.phone_number}")
 
+        message = f"{bound_label} '{assistant.name}' привязан к номеру {phone_record.phone_number}"
+        if left_test_pool:
+            message += ". Номер выведен из пула тестовых номеров"
+
         return {
             "success": True,
-            "message": f"{bound_label} '{assistant.name}' привязан к номеру {phone_record.phone_number}"
+            "message": message,
+            "left_test_pool": left_test_pool,
         }
         
     except HTTPException:
