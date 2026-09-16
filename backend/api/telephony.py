@@ -38,6 +38,8 @@ Routes:
     POST   /api/telephony/admin/setup-outbound-rules - 🔐 Создать outbound rules для всех аккаунтов
     POST   /api/telephony/admin/setup-service-accounts - 🔐 Создать Service Account для всех аккаунтов
     POST   /api/telephony/admin/setup-cartesia-scenarios - 🔐 Скопировать Cartesia сценарии на все аккаунты
+    POST   /api/telephony/admin/setup-gemini-scenarios - 🔐 Раскатать только Gemini-сценарии
+    POST   /api/telephony/admin/setup-gemini-scenarios-stream - 🔐 То же, SSE-стримом
     POST   /api/telephony/admin/enable-sms-all - 🔐 Включить SMS на всех номерах всех аккаунтов
     POST   /api/telephony/webhook/sms         - Webhook для приёма входящих SMS
     GET    /api/telephony/sms                  - Список входящих SMS
@@ -4959,6 +4961,84 @@ async def admin_setup_openai_scenarios_sse(
             yield sse_event({"type": "error", "detail": e.detail})
         except Exception as e:
             logger.error(f"[TELEPHONY-ADMIN] OpenAI SSE setup error: {e}", exc_info=True)
+            yield sse_event({"type": "error", "detail": str(e)})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/admin/setup-gemini-scenarios")
+async def admin_setup_gemini_scenarios(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    ADMIN ONLY: Раскатать inbound_gemini (и outbound_gemini, если он заведён
+    на родительском аккаунте) с родителя на ВСЕ дочерние аккаунты.
+
+    Нужен, чтобы обновлять ТОЛЬКО gemini-сценарии, не трогая остальных
+    провайдеров. Порядок работы: правим сценарий на родительском аккаунте
+    Voximplant → дёргаем этот эндпоинт → код разъезжается по дочерним.
+
+    Если outbound_gemini на родителе нет (исходящие Gemini идут через общий
+    outbound_crm), раскатается только inbound_gemini — это нормально,
+    отсутствующий сценарий просто пропускается.
+
+    На большом числе аккаунтов может упереться в таймаут прокси (обработчик
+    продолжит работу, прогресс коммитится по каждому аккаунту). Чтобы видеть
+    ход — /admin/setup-gemini-scenarios-stream.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        results = await _deploy_provider_scenarios(
+            db=db,
+            scenario_names=["inbound_gemini", "outbound_gemini"],
+            outbound_scenario="outbound_gemini",
+        )
+
+        logger.info(
+            f"[TELEPHONY-ADMIN] Gemini setup complete: "
+            f"added={results['scripts_added']} updated={results['scripts_updated']} "
+            f"rules={results['rules_created']} failed={results['failed']}"
+        )
+
+        return {"success": True, **results}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TELEPHONY-ADMIN] Gemini setup error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/setup-gemini-scenarios-stream")
+async def admin_setup_gemini_scenarios_sse(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN: то же, что /admin/setup-gemini-scenarios, но SSE-стримом —
+    видно аккаунт за аккаунтом и не упирается в таймаут прокси.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async def generate():
+        try:
+            async for event in _deploy_provider_scenarios_iter(
+                db=db,
+                scenario_names=["inbound_gemini", "outbound_gemini"],
+                outbound_scenario="outbound_gemini",
+            ):
+                yield sse_event(event)
+                # Отдаём управление, чтобы кадр ушёл клиенту сразу, а не
+                # осел в буфере до конца обработки.
+                await asyncio.sleep(0)
+        except HTTPException as e:
+            yield sse_event({"type": "error", "detail": e.detail})
+        except Exception as e:
+            logger.error(f"[TELEPHONY-ADMIN] Gemini SSE setup error: {e}", exc_info=True)
             yield sse_event({"type": "error", "detail": str(e)})
 
     return StreamingResponse(generate(), media_type="text/event-stream")

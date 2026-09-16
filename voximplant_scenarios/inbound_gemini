@@ -1,5 +1,5 @@
 /*
- * Voximplant INBOUND Gemini Script v7.9
+ * Voximplant INBOUND Gemini Script v8.0
  * ====================================================================
  *
  * 🆕 v7.9 (изменения относительно v7.8):
@@ -30,20 +30,30 @@
  *   ✅ contextWindowCompression — ЗАКОММЕНТИРОВАНО
  *   ✅ sessionResumption — ЗАКОММЕНТИРОВАНО
  *
+ * v8.0: Поддержка Gemini 3.8 Live (вместе с 2.5 и 3.1)
+ *   ✅ MODEL_VERSION вместо булева IS_31 — "2.5" | "3.1" | "3.8"
+ *   ✅ thinkingConfig: 2.5 → thinkingBudget:0 / 3.1 → thinkingLevel:"minimal"
+ *      / 3.8 → поле НЕ отправляется вовсе (модель его не поддерживает,
+ *      у неё interleaved reasoning)
+ *   ✅ Runtime-текст: 3.1 → sendRealtimeInput / 2.5 и 3.8 → sendClientContent
+ *      (в 3.8 client content снова разрешён весь сеанс)
+ *   ✅ Дуплекс: 3.1 → после turnComplete / 2.5 и 3.8 → сразу
+ *
  * v7.6: Поддержка Gemini 2.5 И 3.1 в одном сценарии
  *   ✅ Модель читается из CONFIG.model (не хардкод)
- *   ✅ IS_31 флаг — автоматически определяет версию по строке модели
- *   ✅ thinkingConfig: 2.5 → thinkingBudget:0 / 3.1 → thinkingLevel:"minimal"
- *   ✅ Greeting trigger: 2.5 → sendClientContent / 3.1 → sendRealtimeInput
- *   ✅ GoAway / sessionWarning / farewell: тот же switch по IS_31
  *
  * 🔧 FIX (v7.6): sendMediaBetween для 3.1 вызывается ПОСЛЕ turnComplete
  *   приветствия. Предотвращает interrupted во время приветствия.
  *
- * Поддерживаемые модели:
- *   - "gemini-2.5-flash-native-audio-preview-12-2025"  → IS_31 = false
- *   - "models/gemini-2.5-flash-native-audio-preview-12-2025" → IS_31 = false
- *   - "gemini-3.1-flash-live-preview"                  → IS_31 = true
+ * Поддерживаемые модели (версия определяется по подстроке в CONFIG.model):
+ *   - "gemini-2.5-flash-native-audio-preview-12-2025"        → "2.5"
+ *   - "models/gemini-2.5-flash-native-audio-preview-12-2025" → "2.5"
+ *   - "gemini-3.1-flash-live-preview"                        → "3.1"
+ *   - "gemini-3.8-live"                                      → "3.8"
+ *
+ * ⚠️ gemini-3.8-live-extended-thinking сюда НЕ подходит: у неё
+ *   turn_complete не означает, что сессия свободна (нужен interaction_status),
+ *   а на turnComplete у нас завязаны приветствие и таймеры тишины.
  *
  * ФЛОУ:
  *   1. CallAlerting → call.ring() → клиент слышит гудки
@@ -52,7 +62,7 @@
  *   4. SetupComplete → call.answer()
  *   5. Connected: запись звонка, ждём FirstAudioPacketReceived
  *   6. FirstAudioPacketReceived: sendMediaTo + greeting trigger
- *   7. Gemini отвечает → full duplex (2.5 сразу / 3.1 после turnComplete)
+ *   7. Gemini отвечает → full duplex (2.5 и 3.8 сразу / 3.1 после turnComplete)
  *   8. Пустой turnComplete → retry greeting (до 2 попыток)
  *   9. Все попытки провалились → TTS fallback → hangup
  *
@@ -127,7 +137,7 @@ let call_session_history_id = null;
 VoxEngine.addEventListener(AppEvents.Started, function(e) {
     call_session_history_id = e.sessionId;
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    log("info", "🚀 APP STARTED (INBOUND Gemini v7.9 — silence ping anchored to MediaEnded)");
+    log("info", "🚀 APP STARTED (INBOUND Gemini v8.0 — 2.5 / 3.1 / 3.8 Live)");
     log("info", "🔑 Session History ID: " + call_session_history_id);
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });
@@ -159,7 +169,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // ====================================================================
     // v7.6: ФЛАГ ВЕРСИИ МОДЕЛИ (определяется после загрузки конфига)
     // ====================================================================
-    let IS_31 = false; // true для gemini-3.1-flash-live-preview
+    // "2.5" | "3.1" | "3.8" — заполняется после загрузки конфига.
+    // IS_31 оставлен как производный флаг: на него завязаны ветки, где
+    // 3.8 ведёт себя как 2.5 (client content, дуплекс сразу).
+    let MODEL_VERSION = "2.5";
+    let IS_31 = false;
 
     // ====================================================================
     // 🆕 v7.9: ФЛАГ — ИГРАЕТ ЛИ СЕЙЧАС АУДИО АССИСТЕНТА
@@ -249,6 +263,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // Gemini 2.5 → sendClientContent (turns + turnComplete)
     // Gemini 3.1 → sendRealtimeInput (text) — sendClientContent запрещён
     //              в 3.1 для runtime-сообщений, только для initial history
+    //              (после первого хода модели прилетает ошибка 1007)
+    // Gemini 3.8 → sendClientContent: ограничение 3.1 снято, client content
+    //              снова разрешён на всём сеансе
     // ====================================================================
     function sendGreetingTrigger() {
         greetingAttempt++;
@@ -257,7 +274,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         log("info", "👋 GREETING ATTEMPT #" + greetingAttempt + "/" + MAX_GREETING_ATTEMPTS);
         log("info", "   Expected: \"" + greetingMessage.substring(0, 60) + "\"");
         log("info", "   Timeout: " + (GREETING_TIMEOUT_MS / 1000) + "s");
-        log("info", "   Model version: " + (IS_31 ? "3.1 (sendRealtimeInput)" : "2.5 (sendClientContent)"));
+        log("info", "   Model version: " + MODEL_VERSION +
+            (IS_31 ? " (sendRealtimeInput)" : " (sendClientContent)"));
         log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
         const greetingText = "Начни разговор, первым произнеси: \"" + greetingMessage + "\"";
@@ -294,6 +312,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // ====================================================================
     // ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: отправить текст в Gemini (runtime)
     // Используется для системных сообщений (GoAway, sessionWarning, farewell, ping)
+    //
+    // ⚠️ У client content turnComplete:true безусловно прерывает генерацию,
+    // поэтому шлём такие сообщения только когда ассистент молчит (пинг
+    // тишины взводится по MediaEnded, см. resetSilenceTimer).
     // ====================================================================
     function sendRuntimeText(text) {
         if (IS_31) {
@@ -344,7 +366,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
     // ====================================================================
     // ПОДГОТОВКА КОНФИГУРАЦИИ GEMINI
-    // v7.6: thinkingConfig зависит от IS_31
+    // v8.0: thinkingConfig зависит от MODEL_VERSION (для 3.8 не шлётся)
     // v7.8: realtimeInputConfig (VAD tuning) — для ОБЕИХ версий
     // v7.8: proactiveAudio — УДАЛЁН
     // ====================================================================
@@ -388,8 +410,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             // sessionResumption: {}
         };
 
-        // v7.6: thinkingConfig — разные параметры для 2.5 и 3.1
-        if (IS_31) {
+        // v8.0: thinkingConfig — у каждой версии свой.
+        //
+        // 3.8 Live: поля нет вообще. Модель не принимает ни thinkingLevel,
+        // ни thinkingBudget (у неё interleaved reasoning), и присланное поле
+        // валит сетап. Поэтому для 3.8 thinkingConfig не назначаем.
+        if (MODEL_VERSION === "3.8") {
+            // намеренно пусто
+        } else if (IS_31) {
             config.thinkingConfig = { thinkingLevel: "minimal" };
         } else {
             config.thinkingConfig = { thinkingBudget: 0 };
@@ -415,7 +443,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             log("info", "🔌 ATTEMPT #" + attemptNum + "/" + MAX_RETRY_ATTEMPTS + ": Connecting to Gemini...");
             log("info", "   Model: " + GEMINI_MODEL);
-            log("info", "   Version: " + (IS_31 ? "3.1" : "2.5"));
+            log("info", "   Version: " + MODEL_VERSION);
             log("info", "   Timeout: " + SETUP_TIMEOUT_MS + "ms");
             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -532,10 +560,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             } catch (err) {}
 
             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            log("info", "💰 BILLING (v7.9):");
+            log("info", "💰 BILLING (v8.0):");
             log("info", "   🔑 Session: " + (call_session_history_id || "NONE"));
             log("info", "   🛣️ Active Path: " + activePath);
-            log("info", "   🤖 Model: " + GEMINI_MODEL + " (IS_31=" + IS_31 + ")");
+            log("info", "   🤖 Model: " + GEMINI_MODEL + " (version=" + MODEL_VERSION + ")");
             log("info", "   💰 Cost: " + call_cost + " | ⏱️ Duration: " + call_duration + "s");
             log("info", "   📝 Dialog turns: " + dialogLog.length);
             log("info", "   👋 Greeting attempts: " + greetingAttempt);
@@ -609,7 +637,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 payload.active_path = activePath;
                 payload.greeting_attempts = greetingAttempt;
                 payload.gemini_model = GEMINI_MODEL;
-                payload.is_31 = IS_31;
+                payload.is_31 = IS_31;          // legacy-поле, бэкенд его уже знает
+                payload.model_version = MODEL_VERSION;
                 // v7.8: фиксируем VAD-параметры в финальном логе для A/B анализа
                 payload.vad_config = {
                     prefix_padding_ms: VAD_PREFIX_PADDING_MS,
@@ -841,7 +870,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
                             // 🔧 FIX: для 3.1 НЕ открываем дуплекс здесь —
-                            // ждём turnComplete чтобы избежать interrupted во время приветствия
+                            // ждём turnComplete чтобы избежать interrupted во время приветствия.
+                            // 3.8 идёт как 2.5 (ограничение было специфично для 3.1);
+                            // если на 3.8 увидим interrupted в приветствии — перенести
+                            // сюда ту же проверку, что и для 3.1.
                             if (!IS_31) {
                                 VoxEngine.sendMediaBetween(call, geminiLiveAPIClient);
                                 log("info", "🎙️ Full duplex ACTIVE (sendMediaBetween) [2.5]");
@@ -1072,15 +1104,24 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         ASSISTANT_ID = CONFIG.assistant_id;
         greetingMessage = determineGreeting(CONFIG.first_phrase);
 
-        // v7.6: Читаем модель из конфига, определяем IS_31
-        GEMINI_MODEL = CONFIG.model || "models/gemini-2.5-flash-native-audio-preview-12-2025";
-        IS_31 = GEMINI_MODEL.includes("3.1");
+        // v8.0: Читаем модель из конфига, определяем версию.
+        // Порядок проверок важен: сначала 3.8, потом 3.1 — иначе новая
+        // модель молча уехала бы в ветку 2.5 и упала на thinkingBudget.
+        GEMINI_MODEL = CONFIG.model || "models/gemini-3.1-flash-live-preview";
+        if (GEMINI_MODEL.includes("3.8")) {
+            MODEL_VERSION = "3.8";
+        } else if (GEMINI_MODEL.includes("3.1")) {
+            MODEL_VERSION = "3.1";
+        } else {
+            MODEL_VERSION = "2.5";
+        }
+        IS_31 = (MODEL_VERSION === "3.1");
 
         log("info", "✅ CONFIG: " + CONFIG.assistant_name +
             " | Voice: " + (CONFIG.voice || "Aoede") +
             " | Lang: " + (CONFIG.language || "ru"));
         log("info", "   Model: " + GEMINI_MODEL);
-        log("info", "   Version: " + (IS_31 ? "Gemini 3.1 🆕" : "Gemini 2.5"));
+        log("info", "   Version: Gemini " + MODEL_VERSION);
         log("info", "   Greeting: \"" + greetingMessage.substring(0, 60) + "\"");
         log("info", "   Retry: " + MAX_RETRY_ATTEMPTS + " attempts × " + (SETUP_TIMEOUT_MS / 1000) + "s");
         log("info", "   VAD: sensitivity HIGH/HIGH | prefix " + VAD_PREFIX_PADDING_MS + "ms | silence " + VAD_SILENCE_DURATION_MS + "ms");
@@ -1215,9 +1256,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         // ГОТОВО
         // ══════════════════════════════════════════════════════════════
         log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        log("info", "🎉 READY (v7.9) | Voice: " + (CONFIG.voice || "Aoede"));
+        log("info", "🎉 READY (v8.0) | Voice: " + (CONFIG.voice || "Aoede"));
         log("info", "   🤖 Model: " + GEMINI_MODEL);
-        log("info", "   Version: " + (IS_31 ? "Gemini 3.1 (sendRealtimeInput)" : "Gemini 2.5 (sendClientContent)"));
+        log("info", "   Version: Gemini " + MODEL_VERSION +
+            (IS_31 ? " (sendRealtimeInput)" : " (sendClientContent)") +
+            (MODEL_VERSION === "3.8" ? " | thinkingConfig: не отправляется" : ""));
         log("info", "   🛡️ Connection: Retry " + MAX_RETRY_ATTEMPTS + "x" + (SETUP_TIMEOUT_MS / 1000) + "s → TTS fallback");
         log("info", "   🛡️ Greeting: instruction after FirstAudioPacketReceived");
         log("info", "   🛡️ Greeting retry: " + MAX_GREETING_ATTEMPTS + " attempts × " + (GREETING_TIMEOUT_MS / 1000) + "s");
