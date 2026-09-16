@@ -13,13 +13,18 @@ from backend.models.base import Base
 # Модель Gemini Live по умолчанию — единственный источник правды для дефолта:
 # отсюда его берут и колонка ниже, и схема создания ассистента
 # (api/gemini_assistants.py). Значение уходит в сценарий телефонии как есть;
-# версию сценарий определяет по подстроке «3.1» (inbound_gemini), от неё
-# зависит протокол: sendRealtimeInput вместо sendClientContent, thinkingLevel
-# вместо thinkingBudget и момент включения дуплекса.
+# версию сценарий определяет по подстроке «3.8» / «3.1» (inbound_gemini v8.0),
+# от неё зависит протокол: у 3.8 thinkingConfig не отправляется вовсе, у 3.1
+# runtime-текст идёт через sendRealtimeInput, а дуплекс ждёт turnComplete.
+#
+# ⚠️ Сценарий inbound_gemini на родительском аккаунте Voximplant должен быть
+# не старше v8.0 — версии до неё не знают про 3.8, уводят её в ветку 2.5 и
+# шлют thinkingBudget, которого у модели нет. Раскатка:
+# POST /api/telephony/admin/setup-gemini-scenarios-stream
 #
 # Виджет эту колонку НЕ читает: там модель зашита в gemini_client.py, а для
 # 3.1 есть отдельный стек (handler_gemini_31 + /ws/gemini-31/{id}).
-DEFAULT_GEMINI_MODEL = "models/gemini-3.1-flash-live-preview"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-live"
 
 
 class GeminiAssistantConfig(Base):
