@@ -80,7 +80,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | `history.js` | История работы агента (правая колонка): лента последних 100 фоновых задач PreCall/PostCall — звонки + обработка входящих SMS, с раскрытием в `renderCallExpanded` | `loadAgentHistory`; константа `AGENT_HISTORY_LIMIT` | `/api/agent/calls?limit=100` |
 | `import.js` | Импорт контактов (xlsx/csv, 3 шага) | `openImportModal`, `handleImportFile`, `renderImportPreview`, `onImportTasksToggle` (ползунок авто-задач), `executeImport`, `finishImport`; состояние `importState` | `/api/agent/contacts/import/*` (execute: `create_tasks`) |
 | `pipeline.js` | Воронка-канбан (drag&drop) | `openPipelineModal`, `loadPipeline`, `pipelineCard`, `plDragStart/End/Over/Leave`, `plDrop` | `/api/agent/pipeline`, `PATCH /contacts/{id}/status` |
-| `memory.js` | Память агента (блокнот оркестратора: инструкции / наблюдения / планы) | `loadAgentMemoryStatus`, `renderMemoryBlock`, `openMemoryModal`, `addMemoryNote`, `editMemoryNote`/`saveMemoryNote`, `deleteMemoryNote`, `clearAgentMemory`; состояние `agentMemoryState` | `/api/agent/memory` (GET/POST/DELETE), `/api/agent/memory/{id}` (PUT/DELETE) |
+| `memory.js` | «Что агент запомнил» (блокнот оркестратора; в UI секции «Вы поручили / Агент заметил / Агент планирует» — `ui_label` из API) + плашки «Запомнил / Уточнил / Забыл» под ответом в чате (`memoryChipsFromStep`, `renderMemoryChips`, вызывает chat.js) | `loadAgentMemoryStatus`, `renderMemoryBlock`, `openMemoryModal`, `addMemoryNote`, `editMemoryNote`/`saveMemoryNote`, `deleteMemoryNote`, `clearAgentMemory`; состояние `agentMemoryState` | `/api/agent/memory` (GET/POST/DELETE), `/api/agent/memory/{id}` (PUT/DELETE) |
 | `knowledge-base.js` | База данных (векторная БД Pinecone) | `loadKnowledgeBaseStatus`, `renderKnowledgeBaseBlock`, `openKnowledgeBaseModal`, `saveKnowledgeBase`, `deleteKnowledgeBase`; состояние `knowledgeBaseState` | `/api/agent/knowledge-base` (GET/POST/DELETE) |
 | `connectors.js` | Внешние коннекторы (Google Календарь, Gmail через Composio) | `loadConnectors`, `renderConnectorsBlock`, `openConnectorsModal`, `renderConnectorsList`, `connectConnector`, `disconnectConnector`; состояние `connectorsState`, `CONNECTOR_META`. OAuth-возврат ловится через `postMessage` и `?connector=&status=` | `/api/agent/connectors` (GET / `{toolkit}/connect` POST / `callback` GET / `{toolkit}` DELETE) |
 | `onboarding.js` | Обучающая карусель перед мастером (5 слайдов про суть автономного агента). Показывается из `showWizard()` всегда при создании, с «Пропустить». | `startOnboarding(onDone)`, `renderOnboarding`, `obNext/obBack/obSkip`, `finishOnboarding`; состояние `obStep`, `OB_SLIDES` | — |
@@ -163,3 +163,13 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
   мобильный drawer (< 1100px).
 - Правила раскладки: `showDashboard()` включает `#top-nav` и `#main-layout` через
   `style.display='grid'` — не менять на `flex`, иначе сетка колонок сломается.
+
+
+## Подсказки (?) по странице
+
+Пояснения к карточкам, счётчикам, тумблеру и полям настроек — CSS-тултипы без JS:
+`<span class="hint" tabindex="0" data-hint="текст"><i class="far fa-circle-question"></i></span>`
+(стили `.hint` в `agent.css`). Показываются по наведению и по фокусу (тап на мобильном).
+Модификатор `hint-l` раскрывает подсказку влево — для правой панели и правого края
+шапки, чтобы не вылезать за экран. Тексты — короткие, на языке клиента, без терминов
+«оркестратор/промпт/тулза» там, где можно сказать проще.

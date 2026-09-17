@@ -43,6 +43,14 @@ SECTIONS: List[Tuple[str, str]] = [
 SECTION_KEYS = [k for k, _ in SECTIONS]
 SECTION_LABELS = dict(SECTIONS)
 
+# Подписи секций для интерфейса владельца (язык клиента, а не модели):
+# в промпт идут SECTION_LABELS, в UI — эти.
+SECTION_UI_LABELS = {
+    "instructions": "Вы поручили",
+    "observations": "Агент заметил",
+    "plans": "Агент планирует",
+}
+
 # Лимиты — память обязана быть ограниченной, иначе она съест контекст и кэш промпта.
 MAX_NOTES = 60
 MAX_NOTE_CHARS = 400
@@ -231,7 +239,9 @@ def to_api(memory: Any) -> Dict[str, Any]:
     mem = normalize(memory)
     return {
         "notes": mem["notes"],
-        "sections": [{"key": k, "label": v} for k, v in SECTIONS],
+        "sections": [
+            {"key": k, "label": v, "ui_label": SECTION_UI_LABELS.get(k, v)} for k, v in SECTIONS
+        ],
         "count": len(mem["notes"]),
         "chars_used": chars_used(mem),
         "chars_limit": MAX_TOTAL_CHARS,

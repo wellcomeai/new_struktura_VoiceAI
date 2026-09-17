@@ -95,6 +95,7 @@
     <div class="toggle-wrap">
       <span class="toggle-label" id="toggle-label">Неактивен</span>
       <label class="switch"><input type="checkbox" id="active-toggle"><span class="slider"></span></label>
+      <span class="hint hint-l" tabindex="0" data-hint="Выключенный агент не звонит и не отвечает клиентам. Запланированные задачи ждут включения."><i class="far fa-circle-question"></i></span>
     </div>
     <!-- Бейдж статуса подписки + кредиты (credits.js) -->
     <div class="sub-badge" id="sub-badge" style="display:none">
@@ -125,7 +126,7 @@
   <div class="col-left">
     <div class="panel-inner">
       <div class="panel-title">
-        <span>Работа</span>
+        <span>Работа <span class="hint" tabindex="0" data-hint="Что происходит прямо сейчас: цифры, ближайшие задачи, последние звонки и лента событий."><i class="far fa-circle-question"></i></span></span>
         <button class="icon-btn" type="button" data-panel="left" title="Скрыть панель" aria-label="Скрыть панель «Работа»"><i class="fas fa-chevron-left"></i></button>
       </div>
       <div class="panel-scroll">
@@ -134,13 +135,13 @@
           <div class="stat-card">
             <div class="stat-icon blue"><i class="fas fa-phone-volume"></i></div>
             <div class="stat-num" id="stat-calls">—</div>
-            <div class="stat-label">Всего звонков</div>
+            <div class="stat-label">Всего звонков <span class="hint" tabindex="0" data-hint="Все разговоры агента: исходящие по задачам и входящие на его номер."><i class="far fa-circle-question"></i></span></div>
             <span class="stat-go" onclick="openCallsModal()">Все звонки →</span>
           </div>
           <div class="stat-card">
             <div class="stat-icon green"><i class="fas fa-users"></i></div>
             <div class="stat-num" id="stat-contacts">—</div>
-            <div class="stat-label">Контакты</div>
+            <div class="stat-label">Контакты <span class="hint" tabindex="0" data-hint="База контактов этого агента. «Воронка» показывает стадии, «Импорт» загружает список из файла."><i class="far fa-circle-question"></i></span></div>
             <div class="stat-links">
               <span class="stat-go" onclick="openPipelineModal()">Воронка</span>
               <span class="stat-go" onclick="openContactsListModal()">Все</span>
@@ -153,7 +154,7 @@
         <!-- Ближайшие задачи (limit 5) -->
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="far fa-calendar-check"></i> Ближайшие задачи</div>
+            <div class="card-head-title"><i class="far fa-calendar-check"></i> Ближайшие задачи <span class="hint" tabindex="0" data-hint="Что агент собирается сделать: звонки и сообщения, поставленные вами в чате или им самим после разговоров."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openTasksCalendar()">Календарь →</span>
           </div>
           <div id="tasks-list"><div class="empty">Нет задач</div></div>
@@ -161,7 +162,7 @@
 
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-clock-rotate-left"></i> Последние звонки</div>
+            <div class="card-head-title"><i class="fas fa-clock-rotate-left"></i> Последние звонки <span class="hint" tabindex="0" data-hint="Итоги последних разговоров: транскрипт, длительность и решение агента по каждому."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openCallsModal()">Все звонки →</span>
           </div>
           <div id="recent-calls"><div class="empty">Нет звонков</div></div>
@@ -170,7 +171,7 @@
         <!-- История работы агента (последние 100 фоновых задач: звонки + SMS) -->
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-list-check"></i> История работы агента</div>
+            <div class="card-head-title"><i class="fas fa-list-check"></i> История работы агента <span class="hint" tabindex="0" data-hint="Лента всех событий: звонки, SMS, сообщения в Telegram и MAX и что агент решил по каждому."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="loadAgentHistory()" title="Обновить"><i class="fas fa-rotate"></i></span>
           </div>
           <div id="agent-history-list" class="agent-history-list">
@@ -208,7 +209,7 @@
   <div class="col-right">
     <div class="panel-inner">
       <div class="panel-title">
-        <span>Агент</span>
+        <span>Агент <span class="hint hint-l" tabindex="0" data-hint="Как агент устроен: настройки, документы, база знаний, что он запомнил и подключённые каналы."><i class="far fa-circle-question"></i></span></span>
         <button class="icon-btn" type="button" data-panel="right" title="Скрыть панель" aria-label="Скрыть панель «Агент»"><i class="fas fa-chevron-right"></i></button>
       </div>
       <div class="panel-scroll">
@@ -216,7 +217,7 @@
         <!-- Карточка агента -->
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-sliders"></i> Настройки агента</div>
+            <div class="card-head-title"><i class="fas fa-sliders"></i> Настройки агента <span class="hint hint-l" tabindex="0" data-hint="Имя, голос, модель «мозга», номер для звонков и правила поведения в разговоре."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openInstructionsModal()">Изменить</span>
           </div>
           <div class="agent-card-body">
@@ -232,7 +233,7 @@
 
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="far fa-folder-open"></i> Документы агента</div>
+            <div class="card-head-title"><i class="far fa-folder-open"></i> Документы агента <span class="hint hint-l" tabindex="0" data-hint="Постоянное описание бизнеса: кто вы, кому звоните, как говорите, что предлагаете. Основа всех решений агента. Меняете вручную."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openEditModal('doc_who_am_i')">Все →</span>
           </div>
           <div class="docs-grid" id="docs-grid"></div>
@@ -241,7 +242,7 @@
         <!-- База данных (векторная база знаний) -->
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-database"></i> База данных</div>
+            <div class="card-head-title"><i class="fas fa-database"></i> База данных <span class="hint hint-l" tabindex="0" data-hint="Тексты о продукте, ценах и условиях. Агент ищет по ним точные ответы во время звонка и в чате с вами."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openKnowledgeBaseModal()">Управлять →</span>
           </div>
           <div id="kb-status-block">
@@ -249,12 +250,13 @@
           </div>
         </div>
 
-        <!-- Память агента (блокнот оркестратора: инструкции / наблюдения / планы) -->
+        <!-- Память агента (блокнот оркестратора): ваши поручения из чата + наблюдения агента -->
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-brain"></i> Память агента</div>
+            <div class="card-head-title"><i class="fas fa-brain"></i> Что агент запомнил <span class="hint hint-l" tabindex="0" data-hint="Рабочий блокнот агента: ваши поручения из чата и его наблюдения по звонкам. Меняется сам по ходу работы, в отличие от документов."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openMemoryModal()">Открыть →</span>
           </div>
+          <div class="card-sub">Поручения из чата и наблюдения по звонкам</div>
           <div id="memory-status-block">
             <div class="empty">Загрузка...</div>
           </div>
@@ -263,7 +265,7 @@
         <!-- Коннекторы (Google Календарь, Gmail через Composio, личные Telegram и MAX) -->
         <div class="card" id="connectors-card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-plug"></i> Коннекторы</div>
+            <div class="card-head-title"><i class="fas fa-plug"></i> Коннекторы <span class="hint hint-l" tabindex="0" data-hint="Внешние сервисы, которыми агент может пользоваться: календарь, почта, личные Telegram и MAX для переписки с клиентами."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openConnectorsModal()">Управлять →</span>
           </div>
           <div id="connectors-block">
@@ -274,7 +276,7 @@
         <!-- Telegram-бот -->
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fab fa-telegram"></i> Telegram-бот</div>
+            <div class="card-head-title"><i class="fab fa-telegram"></i> Telegram-бот <span class="hint hint-l" tabindex="0" data-hint="Ваш бот для уведомлений о результатах звонков и общения с агентом прямо из Telegram."><i class="far fa-circle-question"></i></span></div>
             <span class="card-link" onclick="openTelegramModal()">Настроить</span>
           </div>
           <div id="telegram-status-block">
@@ -284,8 +286,8 @@
 
         <div class="card">
           <div class="card-head">
-            <div class="card-head-title"><i class="fas fa-coins"></i> Кредиты оркестратора</div>
-            <span class="card-link" onclick="openBillingModal()">История →</span>
+            <div class="card-head-title"><i class="fas fa-coins"></i> Кредиты оркестратора <span class="hint hint-l" tabindex="0" data-hint="Оплата работы «мозга» агента: планирование, анализ звонков, чат с вами. Минуты самих звонков сюда не входят."><i class="far fa-circle-question"></i></span></div>
+            <span class="card-link" onclick="openBillingModal()">Журнал →</span>
           </div>
           <div class="exp-row"><span class="lbl">Баланс</span><span class="val" id="exp-credits">—</span></div>
           <div class="exp-row"><span class="lbl">Подписка</span><span class="val" id="exp-sub-status">—</span></div>
@@ -373,11 +375,11 @@
             <p>Как агента зовут и каким голосом он говорит с клиентами по телефону.</p>
           </div>
           <div class="form-group">
-            <label class="form-label">Имя агента</label>
+            <label class="form-label">Имя агента <span class="hint" tabindex="0" data-hint="Так агент представляется клиентам и так называется в списке ваших агентов."><i class="far fa-circle-question"></i></span></label>
             <input type="text" class="form-input" id="i-name">
           </div>
           <div class="form-group">
-            <label class="form-label">Голосовая модель</label>
+            <label class="form-label">Голосовая модель <span class="hint" tabindex="0" data-hint="Кто ведёт живой телефонный разговор. Меняет голос, скорость и стоимость минуты."><i class="far fa-circle-question"></i></span></label>
             <div id="i-model-type-group" class="model-type-cards"></div>
             <div class="form-hint" id="i-model-type-hint"></div>
           </div>
@@ -391,7 +393,7 @@
             <p>Мозг-планировщик: ведёт CRM, планирует звонки, готовит стратегию каждого звонка и анализирует результат. В живом телефонном разговоре эти инструкции не используются.</p>
           </div>
           <div class="form-group">
-            <label class="form-label">Модель оркестратора</label>
+            <label class="form-label">Модель оркестратора <span class="hint" tabindex="0" data-hint="«Мозг» агента: планирует звонки, анализирует разговоры, отвечает в чате. Дороже модель — точнее решения."><i class="far fa-circle-question"></i></span></label>
             <select class="form-select" id="i-orchestrator_model"></select>
             <div class="form-hint" id="i-model-desc"></div>
           </div>
@@ -416,7 +418,7 @@
             <p>Как агент ведёт себя в телефонном разговоре с клиентом: с какого номера звонит, с чего начинает и чего избегает.</p>
           </div>
           <div class="form-group">
-            <label class="form-label">Номер для исходящих (Caller ID)</label>
+            <label class="form-label">Номер для исходящих (Caller ID) <span class="hint" tabindex="0" data-hint="С какого вашего номера агент звонит. «Автоматически» — первый подключённый номер."><i class="far fa-circle-question"></i></span></label>
             <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
           </div>
           <div class="form-group">
@@ -739,24 +741,27 @@
 <div class="modal-overlay hidden" id="memory-modal-overlay">
   <div class="modal modal-lg">
     <div class="modal-header">
-      <div class="modal-title"><i class="fas fa-brain"></i> Память агента</div>
+      <div class="modal-title"><i class="fas fa-brain"></i> Что агент запомнил</div>
       <button class="modal-close" onclick="closeMemoryModal()"><i class="fas fa-times"></i></button>
     </div>
     <div class="modal-body">
       <div id="memory-modal-meta" style="font-size:13px;color:#64748b;margin-bottom:12px"></div>
       <div class="form-hint" style="margin:0 0 14px">
-        Это собственный блокнот агента: он читает его перед каждым звонком, сообщением и
-        ответом в чате и сам ведёт его по ходу работы. Правило владельца, сказанное в чате
-        («по пятницам не звони», «сначала спрашивай про бюджет»), агент записывает в
-        <b>Инструкции</b>. Любую заметку можно исправить или удалить.
+        Рабочий блокнот агента. Он перечитывает его перед каждым звонком, сообщением и ответом
+        в чате и сам ведёт по ходу работы. Скажите в чат «по пятницам не звони» — агент запишет
+        это в <b>«Вы поручили»</b> и будет соблюдать. Любую заметку можно исправить или удалить.
+      </div>
+      <div class="form-hint" style="margin:0 0 14px;padding:8px 10px;border-radius:8px;background:var(--vf-surface-2,#f8fafc)">
+        <b>Где что хранить.</b> Постоянное о компании и продукте — в «Документах агента».
+        Разовые поручения — просто говорите в чат, агент запишет их сюда сам.
       </div>
       <div id="memory-notes-list"></div>
       <div style="border-top:1px solid var(--vf-border,#e2e8f0);margin-top:14px;padding-top:14px">
-        <div class="form-label">Добавить заметку</div>
+        <div class="form-label">Добавить поручение или заметку вручную</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
           <select class="form-select" id="memory-add-section" style="width:200px;flex:0 0 auto"></select>
           <textarea class="form-input" id="memory-add-text" rows="2" maxlength="400"
-            placeholder="Например: не предлагать скидку в первом звонке"
+            placeholder="Например: не предлагай скидку в первом звонке"
             style="flex:1;min-width:220px;min-height:38px"></textarea>
           <button class="btn btn-primary" id="memory-add-btn" onclick="addMemoryNote()" style="flex:0 0 auto">
             <i class="fas fa-plus"></i> Добавить
@@ -766,7 +771,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" id="memory-clear-btn" onclick="clearAgentMemory()" style="display:none">
-        <i class="fas fa-trash"></i> Очистить память
+        <i class="fas fa-trash"></i> Очистить всё
       </button>
       <button class="btn btn-secondary" onclick="closeMemoryModal()">Закрыть</button>
     </div>

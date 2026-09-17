@@ -792,3 +792,33 @@ input[type=range] { accent-color: var(--vf-accent); }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
   .card:hover, .stat-card:hover, .chat-tile:hover { transform: none !important; }
 }
+
+
+/* ─── Подсказки (?) по странице: <span class="hint" tabindex="0" data-hint="…"><i class="far fa-circle-question"></i></span>
+   Появляются по наведению и по фокусу (тап на мобильном). Сам тултип позиционируется
+   не от иконки, а от ближайшего контейнера (.card-head / .panel-title / .stat-label /
+   .form-label / .toggle-wrap) и занимает его ширину — так он не вылезает за края узких
+   панелей, которые режут overflow. .hint-l — прижать к правому краю (шапка). */
+.card-head, .panel-title, .stat-label, .form-label, .toggle-wrap { position: relative; }
+.hint { position: static; display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 1px; color: var(--vf-text-4); cursor: help; vertical-align: middle; outline: none; flex: 0 0 auto; }
+.hint i, .card-head-title .hint i, .stat-label .hint i { width: auto; height: auto; background: none; color: inherit; font-size: 12px; border-radius: 0; }
+.hint:hover, .hint:focus { color: var(--vf-accent); }
+.hint::after { content: attr(data-hint); position: absolute; top: calc(100% + 6px); left: 0; right: 0; width: auto; padding: 8px 10px; border-radius: 8px; background: #0f172a; color: #fff; font-size: 12px; font-weight: 400; line-height: 1.45; letter-spacing: 0; text-transform: none; white-space: normal; text-align: left; box-shadow: var(--vf-shadow-3); opacity: 0; transform: translateY(-3px); pointer-events: none; transition: opacity var(--vf-fast), transform var(--vf-fast); z-index: 300; }
+.hint:hover::after, .hint:focus::after { opacity: 1; transform: none; }
+.form-label .hint::after { max-width: 360px; right: auto; }
+.toggle-wrap .hint::after, .hint.hint-l.hint-nav::after { left: auto; right: 0; width: max-content; max-width: 280px; }
+.panel-title .hint { text-transform: none; letter-spacing: 0; }
+/* Заголовок карточки не рвём словами из-за значка «?»: если ссылка справа не влезает, она уходит на вторую строку вправо. */
+.card-head { flex-wrap: wrap; row-gap: 4px; }
+.card-head-title { white-space: nowrap; }
+.card-head > .card-link { margin-left: auto; }
+.card-sub { font-size: 11.5px; color: var(--vf-text-4); margin: -4px 0 8px; }
+
+/* ─── Плашки «Запомнил» в чате: агент записал что-то в свой блокнот ─── */
+.memory-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.memory-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--vf-border); background: var(--vf-accent-soft); color: var(--vf-text-2); font-size: 12px; line-height: 1.35; cursor: pointer; transition: background var(--vf-fast), border-color var(--vf-fast); }
+.memory-chip:hover { border-color: var(--vf-accent); }
+.memory-chip i { color: var(--vf-accent); font-size: 11px; flex: 0 0 auto; }
+.memory-chip b { font-weight: 600; color: var(--vf-text); }
+.memory-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-chip.forget i { color: var(--vf-text-4); }

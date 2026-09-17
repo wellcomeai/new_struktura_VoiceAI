@@ -105,6 +105,7 @@ const TOOL_LABELS = {
   bulk_schedule_calls:'Планирую серию звонков', trigger_immediate_call:'Звоню прямо сейчас',
   snooze_contact:'Ставлю контакт на паузу', get_call_transcript:'Открываю транскрипт',
   get_period_report:'Готовлю отчёт за период', get_failed_calls:'Собираю недозвоны',
+  update_agent_memory:'Записываю в свой блокнот',
 };
 
 // Иконки инструментов для процесс-трейса (Фаза 4). Ключи — имена tools оркестратора.
@@ -122,6 +123,7 @@ const TOOL_ICONS = {
   bulk_schedule_calls:'fa-calendar-plus', trigger_immediate_call:'fa-phone-volume',
   snooze_contact:'fa-circle-pause', get_call_transcript:'fa-file-lines',
   get_period_report:'fa-chart-line', get_failed_calls:'fa-phone-slash',
+  update_agent_memory:'fa-book',
 };
 
 async function sendMessage(){
@@ -289,6 +291,13 @@ function _finalizeActivity(st, elapsed){
   st.activity.innerHTML = buildActivityCollapsed(st.steps, elapsed);
 }
 
+// Плашки «Запомнил / Уточнил / Забыл» под ответом + обновление карточки блокнота.
+function _appendMemoryChips(answerEl, chips){
+  if(!chips || !chips.length || !answerEl) return;
+  answerEl.insertAdjacentHTML('afterend', renderMemoryChips(chips));
+  if(typeof loadAgentMemoryStatus==='function') loadAgentMemoryStatus();
+}
+
 function _appendTime(body){
   if(!body || body.querySelector('.msg-time')) return;
   const t = document.createElement('div'); t.className='msg-time';
@@ -302,7 +311,7 @@ function handleStreamEvent(ev, st){
 
   if(ev.type==='tool_call'){
     if(st.working) st.working.style.display='inline-flex';
-    st.steps.push({ tool:ev.tool, status:'running', meta:'' });
+    st.steps.push({ tool:ev.tool, status:'running', meta:'', args:ev.args });
     _renderSteps(st);
     msgs.scrollTop = msgs.scrollHeight;
     return;
@@ -313,6 +322,9 @@ function handleStreamEvent(ev, st){
       if(st.steps[i].status==='running'){
         st.steps[i].status = ev.type==='tool_error' ? 'error' : 'ok';
         st.steps[i].meta   = ev.type==='tool_error' ? '' : _stepMeta(ev.result);
+        if(st.steps[i].tool==='update_agent_memory' && ev.type==='tool_result'){
+          st.memoryChips = (st.memoryChips||[]).concat(memoryChipsFromStep(st.steps[i].args, ev.result));
+        }
         break;
       }
     }
@@ -336,6 +348,7 @@ function handleStreamEvent(ev, st){
     st.answer.innerHTML = renderMarkdown(ev.reply);
     const el = ((Date.now()-st.t0)/1000).toFixed(1);
     _finalizeActivity(st, el);
+    _appendMemoryChips(st.answer, st.memoryChips);
     _appendTime(st.answer.parentElement);
     msgs.scrollTop = msgs.scrollHeight;
     return;
@@ -366,6 +379,15 @@ function addBubble(text, role){
 }
 
 // Собирает шаги трейса из debug_log (fallback-путь /chat без стрима).
+function _memoryChipsFromDebug(debugLog){
+  let chips = [], lastArgs = null;
+  (debugLog||[]).forEach(e => {
+    if(e.type==='tool_call' && e.data && e.data.tool==='update_agent_memory') lastArgs = e.data.args;
+    else if(e.type==='tool_result' && e.data && e.data.tool==='update_agent_memory'){ chips = chips.concat(memoryChipsFromStep(lastArgs, e.data.result)); lastArgs = null; }
+  });
+  return chips;
+}
+
 function _stepsFromDebug(debugLog){
   const steps = [];
   (debugLog||[]).forEach(e => {
@@ -382,8 +404,10 @@ function addAgentBubble(text, debugLog, elapsed){
   const div = document.createElement('div'); div.className='msg assistant';
   const steps = _stepsFromDebug(debugLog);
   const trace = steps.length ? `<div class="activity done">${buildActivityCollapsed(steps, elapsed)}</div>` : '';
-  div.innerHTML = `<div class="msg-avatar"><img src="/static/images/IMG_2820.PNG" alt="Voicyfy"></div><div class="msg-body">${trace}<div class="msg-bubble md answer">${renderMarkdown(text)}</div><div class="msg-time">${now}</div></div>`;
+  const chips = _memoryChipsFromDebug(debugLog);
+  div.innerHTML = `<div class="msg-avatar"><img src="/static/images/IMG_2820.PNG" alt="Voicyfy"></div><div class="msg-body">${trace}<div class="msg-bubble md answer">${renderMarkdown(text)}</div>${renderMemoryChips(chips)}<div class="msg-time">${now}</div></div>`;
   msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight;
+  if(chips.length && typeof loadAgentMemoryStatus==='function') loadAgentMemoryStatus();
 }
 
 function showTyping(){ const msgs=document.getElementById('chat-messages'); const id='typ-'+Date.now(); const div=document.createElement('div'); div.className='msg assistant'; div.id=id; div.innerHTML=`<div class="msg-avatar"><img src="/static/images/IMG_2820.PNG" alt="Voicyfy"></div><div class="msg-body"><div class="activity-working"><span class="aw-dot"></span><span class="aw-text">Думаю…</span></div></div>`; msgs.appendChild(div); msgs.scrollTop=msgs.scrollHeight; return id; }

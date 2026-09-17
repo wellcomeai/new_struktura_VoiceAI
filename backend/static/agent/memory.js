@@ -28,7 +28,7 @@ async function loadAgentMemoryStatus(){
 
 function memorySectionLabel(key){
   const s = (agentMemoryState?.sections || []).find(x => x.key === key);
-  return s ? s.label : key;
+  return s ? (s.ui_label || s.label) : key;
 }
 
 function renderMemoryBlock(){
@@ -36,10 +36,10 @@ function renderMemoryBlock(){
   if(!el) return;
   const s = agentMemoryState;
   if(!s){ el.innerHTML = '<div class="empty">Недоступно</div>'; return; }
-  if(!s.count){ el.innerHTML = '<div class="empty">Пока пусто — агент заполнит по ходу работы</div>'; return; }
+  if(!s.count){ el.innerHTML = '<div class="empty">Пока пусто. Скажите в чат, что агенту делать иначе, — он запомнит</div>'; return; }
   const per = {};
   (s.notes || []).forEach(n => { per[n.section] = (per[n.section] || 0) + 1; });
-  const parts = (s.sections || []).filter(x => per[x.key]).map(x => `${esc(x.label)}: ${per[x.key]}`);
+  const parts = (s.sections || []).filter(x => per[x.key]).map(x => `${esc(x.ui_label || x.label)}: ${per[x.key]}`);
   el.innerHTML = `<div style="font-size:13px;color:var(--green-dark,#166534)">`
     + `<i class="fas fa-circle-check"></i> ${s.count} ${memoryPlural(s.count)}</div>`
     + `<div style="font-size:12px;color:#94a3b8;margin-top:4px">${parts.join(' · ')}</div>`;
@@ -73,7 +73,7 @@ function renderMemoryModal(){
 
   if(sel && s && !sel.options.length){
     (s.sections || []).forEach(x => {
-      const o = document.createElement('option'); o.value = x.key; o.textContent = x.label; sel.appendChild(o);
+      const o = document.createElement('option'); o.value = x.key; o.textContent = x.ui_label || x.label; sel.appendChild(o);
     });
   }
   if(!s){
@@ -87,14 +87,14 @@ function renderMemoryModal(){
   clearBtn.style.display = s.count ? '' : 'none';
 
   if(!s.count){
-    list.innerHTML = '<div class="empty">Память пуста. Агент начнёт заполнять её после первых звонков и разговоров с вами.</div>';
+    list.innerHTML = '<div class="empty" style="text-align:left;line-height:1.5">Здесь появятся ваши поручения из чата и то, что агент заметит по звонкам.<br>Попробуйте написать в чат: <b>«не предлагай скидку в первом звонке»</b>.</div>';
     return;
   }
   let html = '';
   (s.sections || []).forEach(sec => {
     const rows = (s.notes || []).filter(n => n.section === sec.key);
     html += `<div style="margin-bottom:14px">`
-      + `<div style="font-size:12.5px;font-weight:600;color:var(--vf-text-2,#475569);margin-bottom:6px">${esc(sec.label)} <span style="color:#94a3b8;font-weight:400">· ${rows.length}</span></div>`;
+      + `<div style="font-size:12.5px;font-weight:600;color:var(--vf-text-2,#475569);margin-bottom:6px">${esc(sec.ui_label || sec.label)} <span style="color:#94a3b8;font-weight:400">· ${rows.length}</span></div>`;
     if(!rows.length){
       html += `<div style="font-size:12.5px;color:#94a3b8;padding:4px 0">пусто</div>`;
     }
@@ -199,9 +199,35 @@ async function deleteMemoryNote(id){
 }
 
 async function clearAgentMemory(){
-  if(!confirm('Очистить всю память агента? Все заметки во всех секциях будут удалены. Это действие необратимо.')) return;
+  if(!confirm('Удалить всё, что агент запомнил? Поручения и наблюдения во всех секциях будут стёрты. Это действие необратимо.')) return;
   const btn = document.getElementById('memory-clear-btn');
   btn.disabled = true;
-  await memoryRequest('/memory', { method: 'DELETE' }, 'Память очищена');
+  await memoryRequest('/memory', { method: 'DELETE' }, 'Блокнот очищен');
   btn.disabled = false;
+}
+
+
+// ════════════════ ПЛАШКИ «ЗАПОМНИЛ» В ЧАТЕ ════════════════
+// Агент вызвал update_agent_memory: показываем под ответом, что именно он записал,
+// исправил или забыл. Клик открывает блокнот. Используется chat.js (стрим и fallback).
+
+function memoryChipsFromStep(args, result){
+  if(!result || result.ok === false) return [];
+  const chips = [];
+  const addTexts = (args && Array.isArray(args.add) ? args.add : []).map(a => a && a.text).filter(Boolean);
+  (result.added || []).forEach((a, i) => { chips.push({ kind:'add', text: addTexts[i] || a.id }); });
+  const updMap = {}; (args && Array.isArray(args.update) ? args.update : []).forEach(u => { if(u && u.id) updMap[u.id] = u.text; });
+  (result.updated || []).forEach(id => { chips.push({ kind:'update', text: updMap[id] || id }); });
+  (result.deleted || []).forEach(id => { chips.push({ kind:'delete', text: id }); });
+  return chips;
+}
+
+function renderMemoryChips(chips){
+  if(!chips || !chips.length) return '';
+  const label = { add:'Запомнил', update:'Уточнил', delete:'Забыл' };
+  const icon  = { add:'fa-brain', update:'fa-pen', delete:'fa-eraser' };
+  return `<div class="memory-chips">` + chips.map(c =>
+    `<span class="memory-chip ${c.kind==='delete'?'forget':''}" onclick="openMemoryModal()" title="Открыть блокнот агента">`
+    + `<i class="fas ${icon[c.kind]}"></i><b>${label[c.kind]}:</b><span>${esc(c.text)}</span></span>`
+  ).join('') + `</div>`;
 }
