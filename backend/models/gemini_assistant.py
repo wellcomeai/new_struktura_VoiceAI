@@ -13,14 +13,17 @@ from backend.models.base import Base
 # Модель Gemini Live по умолчанию — единственный источник правды для дефолта:
 # отсюда его берут и колонка ниже, и схема создания ассистента
 # (api/gemini_assistants.py). Значение уходит в сценарий телефонии как есть;
-# версию сценарий определяет по подстроке «3.8» / «3.1» (inbound_gemini v8.0),
-# от неё зависит протокол: у 3.8 thinkingConfig не отправляется вовсе, у 3.1
-# runtime-текст идёт через sendRealtimeInput, а дуплекс ждёт turnComplete.
+# версию сценарий определяет по подстроке «3.8» / «3.1» (inbound_gemini v8.0,
+# outbound_crm v5.6), от неё зависит протокол: у 3.8 thinkingConfig не
+# отправляется вовсе, у 3.1 runtime-текст идёт через sendRealtimeInput, а
+# дуплекс во входящем ждёт turnComplete.
 #
-# ⚠️ Сценарий inbound_gemini на родительском аккаунте Voximplant должен быть
-# не старше v8.0 — версии до неё не знают про 3.8, уводят её в ветку 2.5 и
-# шлют thinkingBudget, которого у модели нет. Раскатка:
-# POST /api/telephony/admin/setup-gemini-scenarios-stream
+# ⚠️ Сценарии на родительском аккаунте Voximplant должны быть не старше:
+# inbound_gemini v8.0 и outbound_crm v5.6 (исходящие Gemini идут через общий
+# outbound_crm, см. task_scheduler._outbound_rule_name) — версии до них не
+# знают про 3.8, уводят её в ветку 2.5 и шлют thinkingBudget, которого у
+# модели нет. Раскатка: POST /api/telephony/admin/setup-gemini-scenarios-stream
+# (inbound_gemini) и /api/telephony/admin/deploy-scenarios (outbound_crm).
 #
 # Виджет эту колонку НЕ читает: там модель зашита в gemini_client.py, а для
 # 3.1 есть отдельный стек (handler_gemini_31 + /ws/gemini-31/{id}).
