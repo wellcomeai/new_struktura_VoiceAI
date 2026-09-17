@@ -1,34 +1,20 @@
 /*
- * Voximplant INBOUND Gemini Script v8.0
+ * Voximplant INBOUND Gemini Script v8.1
  * ====================================================================
  *
- * 🆕 v7.9 (изменения относительно v7.8):
- *   ✅ SILENCE PING FIX: таймер тишины привязан к РЕАЛЬНОМУ окончанию
- *      аудио (WebSocketMediaEnded), а не к транскрипции.
- *
- *      Проблема v7.8: транскрипция ответа приходит быстрее, чем аудио
- *      проигрывается клиенту (Gemini генерирует быстрее реального времени).
- *      Отсчёт 8с тишины стартовал, когда ассистент ЕЩЁ ГОВОРИЛ в трубку →
- *      пинг «Алло, вы меня слышите?» прилетал клиенту сразу после длинной
- *      фразы, не давая времени ответить.
- *
- *      Решение:
- *      - Флаг assistantAudioPlaying: true на MediaStarted, false на MediaEnded
- *      - Пинг-таймер (8с) взводится ТОЛЬКО когда аудио ассистента не играет
- *      - На MediaEnded → resetSilenceTimer() → честный отсчёт 8с тишины
- *        ПОСЛЕ того, как клиент дослушал фразу
- *      - В колбэке пинга контрольная проверка флага (double-check)
- *      - Хард-таймаут 180с работает как раньше (страховка от зависших сессий)
- *
- * v7.8:
- *   ✅ VAD TUNING: realtimeInputConfig.automaticActivityDetection
- *      (sensitivity HIGH/HIGH, prefixPaddingMs 100, silenceDurationMs 500)
- *   ✅ proactiveAudio — УДАЛЁН (в телефонии все реплики адресованы ассистенту)
- *
- * v7.7:
- *   ✅ SILENCE PING: через 8 сек тишины клиента ассистент сам подаёт голос
- *   ✅ contextWindowCompression — ЗАКОММЕНТИРОВАНО
- *   ✅ sessionResumption — ЗАКОММЕНТИРОВАНО
+ * 🆕 v8.1 (изменения относительно v8.0):
+ *   ❌ SILENCE PING УДАЛЁН ПОЛНОСТЬЮ.
+ *      Раньше через 8с тишины в Gemini уходила фейковая реплика
+ *      «Произнеси вслух короткую фразу…». Проблемы:
+ *        - загрязняла контекст модели (фейковый ход пользователя)
+ *        - turnComplete:true рвала генерацию посреди tool-вызовов
+ *        - 8с для телефона слишком мало, пингов было без лимита
+ *        - якорь на транскрипции/WebSocketMediaEnded ненадёжен
+ *      Убраны: SILENCE_PING_MS, silencePingTimeoutId, assistantAudioPlaying
+ *      и все проверки вокруг них.
+ *   ✅ Хард-таймаут тишины: 180с → 60с (единственный предохранитель).
+ *      Перевзводится на речи клиента, turnComplete, MediaEnded и ToolCall.
+ *   ✅ sendRuntimeText остался только для GoAway / sessionWarning / farewell.
  *
  * v8.0: Поддержка Gemini 3.8 Live (вместе с 2.5 и 3.1)
  *   ✅ MODEL_VERSION вместо булева IS_31 — "2.5" | "3.1" | "3.8"
@@ -38,6 +24,15 @@
  *   ✅ Runtime-текст: 3.1 → sendRealtimeInput / 2.5 и 3.8 → sendClientContent
  *      (в 3.8 client content снова разрешён весь сеанс)
  *   ✅ Дуплекс: 3.1 → после turnComplete / 2.5 и 3.8 → сразу
+ *
+ * v7.8:
+ *   ✅ VAD TUNING: realtimeInputConfig.automaticActivityDetection
+ *      (sensitivity HIGH/HIGH, prefixPaddingMs 100, silenceDurationMs 500)
+ *   ✅ proactiveAudio — УДАЛЁН (в телефонии все реплики адресованы ассистенту)
+ *
+ * v7.7:
+ *   ✅ contextWindowCompression — ЗАКОММЕНТИРОВАНО
+ *   ✅ sessionResumption — ЗАКОММЕНТИРОВАНО
  *
  * v7.6: Поддержка Gemini 2.5 И 3.1 в одном сценарии
  *   ✅ Модель читается из CONFIG.model (не хардкод)
@@ -108,9 +103,7 @@ const SETUP_TIMEOUT_MS = 3000;
 const MAX_RETRY_ATTEMPTS = 3;
 const MAX_GREETING_ATTEMPTS = 2;
 const GREETING_TIMEOUT_MS = 7000;
-const SILENCE_TIMEOUT_MS = 180000;
-const SILENCE_PING_MS = 8000;               // v7.7: пинг после 8 сек тишины
-                                            // v7.9: отсчёт идёт ПОСЛЕ окончания аудио ассистента
+const SILENCE_TIMEOUT_MS = 60000;           // v8.1: 60с полной тишины → hangup (было 180с)
 const GEMINI_SESSION_WARNING_MS = 9 * 60 * 1000;
 const GEMINI_SESSION_MAX_MS = 10 * 60 * 1000;
 
@@ -137,7 +130,7 @@ let call_session_history_id = null;
 VoxEngine.addEventListener(AppEvents.Started, function(e) {
     call_session_history_id = e.sessionId;
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    log("info", "🚀 APP STARTED (INBOUND Gemini v8.0 — 2.5 / 3.1 / 3.8 Live)");
+    log("info", "🚀 APP STARTED (INBOUND Gemini v8.1 — 2.5 / 3.1 / 3.8 Live)");
     log("info", "🔑 Session History ID: " + call_session_history_id);
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });
@@ -176,14 +169,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     let IS_31 = false;
 
     // ====================================================================
-    // 🆕 v7.9: ФЛАГ — ИГРАЕТ ЛИ СЕЙЧАС АУДИО АССИСТЕНТА
-    // true  → между WebSocketMediaStarted и WebSocketMediaEnded
-    // false → аудио доиграло, клиент в тишине
-    // Пока true — пинг тишины НЕ взводится и НЕ срабатывает.
-    // ====================================================================
-    let assistantAudioPlaying = false;
-
-    // ====================================================================
     // 📞 ГУДКИ — СРАЗУ
     // ====================================================================
     call.ring();
@@ -194,50 +179,31 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // ====================================================================
     let greetingTimeoutId = null;
     let silenceTimeoutId = null;
-    let silencePingTimeoutId = null;        // v7.7: таймер пинга при тишине
     let sessionWarningTimeoutId = null;
     let sessionMaxTimeoutId = null;
 
     function clearAllTimers() {
         if (greetingTimeoutId)       { clearTimeout(greetingTimeoutId);       greetingTimeoutId = null; }
         if (silenceTimeoutId)        { clearTimeout(silenceTimeoutId);         silenceTimeoutId = null; }
-        if (silencePingTimeoutId)    { clearTimeout(silencePingTimeoutId);     silencePingTimeoutId = null; }
         if (sessionWarningTimeoutId) { clearTimeout(sessionWarningTimeoutId);  sessionWarningTimeoutId = null; }
         if (sessionMaxTimeoutId)     { clearTimeout(sessionMaxTimeoutId);      sessionMaxTimeoutId = null; }
     }
 
     // ====================================================================
-    // 🆕 v7.9: СБРОС ТАЙМЕРОВ ТИШИНЫ
+    // v8.1: ТАЙМЕР ТИШИНЫ — только хард-таймаут
     //
-    // Пинг (8с): взводится ТОЛЬКО если аудио ассистента сейчас не играет.
-    //   Пока ассистент говорит — таймер пинга не существует в принципе.
-    //   Честный отсчёт стартует на WebSocketMediaEnded (аудио доиграло).
-    //
-    // Хард-таймаут (180с): взводится всегда в CONVERSATION — страховка
-    //   от полностью зависших сессий, на него флаг аудио не влияет.
+    // Взводится в CONVERSATION и перевзводится на любой активности:
+    //   - речь клиента (inputTranscription)
+    //   - turnComplete
+    //   - WebSocketMediaEnded (ассистент договорил)
+    //   - ToolCall (долгая функция — не тишина)
+    // Если SILENCE_TIMEOUT_MS прошли без активности → terminateCall().
+    // Никаких пингов «Алло, вы меня слышите?» — ассистент в пустоту не говорит.
     // ====================================================================
     function resetSilenceTimer() {
-        if (silenceTimeoutId)     { clearTimeout(silenceTimeoutId);     silenceTimeoutId = null; }
-        if (silencePingTimeoutId) { clearTimeout(silencePingTimeoutId); silencePingTimeoutId = null; }
+        if (silenceTimeoutId) { clearTimeout(silenceTimeoutId); silenceTimeoutId = null; }
 
         if (currentState === STATE.CONVERSATION) {
-
-            // Пинг — только в реальной тишине (аудио ассистента не играет)
-            if (!assistantAudioPlaying) {
-                silencePingTimeoutId = setTimeout(function() {
-                    // 🆕 v7.9: double-check — если аудио вдруг играет, пинг пропускаем
-                    // (перезапуск придёт на ближайшем MediaEnded)
-                    if (currentState === STATE.CONVERSATION && !assistantAudioPlaying) {
-                        log("info", "🔔 SILENCE PING: клиент молчит " + (SILENCE_PING_MS / 1000) + "с после конца аудио, подаём голос");
-                        // Формулируем как КОМАНДУ произнести фразу (чтобы модель не зачитала служебный текст)
-                        sendRuntimeText("Произнеси вслух короткую фразу, чтобы проверить, на связи ли собеседник, например: Алло, вы меня слышите?");
-                    } else {
-                        log("debug", "🔕 Ping skipped: assistant audio is playing");
-                    }
-                }, SILENCE_PING_MS);
-            }
-
-            // Хард-таймаут — всегда
             silenceTimeoutId = setTimeout(function() {
                 log("error", "⏱️ SILENCE TIMEOUT: " + (SILENCE_TIMEOUT_MS / 1000) + "s");
                 terminateCall();
@@ -284,7 +250,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             // ✅ Gemini 3.1: используем sendRealtimeInput с text
             geminiLiveAPIClient.sendRealtimeInput({ text: greetingText });
         } else {
-            // ✅ Gemini 2.5: используем sendClientContent
+            // ✅ Gemini 2.5 / 3.8: используем sendClientContent
             geminiLiveAPIClient.sendClientContent({
                 turns: [{
                     role: "user",
@@ -311,11 +277,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
     // ====================================================================
     // ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: отправить текст в Gemini (runtime)
-    // Используется для системных сообщений (GoAway, sessionWarning, farewell, ping)
+    // v8.1: используется ТОЛЬКО для GoAway, sessionWarning и farewell.
     //
-    // ⚠️ У client content turnComplete:true безусловно прерывает генерацию,
-    // поэтому шлём такие сообщения только когда ассистент молчит (пинг
-    // тишины взводится по MediaEnded, см. resetSilenceTimer).
+    // ⚠️ У client content turnComplete:true безусловно прерывает генерацию.
+    // Все три случая — «договори и заканчивай», прерывание допустимо.
     // ====================================================================
     function sendRuntimeText(text) {
         if (IS_31) {
@@ -360,14 +325,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     const FUNCTIONS_URL = "https://voicyfy.ru/api/voximplant/functions/execute";
     const LOG_URL = "https://voicyfy.ru/api/voximplant/log";
 
-    log("info", "📞 INBOUND CALL (Gemini v7.9)");
+    log("info", "📞 INBOUND CALL (Gemini v8.1)");
     log("info", "   From: " + caller_number + " → To: " + called_number);
     log("info", "   Call ID: " + call_id);
 
     // ====================================================================
     // ПОДГОТОВКА КОНФИГУРАЦИИ GEMINI
     // v8.0: thinkingConfig зависит от MODEL_VERSION (для 3.8 не шлётся)
-    // v7.8: realtimeInputConfig (VAD tuning) — для ОБЕИХ версий
+    // v7.8: realtimeInputConfig (VAD tuning) — для всех версий
     // v7.8: proactiveAudio — УДАЛЁН
     // ====================================================================
     let finalSystemPrompt = "";
@@ -560,7 +525,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             } catch (err) {}
 
             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            log("info", "💰 BILLING (v8.0):");
+            log("info", "💰 BILLING (v8.1):");
             log("info", "   🔑 Session: " + (call_session_history_id || "NONE"));
             log("info", "   🛣️ Active Path: " + activePath);
             log("info", "   🤖 Model: " + GEMINI_MODEL + " (version=" + MODEL_VERSION + ")");
@@ -647,6 +612,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                     end_sensitivity: "HIGH",
                     proactive_audio: false
                 };
+                // v8.1: пинга больше нет — фиксируем для анализа логов
+                payload.silence_ping = false;
+                payload.silence_timeout_ms = SILENCE_TIMEOUT_MS;
             }
 
             const response = await Net.httpRequestAsync(LOG_URL, {
@@ -771,6 +739,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
         // ──────────────────────────────────────────
         // ToolCall
+        // v8.1: перевзводим таймер тишины — выполнение функции не тишина
         // ──────────────────────────────────────────
         client.addEventListener(
             Gemini.LiveAPIEvents.ToolCall,
@@ -781,6 +750,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                     if (!event || !event.data || !event.data.payload) return;
                     const functionCalls = event.data.payload.functionCalls;
                     if (!functionCalls || functionCalls.length === 0) return;
+
+                    resetSilenceTimer();
 
                     for (let i = 0; i < functionCalls.length; i++) {
                         const fc = functionCalls[i];
@@ -880,12 +851,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                             }
                         }
 
-                        // 🆕 v7.9: НЕ вызываем resetSilenceTimer() на транскрипции ассистента.
-                        // Транскрипция приходит быстрее аудио → отсчёт тишины стартовал бы,
-                        // пока ассистент ещё говорит. Теперь якорь — WebSocketMediaEnded.
-                        // Хард-таймаут при этом не пострадает: он перевзводится на
-                        // MediaEnded / turnComplete / речи клиента.
-
                         if (lastRole === "user" && currentUserText.trim()) {
                             dialogLog.push({ role: "user", text: currentUserText.trim(), ts: Date.now() });
                             currentUserText = "";
@@ -928,8 +893,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                             lastRole = "assistant";
 
                             log("info", "✅ Greeting complete (attempt #" + greetingAttempt + ") → CONVERSATION");
-                            // v7.9: если аудио приветствия ещё играет — пинг не взведётся
-                            // (assistantAudioPlaying=true), перезапуск придёт на MediaEnded
                             resetSilenceTimer();
                         }
                         else if (currentState === STATE.GREETING_SENT && !geminiStartedSpeaking) {
@@ -949,8 +912,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                         }
                         else if (currentState === STATE.CONVERSATION) {
                             log("debug", "🏁 Conversation turnComplete");
-                            // v7.9: перезапуск таймеров; пинг взведётся только если
-                            // аудио уже доиграло (иначе — на ближайшем MediaEnded)
                             resetSilenceTimer();
                         }
                     }
@@ -963,18 +924,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
         // ──────────────────────────────────────────
         // MediaEventStarted — аудио пошло от Gemini
-        // 🆕 v7.9: флаг assistantAudioPlaying = true + снимаем пинг-таймер
         // ──────────────────────────────────────────
         client.addEventListener(Gemini.Events.WebSocketMediaStarted, function() {
             log("debug", "🎵 Media started (audio from Gemini)");
-
-            // 🆕 v7.9: ассистент начал говорить — пинг тишины невозможен
-            assistantAudioPlaying = true;
-            if (silencePingTimeoutId) {
-                clearTimeout(silencePingTimeoutId);
-                silencePingTimeoutId = null;
-                log("debug", "🔕 Ping timer cancelled: assistant audio started");
-            }
 
             if (!geminiStartedSpeaking && currentState === STATE.GREETING_SENT) {
                 geminiStartedSpeaking = true;
@@ -998,18 +950,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         });
 
         // ──────────────────────────────────────────
-        // MediaEventEnded — аудио от Gemini ДОИГРАЛО клиенту
-        // 🆕 v7.9: ГЛАВНЫЙ ЯКОРЬ для таймера тишины.
-        // Именно отсюда стартует честный отсчёт 8с: клиент дослушал
-        // фразу и теперь действительно молчит.
+        // MediaEventEnded — аудио от Gemini доиграло
+        // v8.1: только перевзвод хард-таймаута (отсчёт 60с идёт после
+        // того, как ассистент договорил)
         // ──────────────────────────────────────────
         client.addEventListener(Gemini.Events.WebSocketMediaEnded, function() {
-            log("debug", "🎵 Media ended (assistant audio finished playing)");
-
-            assistantAudioPlaying = false;
+            log("debug", "🎵 Media ended (assistant audio finished)");
 
             if (currentState === STATE.CONVERSATION) {
-                log("debug", "⏱️ Silence countdown starts NOW (audio finished)");
                 resetSilenceTimer();
             }
         });
@@ -1256,7 +1204,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         // ГОТОВО
         // ══════════════════════════════════════════════════════════════
         log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        log("info", "🎉 READY (v8.0) | Voice: " + (CONFIG.voice || "Aoede"));
+        log("info", "🎉 READY (v8.1) | Voice: " + (CONFIG.voice || "Aoede"));
         log("info", "   🤖 Model: " + GEMINI_MODEL);
         log("info", "   Version: Gemini " + MODEL_VERSION +
             (IS_31 ? " (sendRealtimeInput)" : " (sendClientContent)") +
@@ -1264,10 +1212,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         log("info", "   🛡️ Connection: Retry " + MAX_RETRY_ATTEMPTS + "x" + (SETUP_TIMEOUT_MS / 1000) + "s → TTS fallback");
         log("info", "   🛡️ Greeting: instruction after FirstAudioPacketReceived");
         log("info", "   🛡️ Greeting retry: " + MAX_GREETING_ATTEMPTS + " attempts × " + (GREETING_TIMEOUT_MS / 1000) + "s");
-        log("info", "   🛡️ Silence: ping " + (SILENCE_PING_MS / 1000) + "s AFTER MediaEnded → hard timeout " + (SILENCE_TIMEOUT_MS / 1000) + "s | Session TTL: " + (GEMINI_SESSION_MAX_MS / 60000) + "min");
+        log("info", "   🛡️ Silence: hard timeout " + (SILENCE_TIMEOUT_MS / 1000) + "s (no ping) | Session TTL: " + (GEMINI_SESSION_MAX_MS / 60000) + "min");
         log("info", "   VAD: HIGH/HIGH | prefix " + VAD_PREFIX_PADDING_MS + "ms | silence " + VAD_SILENCE_DURATION_MS + "ms | proactiveAudio OFF");
         log("info", "   Context compression: OFF | Session resumption: OFF");
-        log("info", "   🆕 v7.9: ping anchored to real audio end (no ping while assistant speaks)");
+        log("info", "   🆕 v8.1: silence ping REMOVED");
         log("info", "   🔧 FIX: 3.1 sendMediaBetween after turnComplete (no interrupted during greeting)");
         log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
