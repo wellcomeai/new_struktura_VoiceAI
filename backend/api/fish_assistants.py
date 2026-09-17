@@ -259,11 +259,12 @@ def update_api_keys(
 ):
     """Update OpenAI and/or Fish Audio API keys."""
     try:
+        # Обрезаем пробелы/переводы строки: с ними провайдер отвечает 401.
         if keys_data.openai_api_key is not None:
-            current_user.openai_api_key = keys_data.openai_api_key or None
+            current_user.openai_api_key = keys_data.openai_api_key.strip() or None
 
         if keys_data.fish_api_key is not None:
-            current_user.fish_api_key = keys_data.fish_api_key or None
+            current_user.fish_api_key = keys_data.fish_api_key.strip() or None
 
         db.commit()
         db.refresh(current_user)

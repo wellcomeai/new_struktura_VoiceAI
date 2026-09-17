@@ -173,7 +173,7 @@ Voicyfy is a Russian SaaS platform for building voice AI assistants and autonomo
 
 @router.get("/robots.txt")
 async def robots_txt():
-    return PlainTextResponse(_robots_txt(), media_type="text/plain; charset=utf-8",
+    return PlainTextResponse(_robots_txt(), media_type="text/plain",
                              headers={"Cache-Control": CACHE})
 
 
@@ -185,5 +185,5 @@ async def sitemap_xml():
 
 @router.get("/llms.txt")
 async def llms_txt():
-    return PlainTextResponse(_llms_txt(), media_type="text/plain; charset=utf-8",
+    return PlainTextResponse(_llms_txt(), media_type="text/plain",
                              headers={"Cache-Control": CACHE})
