@@ -37,7 +37,7 @@ from backend.services.agent_tools import (
     build_chat_tools,
     build_postcall_tools,
 )
-from backend.services.agent_prompts import build_orchestrator_prompt, build_time_block
+from backend.services.agent_prompts import build_orchestrator_prompt, build_time_block, build_agent_memory_block
 from backend.services.openrouter_client import get_openrouter_client
 from backend.core.pipeline_stages import stage_from_decision
 from backend.services.credit_service import (
@@ -423,7 +423,7 @@ class PreCallOrchestrator:
         # (tools + system) байт-в-байт одинаков между звонками → кэш провайдера.
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         base_input = self._build_precall_input(task, agent_contact, db)
-        user_input = base_input + build_time_block(round_to_minutes=0) + """
+        user_input = base_input + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0) + """
 
 Подготовь звонок. Верни ответ строго в JSON формате без markdown:
 {"first_phrase": "точная первая фраза агента", "call_strategy": "краткое описание тактики", "tone": "дружелюбный/деловой/настойчивый", "key_points": ["факт1", "факт2"]}"""
@@ -1058,7 +1058,11 @@ class PostCallOrchestrator:
    Если ничего по сути не изменилось (клиент ещё думает) — НЕ вызывай
    move_contact_stage, оставь контакт в текущей стадии.
 {callback_rule}
-4. Если нужно уведомить владельца/менеджеров (важный результат) — вызови send_telegram_notification."""
+4. Если нужно уведомить владельца/менеджеров (важный результат) — вызови send_telegram_notification.
+5. Если из события следует что-то общее для всей работы (не про этого
+   клиента): закономерность, сработавший аргумент, повторяющаяся проблема —
+   зафиксируй одной заметкой в update_agent_memory. Если ничего общего нет —
+   не трогай память агента."""
 
         return f"""{direction_line}
 КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
@@ -1265,7 +1269,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 СТРАТЕГИЯ КОТОРУЮ ТЫ ПЛАНИРОВАЛ ПЕРЕД ЗВОНКОМ:
 Первая фраза: {agent_call.custom_greeting or '(не задана)'}
 Тактика: {agent_call.call_strategy or '(не задана)'}"""
-        post_call_input += build_time_block(round_to_minutes=0)
+        post_call_input += build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)
 
         tools = await build_postcall_tools(agent_config, db)
         tool_calls_log: List[Dict[str, Any]] = []
@@ -1759,7 +1763,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
 
@@ -1872,7 +1876,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         context = {
@@ -2115,7 +2119,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         debug_log.append({
@@ -2241,7 +2245,7 @@ class ChatOrchestrator:
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message + build_time_block(round_to_minutes=0)},
+            {"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)},
         ]
 
         tools = await build_chat_tools(agent_config, db)
@@ -2359,7 +2363,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         debug_log.append({

@@ -52,6 +52,7 @@ from backend.services.agent_models import (
     ORCHESTRATOR_MODELS, get_default_model, is_valid_model, resolve_slug,
 )
 from backend.services.agent_tools import assistant_task_kwargs
+from backend.services import agent_memory
 from backend.services.credit_service import (
     CreditService,
     activate_agent_trial,
@@ -754,6 +755,7 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "has_knowledge_base": agent.has_knowledge_base(),
         "kb_char_count": agent.kb_char_count or 0,
         "kb_name": agent.kb_name,
+        "memory_notes_count": len(agent_memory.normalize(agent.memory)["notes"]),
         "created_at": agent.created_at.isoformat() if agent.created_at else None,
         "updated_at": agent.updated_at.isoformat() if agent.updated_at else None,
     }
@@ -1340,6 +1342,126 @@ async def delete_agent_knowledge_base(
     db.refresh(agent)
     logger.info(f"[AGENT-KB] Knowledge base deleted for agent {agent.id}")
     return {"success": True, **_kb_status_dict(agent)}
+
+
+# ============================================================================
+# ENDPOINTS — AGENT MEMORY (блокнот оркестратора)
+# ============================================================================
+# Память самого агента: заметки с id по секциям instructions / observations /
+# plans. Агент ведёт её инструментом update_agent_memory, владелец — отсюда.
+# Все мутации — точечные, под FOR UPDATE (agent_memory.lock_and_apply).
+
+
+class MemoryNoteCreate(BaseModel):
+    section: str = Field(..., description="instructions | observations | plans")
+    text: str = Field(..., min_length=1, max_length=agent_memory.MAX_NOTE_CHARS)
+
+
+class MemoryNoteUpdate(BaseModel):
+    text: str = Field(..., min_length=1, max_length=agent_memory.MAX_NOTE_CHARS)
+    section: Optional[str] = Field(None, description="instructions | observations | plans")
+
+
+def _memory_report_or_400(report: dict) -> dict:
+    """Точечная операция не применилась → 400 с причиной из отчёта."""
+    if report.get("error"):
+        raise HTTPException(status_code=404 if report["error"] == "agent_not_found" else 400, detail=report["error"])
+    if report.get("errors") and not (report.get("added") or report.get("updated") or report.get("deleted")):
+        err = report["errors"][0]
+        raise HTTPException(status_code=400, detail=err.get("error", "memory_error"))
+    return report
+
+
+@router.get("/memory")
+def get_agent_memory(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Память агента целиком (заметки по секциям + лимиты)."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+    return agent_memory.to_api(agent.memory)
+
+
+@router.post("/memory")
+def add_agent_memory_note(
+    body: MemoryNoteCreate,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Владелец добавляет заметку (source=owner)."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+    if body.section not in agent_memory.SECTION_KEYS:
+        raise HTTPException(status_code=400, detail="bad_section")
+    report = agent_memory.lock_and_apply(
+        db, agent.id, add=[{"section": body.section, "text": body.text}], source="owner"
+    )
+    _memory_report_or_400(report)
+    db.refresh(agent)
+    return {"success": True, "added": report["added"], **agent_memory.to_api(agent.memory)}
+
+
+@router.put("/memory/{note_id}")
+def update_agent_memory_note(
+    note_id: str,
+    body: MemoryNoteUpdate,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Владелец правит текст (и при желании секцию) одной заметки."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+    if body.section is not None and body.section not in agent_memory.SECTION_KEYS:
+        raise HTTPException(status_code=400, detail="bad_section")
+    item = {"id": note_id, "text": body.text}
+    if body.section:
+        item["section"] = body.section
+    report = agent_memory.lock_and_apply(db, agent.id, update=[item], source="owner")
+    _memory_report_or_400(report)
+    db.refresh(agent)
+    return {"success": True, **agent_memory.to_api(agent.memory)}
+
+
+@router.delete("/memory/{note_id}")
+def delete_agent_memory_note(
+    note_id: str,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Удалить одну заметку."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+    report = agent_memory.lock_and_apply(db, agent.id, delete=[note_id], source="owner")
+    _memory_report_or_400(report)
+    db.refresh(agent)
+    return {"success": True, **agent_memory.to_api(agent.memory)}
+
+
+@router.delete("/memory")
+def clear_agent_memory(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Очистить память агента целиком (все секции)."""
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+    ids = [n["id"] for n in agent_memory.normalize(agent.memory)["notes"]]
+    if ids:
+        agent_memory.lock_and_apply(db, agent.id, delete=ids, source="owner")
+        db.refresh(agent)
+    logger.info(f"[AGENT-MEMORY] Cleared memory of agent {agent.id} ({len(ids)} notes) by owner")
+    return {"success": True, **agent_memory.to_api(agent.memory)}
 
 
 # ============================================================================

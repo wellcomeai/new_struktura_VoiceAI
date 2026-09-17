@@ -72,6 +72,7 @@ function showDashboard(){
   loadPhoneNumbers();
   loadTelegramStatus();
   loadKnowledgeBaseStatus();
+  loadAgentMemoryStatus();
   loadConnectors();
   loadTgAccount();
   loadMaxAccount();

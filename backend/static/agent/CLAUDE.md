@@ -80,6 +80,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | `history.js` | История работы агента (правая колонка): лента последних 100 фоновых задач PreCall/PostCall — звонки + обработка входящих SMS, с раскрытием в `renderCallExpanded` | `loadAgentHistory`; константа `AGENT_HISTORY_LIMIT` | `/api/agent/calls?limit=100` |
 | `import.js` | Импорт контактов (xlsx/csv, 3 шага) | `openImportModal`, `handleImportFile`, `renderImportPreview`, `onImportTasksToggle` (ползунок авто-задач), `executeImport`, `finishImport`; состояние `importState` | `/api/agent/contacts/import/*` (execute: `create_tasks`) |
 | `pipeline.js` | Воронка-канбан (drag&drop) | `openPipelineModal`, `loadPipeline`, `pipelineCard`, `plDragStart/End/Over/Leave`, `plDrop` | `/api/agent/pipeline`, `PATCH /contacts/{id}/status` |
+| `memory.js` | Память агента (блокнот оркестратора: инструкции / наблюдения / планы) | `loadAgentMemoryStatus`, `renderMemoryBlock`, `openMemoryModal`, `addMemoryNote`, `editMemoryNote`/`saveMemoryNote`, `deleteMemoryNote`, `clearAgentMemory`; состояние `agentMemoryState` | `/api/agent/memory` (GET/POST/DELETE), `/api/agent/memory/{id}` (PUT/DELETE) |
 | `knowledge-base.js` | База данных (векторная БД Pinecone) | `loadKnowledgeBaseStatus`, `renderKnowledgeBaseBlock`, `openKnowledgeBaseModal`, `saveKnowledgeBase`, `deleteKnowledgeBase`; состояние `knowledgeBaseState` | `/api/agent/knowledge-base` (GET/POST/DELETE) |
 | `connectors.js` | Внешние коннекторы (Google Календарь, Gmail через Composio) | `loadConnectors`, `renderConnectorsBlock`, `openConnectorsModal`, `renderConnectorsList`, `connectConnector`, `disconnectConnector`; состояние `connectorsState`, `CONNECTOR_META`. OAuth-возврат ловится через `postMessage` и `?connector=&status=` | `/api/agent/connectors` (GET / `{toolkit}/connect` POST / `callback` GET / `{toolkit}` DELETE) |
 | `onboarding.js` | Обучающая карусель перед мастером (5 слайдов про суть автономного агента). Показывается из `showWizard()` всегда при создании, с «Пропустить». | `startOnboarding(onDone)`, `renderOnboarding`, `obNext/obBack/obSkip`, `finishOnboarding`; состояние `obStep`, `OB_SLIDES` | — |
@@ -120,6 +121,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | Личный Telegram агента | `/api/agent/telegram-account` | `backend/api/agent_telegram_account.py` |
 | Личный MAX агента (PyMax) | `/api/agent/max-account` | `backend/api/agent_max_account.py` |
 | База данных (Pinecone) | `/api/agent/knowledge-base` | `backend/api/agent.py` |
+| Память агента | `/api/agent/memory`, `/api/agent/memory/{note_id}` | `backend/api/agent.py` (логика — `backend/services/agent_memory.py`) |
 | Кредиты оркестратора | `/api/credits` | `backend/api/credits.py` |
 
 Регистрация роутеров — в `app.py` (`include_router`).

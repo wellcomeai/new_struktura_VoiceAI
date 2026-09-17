@@ -1563,6 +1563,38 @@ def ensure_agent_knowledge_base_columns():
         logger.error(f"❌ ensure_agent_knowledge_base_columns error: {e}")
 
 
+def ensure_agent_memory_column():
+    """
+    Идемпотентно добавляет колонку памяти агента (agent_configs.memory JSONB).
+
+    Дублирует alembic-миграцию add_agent_memory на случай, если миграции не
+    применились. Память самого агента — backend/services/agent_memory.py.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        if 'memory' in existing:
+            return
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text(
+                    "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "
+                    "memory JSONB NOT NULL DEFAULT '{}'::jsonb"
+                ))
+                trans.commit()
+                logger.info("✅ Added column agent_configs.memory")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add agent_configs.memory: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_memory_column error: {e}")
+
+
 def ensure_agent_public_access_columns():
     """
     Идемпотентно добавляет колонки публичного HTTP-канала в agent_configs.
@@ -2198,6 +2230,9 @@ async def startup_event():
 
                 # 🆕 Шаг 17: Колонка первой фразы для входящих в agent_configs
                 ensure_agent_inbound_first_phrase_column()
+
+                # 🆕 Шаг 18: Память агента (agent_configs.memory JSONB)
+                ensure_agent_memory_column()
 
                 # 🆕 Шаг 18: Таблица внешних коннекторов агента (Composio)
                 ensure_agent_connectors_table()

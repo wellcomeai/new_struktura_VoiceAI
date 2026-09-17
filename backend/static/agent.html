@@ -249,6 +249,17 @@
           </div>
         </div>
 
+        <!-- Память агента (блокнот оркестратора: инструкции / наблюдения / планы) -->
+        <div class="card">
+          <div class="card-head">
+            <div class="card-head-title"><i class="fas fa-brain"></i> Память агента</div>
+            <span class="card-link" onclick="openMemoryModal()">Открыть →</span>
+          </div>
+          <div id="memory-status-block">
+            <div class="empty">Загрузка...</div>
+          </div>
+        </div>
+
         <!-- Коннекторы (Google Календарь, Gmail через Composio, личные Telegram и MAX) -->
         <div class="card" id="connectors-card">
           <div class="card-head">
@@ -724,6 +735,44 @@
   </div>
 </div>
 
+<!-- ✅ МОДАЛКА: Память агента (блокнот оркестратора) -->
+<div class="modal-overlay hidden" id="memory-modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-brain"></i> Память агента</div>
+      <button class="modal-close" onclick="closeMemoryModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div id="memory-modal-meta" style="font-size:13px;color:#64748b;margin-bottom:12px"></div>
+      <div class="form-hint" style="margin:0 0 14px">
+        Это собственный блокнот агента: он читает его перед каждым звонком, сообщением и
+        ответом в чате и сам ведёт его по ходу работы. Правило владельца, сказанное в чате
+        («по пятницам не звони», «сначала спрашивай про бюджет»), агент записывает в
+        <b>Инструкции</b>. Любую заметку можно исправить или удалить.
+      </div>
+      <div id="memory-notes-list"></div>
+      <div style="border-top:1px solid var(--vf-border,#e2e8f0);margin-top:14px;padding-top:14px">
+        <div class="form-label">Добавить заметку</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+          <select class="form-select" id="memory-add-section" style="width:200px;flex:0 0 auto"></select>
+          <textarea class="form-input" id="memory-add-text" rows="2" maxlength="400"
+            placeholder="Например: не предлагать скидку в первом звонке"
+            style="flex:1;min-width:220px;min-height:38px"></textarea>
+          <button class="btn btn-primary" id="memory-add-btn" onclick="addMemoryNote()" style="flex:0 0 auto">
+            <i class="fas fa-plus"></i> Добавить
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="memory-clear-btn" onclick="clearAgentMemory()" style="display:none">
+        <i class="fas fa-trash"></i> Очистить память
+      </button>
+      <button class="btn btn-secondary" onclick="closeMemoryModal()">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <!-- МОДАЛКА: Коннекторы (Google Календарь, Gmail) -->
 <div class="modal-overlay hidden" id="connectors-modal-overlay">
   <div class="modal" style="max-width:520px">
@@ -798,6 +847,7 @@
 <script src="/static/agent/import.js"></script>
 <script src="/static/agent/pipeline.js"></script>
 <script src="/static/agent/knowledge-base.js"></script>
+<script src="/static/agent/memory.js"></script>
 <script src="/static/agent/connectors.js"></script>
 <script src="/static/agent/onboarding.js"></script>
 <script src="/static/agent/wizard.js"></script>

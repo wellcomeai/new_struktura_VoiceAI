@@ -19,6 +19,7 @@ from backend.models.task import Task, TaskStatus
 from backend.models.user import User
 from backend.models.agent_connector import AgentConnector
 from backend.services import composio_service
+from backend.services import agent_memory
 from backend.services import telegram_user_service
 from backend.services import max_user_service
 from backend.services.telegram_notification import TelegramNotificationService
@@ -188,6 +189,63 @@ SEND_TELEGRAM_NOTIFICATION_TOOL = {
 # ============================================================================
 # HELPERS
 # ============================================================================
+
+UPDATE_AGENT_MEMORY_TOOL = {
+    "type": "function",
+    "name": "update_agent_memory",
+    "description": (
+        "Точечно изменить ТВОЮ память (блокнот агента, блок «ПАМЯТЬ АГЕНТА» в запросе): "
+        "добавить заметки (add), исправить заметки по id (update), удалить заметки по id (delete). "
+        "Можно передать несколько операций сразу. Не переписывай всю память — правь только нужные заметки. "
+        "Секции: instructions (правила владельца на будущее), observations (наблюдения о работе), "
+        "plans (намерения, не привязанные к контакту). Факты о конкретном клиенте сюда НЕ пиши — "
+        "для них update_contact_memory."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "add": {
+                "type": "array",
+                "description": "Новые заметки",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {
+                            "type": "string",
+                            "enum": agent_memory.SECTION_KEYS,
+                            "description": "Секция памяти",
+                        },
+                        "text": {"type": "string", "description": "Текст заметки: одна мысль, коротко"},
+                    },
+                    "required": ["section", "text"],
+                },
+            },
+            "update": {
+                "type": "array",
+                "description": "Исправить существующие заметки (id из блока «ПАМЯТЬ АГЕНТА», например m3)",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "id заметки"},
+                        "text": {"type": "string", "description": "Новый текст заметки целиком"},
+                        "section": {
+                            "type": "string",
+                            "enum": agent_memory.SECTION_KEYS,
+                            "description": "Перенести в другую секцию (опционально)",
+                        },
+                    },
+                    "required": ["id", "text"],
+                },
+            },
+            "delete": {
+                "type": "array",
+                "description": "id заметок, которые нужно удалить (устарели, выполнены, противоречат новым)",
+                "items": {"type": "string"},
+            },
+        },
+    },
+}
+
 
 def _parse_iso_utc(value) -> Optional[datetime]:
     """
@@ -1261,6 +1319,7 @@ AGENT_CHAT_TOOLS = [
     SEND_SMS_TOOL,
     SEND_WEBHOOK_TOOL,
     SEND_TELEGRAM_NOTIFICATION_TOOL,
+    UPDATE_AGENT_MEMORY_TOOL,
 ]
 
 
@@ -1327,6 +1386,7 @@ AGENT_POSTCALL_TOOLS = [
     SEARCH_KNOWLEDGE_BASE_TOOL,
     SEND_SMS_TOOL,
     SEND_WEBHOOK_TOOL,
+    UPDATE_AGENT_MEMORY_TOOL,
 ]
 
 
@@ -1510,6 +1570,26 @@ async def fn_update_contact_memory(args: dict, agent_config_id: str, db: Session
     db.commit()
     logger.info(f"[AGENT-TOOLS] Updated memory for contact {agent_contact_id}")
     return {"ok": True, "contact_id": agent_contact_id}
+
+
+async def fn_update_agent_memory(args: dict, agent_config_id: str, db: Session) -> dict:
+    """
+    Точечные операции над памятью агента (add / update / delete). Атомарно под
+    FOR UPDATE строки агента — см. agent_memory.lock_and_apply. Возвращает
+    отчёт: что применилось, что нет и почему (модель видит ошибки и лимиты).
+    """
+    if not agent_config_id:
+        return {"ok": False, "error": "agent_config_id_required"}
+    add = args.get("add") or []
+    update = args.get("update") or []
+    delete = args.get("delete") or []
+    if not isinstance(add, list) or not isinstance(update, list) or not isinstance(delete, list):
+        return {"ok": False, "error": "add/update/delete must be arrays"}
+    if not (add or update or delete):
+        return {"ok": False, "error": "nothing_to_do: pass add, update or delete"}
+    return agent_memory.lock_and_apply(
+        db, agent_config_id, add=add, update=update, delete=delete, source="agent"
+    )
 
 
 async def fn_update_contact_info(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -2669,6 +2749,7 @@ _TOOL_MAP = {
     "create_agent_contact": "fn_create_agent_contact",
     "create_agent_task": "fn_create_agent_task",
     "update_contact_memory": "fn_update_contact_memory",
+    "update_agent_memory": "fn_update_agent_memory",
     "update_contact_info": "fn_update_contact_info",
     "move_contact_stage": "fn_move_contact_stage",
     "get_agent_contacts": "fn_get_agent_contacts",
@@ -2720,6 +2801,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_create_agent_task(tool_args, user_id, agent_config_id, db)
         elif tool_name == "update_contact_memory":
             result = await fn_update_contact_memory(tool_args, agent_config_id, db)
+        elif tool_name == "update_agent_memory":
+            result = await fn_update_agent_memory(tool_args, agent_config_id, db)
         elif tool_name == "update_contact_info":
             result = await fn_update_contact_info(tool_args, user_id, agent_config_id, db)
         elif tool_name == "move_contact_stage":

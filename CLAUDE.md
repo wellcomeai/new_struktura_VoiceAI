@@ -227,6 +227,20 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
 - **База знаний** принадлежит пользователю (`pinecone_configs.user_id`), к ассистенту
   подключается строкой `Pinecone namespace: <ns>` в промпте (таб «База знаний»).
 
+## Память агента (ветка 1909-pamatb)
+
+У Voicyfy Agent есть собственная память, отдельная от памяти контактов
+(`agent_contacts.memory`): колонка `agent_configs.memory` (JSONB), заметки с id по
+секциям `instructions` (правила владельца), `observations` (наблюдения агента), `plans`
+(намерения). Логика в `backend/services/agent_memory.py`: правки **только точечные**
+(`add` / `update` по id / `delete` по id) под `FOR UPDATE`, полной перезаписи нет.
+Блок «ПАМЯТЬ АГЕНТА» приклеивается к user-сообщению во всех фазах оркестратора v3
+(system-промпт остаётся статичным ради кэша). Агент правит память тулзой
+`update_agent_memory`, владелец — карточкой «Память агента» на `agent.html`
+(`backend/static/agent/memory.js`, API `/api/agent/memory`). Лимиты: 60 заметок,
+400 символов на заметку, 8000 символов всего. Колонка добавляется на старте
+(`ensure_agent_memory_column` в `app.py`) и миграцией `add_agent_memory`.
+
 ## Key API Prefixes
 
 | Prefix | Description |

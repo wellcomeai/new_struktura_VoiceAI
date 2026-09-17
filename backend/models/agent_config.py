@@ -114,6 +114,12 @@ class AgentConfig(Base):
     # Чат с агентом
     chat_history = Column(JSONB, default=list, nullable=False)
 
+    # Память самого агента (блокнот оркестратора): заметки с id по секциям
+    # instructions / observations / plans. Формат и точечные операции —
+    # backend/services/agent_memory.py. Приходит в каждый запрос оркестратора
+    # (PreCall / PostCall / чат) блоком «ПАМЯТЬ АГЕНТА».
+    memory = Column(JSONB, default=dict, nullable=False)
+
     # ── Telegram-интеграция агента (v2.2) ──
     telegram_bot_token = Column(String(100), nullable=True)
     telegram_bot_username = Column(String(50), nullable=True)
