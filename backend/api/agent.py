@@ -3026,8 +3026,17 @@ async def import_contacts_preview(
     )
 
     valid_rows = len(unique_rows)
+    # Оценка для режима «авто-задачи через оркестратора» (create_tasks=True):
+    # оркестратор отработает PreCall/PostCall по каждому контакту.
     credits_required = valid_rows * CREDITS_PER_CONTACT
     credits_available = current_user.credits_balance or 0
+
+    # Режим без авто-задач (create_tasks=False): контакты просто сохраняются,
+    # оркестратор не трогает их, кредиты не нужны и баланс не проверяется.
+    # Задачи из файла (строки с «Задача»/«Когда звонить») ставятся напрямую —
+    # их стоимость показываем справочно, но импорт по ней не блокируем.
+    explicit_task_rows = sum(1 for r in unique_rows if _row_has_explicit_task(r))
+    credits_required_no_tasks = explicit_task_rows * CREDITS_PER_CONTACT
 
     blocked_reasons: List[str] = []
     if valid_rows == 0:
@@ -3035,6 +3044,8 @@ async def import_contacts_preview(
     if credits_required > credits_available:
         blocked_reasons.append("insufficient_credits")
     can_proceed = len(blocked_reasons) == 0
+    # Без авто-задач нехватка кредитов импорт не блокирует.
+    can_proceed_without_tasks = valid_rows > 0
 
     token = save_preview({
         "agent_id": str(agent.id),
@@ -3060,6 +3071,10 @@ async def import_contacts_preview(
         "credits_available": credits_available,
         "can_proceed": can_proceed,
         "blocked_reasons": blocked_reasons,
+        # Режим create_tasks=False (галочка авто-задач снята)
+        "explicit_task_rows": explicit_task_rows,
+        "credits_required_estimate_no_tasks": credits_required_no_tasks,
+        "can_proceed_without_tasks": can_proceed_without_tasks,
     }
 
 
@@ -3228,14 +3243,18 @@ def import_contacts_execute(
     if not rows:
         raise HTTPException(status_code=400, detail="no_valid_rows")
 
-    # Финальная проверка баланса кредитов
-    credits_required = len(rows) * CREDITS_PER_CONTACT
-    if credits_required > (current_user.credits_balance or 0):
-        raise HTTPException(status_code=402, detail={
-            "error": "insufficient_credits",
-            "required": credits_required,
-            "available": current_user.credits_balance or 0,
-        })
+    # Финальная проверка баланса кредитов — только если оркестратор будет
+    # проставлять авто-задачи. Без авто-задач (create_tasks=False) контакты
+    # загружаются целиком вне зависимости от баланса: оркестратор их не
+    # обрабатывает, кредиты не списываются.
+    if body.create_tasks:
+        credits_required = len(rows) * CREDITS_PER_CONTACT
+        if credits_required > (current_user.credits_balance or 0):
+            raise HTTPException(status_code=402, detail={
+                "error": "insufficient_credits",
+                "required": credits_required,
+                "available": current_user.credits_balance or 0,
+            })
 
     background_tasks.add_task(
         _run_contacts_import,
