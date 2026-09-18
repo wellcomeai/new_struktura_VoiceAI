@@ -21,6 +21,11 @@ from backend.services.assistant_limit_service import count_user_assistants
 
 logger = get_logger(__name__)
 
+
+def _onboarding_done(user) -> bool:
+    """Онбординг пройден (первый тестовый звонок) — или это админ."""
+    return bool(getattr(user, "is_admin", False)) or getattr(user, "onboarding_completed_at", None) is not None
+
 class UserService:
     """Service for user operations"""
     
@@ -98,6 +103,7 @@ class UserService:
             # ✅ Тарифы
             is_trial=user.is_trial,
             is_admin=user.is_admin,
+            onboarding_completed=_onboarding_done(user),
             subscription_end_date=user.subscription_end_date
         )
 
@@ -161,6 +167,7 @@ class UserService:
             # ✅ Тарифы
             is_trial=user.is_trial,
             is_admin=user.is_admin,
+            onboarding_completed=_onboarding_done(user),
             subscription_end_date=user.subscription_end_date,
             
             # ✅ Статистика
@@ -277,6 +284,7 @@ class UserService:
                 # ✅ Тарифы
                 is_trial=user.is_trial,
                 is_admin=user.is_admin,
+            onboarding_completed=_onboarding_done(user),
                 subscription_end_date=user.subscription_end_date
             )
             

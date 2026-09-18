@@ -235,6 +235,22 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
   (`agent/instructions-voice.js`, fallback в `voice-assistants.html`), справочник —
   `GET /api/fish-assistants/options`.
 
+## Обязательный онбординг (ветка 1909-pamatb)
+
+Новый пользователь после регистрации не попадает в кабинет, пока не создаст
+ассистента и не включит тестовый номер: `users.onboarding_completed_at` (NULL —
+онбординг не пройден; существующим пользователям проставлен при добавлении колонки,
+`ensure_onboarding_columns` в `app.py` / миграция `add_user_onboarding`). `/users/me`
+отдаёт `onboarding_completed`; `backend/static/js/sidebar.js` при `false` редиректит
+с любой страницы на `voice-assistants.html?onboarding=1` (шаг 1: только редактор
+нового ассистента, Fish предвыбран) → после сохранения
+`telephony.html?onboarding=1&assistant_type=&assistant_id=` (шаг 2: только карточка
+тестового номера, ассистент предвыбран), остальные пункты меню — класс `ob-locked`.
+Флаг снимает `TestNumberService.start`: аренда онбординга помечается
+`test_number_leases.is_onboarding` и в лимит попыток не входит (после онбординга
+остаётся обычная попытка). Блокировка только в интерфейсе, API не ограничен; админов
+не касается.
+
 ## Память агента (ветка 1909-pamatb)
 
 У Voicyfy Agent есть собственная память, отдельная от памяти контактов

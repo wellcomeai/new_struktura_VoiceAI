@@ -24,6 +24,23 @@
     .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
     .layout.grid-mode { grid-template-columns: 1fr; }
     .layout.grid-mode .editor { display: none; }
+    /* Онбординг (?onboarding=1): только редактор нового ассистента, без списка, табов и лишних кнопок */
+    .layout.ob-mode { grid-template-columns: 1fr; }
+    .layout.ob-mode .list-panel { display: none; }
+    .layout.ob-mode .editor { display: block; }
+    .layout.ob-mode .tabs, .layout.ob-mode #btn-back, .layout.ob-mode #btn-more, .layout.ob-mode #active-wrap, .layout.ob-mode #btn-cancel { display: none !important; }
+    body.vf-onboarding #btn-new, body.vf-onboarding #usage-pill { display: none !important; }
+    .ob-banner { display: none; margin-bottom: 20px; padding: 16px 20px; border: 1px solid var(--vf-border); border-radius: var(--vf-r-lg); background: var(--vf-surface); box-shadow: var(--vf-shadow-1); }
+    .ob-banner.show { display: block; }
+    .ob-steps { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+    .ob-step { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--vf-text-3); }
+    .ob-step .n { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); }
+    .ob-step.cur { color: var(--vf-text); } .ob-step.cur .n { background: var(--vf-accent); border-color: var(--vf-accent); color: #fff; }
+    .ob-step .arrow { color: var(--vf-text-4); }
+    .ob-banner p { margin: 0; color: var(--vf-text-3); font-size: 13.5px; line-height: 1.5; }
+    .ob-banner .ob-existing { margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #models-ob-hint { display: none; margin-top: 10px; }
+    body.vf-onboarding #models-ob-hint { display: block; }
 
     .list-panel { position: sticky; top: calc(var(--vf-topbar-h) + 20px); max-height: calc(100vh - var(--vf-topbar-h) - 40px); display: flex; flex-direction: column; }
     .layout.grid-mode .list-panel { position: static; max-height: none; border: none; box-shadow: none; background: transparent; border-radius: 0; }
@@ -158,6 +175,16 @@
     </header>
 
     <div class="vf-content">
+      <!-- Онбординг: степпер «1 Ассистент → 2 Тестовый звонок» (показывается при ?onboarding=1) -->
+      <div class="ob-banner" id="ob-banner">
+        <div class="ob-steps">
+          <span class="ob-step cur"><span class="n">1</span> Создайте ассистента</span>
+          <span class="ob-step"><span class="arrow">→</span></span>
+          <span class="ob-step"><span class="n">2</span> Позвоните ему на тестовый номер</span>
+        </div>
+        <p>Задайте имя и промпт, выберите голосовую модель и нажмите «Сохранить и перейти к звонку». После первого звонка откроется весь кабинет: телефония, CRM, диалоги, агент обзвона.</p>
+        <div class="ob-existing" id="ob-existing" style="display:none;"></div>
+      </div>
       <div class="layout grid-mode" id="layout">
         <!-- Список -->
         <section class="card list-panel">
@@ -213,6 +240,7 @@
               <div class="block">
                 <div class="block-title">Голосовая модель</div>
                 <div class="models" id="models-grid"></div>
+                <div class="hint" id="models-ob-hint">Для первого звонка рекомендуем Fish Audio: премиальный русский синтез, ключи уже подключены. После первого звонка вы можете вернуться в настройки ассистента и сменить голосовую модель, чтобы протестировать другие.</div>
                 <div class="note" style="margin-top:12px;"><svg class="ic"><use href="/static/icons/ui.svg#i-info"></use></svg><span>Цена модели списывается с кошелька за минуту разговора. Минуты связи при звонках оплачиваются с баланса телефонии. Если в профиле указан ваш API-ключ провайдера, модель работает на нём и с кошелька не списывается.</span></div>
                 <div class="note note-warning" id="switch-warn" style="display:none;margin-top:8px;"><svg class="ic"><use href="/static/icons/ui.svg#i-triangle-alert"></use></svg><span>При смене модели ассистент будет пересоздан с новым ID, привязанные номера телефонии перепривяжутся автоматически.</span></div>
               </div>
@@ -313,7 +341,7 @@
   const SILENCE_PRESETS = [[300, 'Быстрая', '300 мс'], [650, 'Сбалансированная', '650 мс'], [1000, 'Терпеливая', '1000 мс']];
   const DEFAULT_GREETING = 'Здравствуйте! Чем я могу вам помочь?';
 
-  const state = { tariffs: {}, assistants: [], current: null, isNew: false, model: null, voice: {}, functions: [], enabledFunctions: new Set(), savedFunctions: [], options: {}, kbs: [], dirty: false, saving: false };
+  const state = { tariffs: {}, assistants: [], current: null, isNew: false, model: null, voice: {}, functions: [], enabledFunctions: new Set(), savedFunctions: [], options: {}, kbs: [], dirty: false, saving: false, onboarding: false };
 
   const $ = id => document.getElementById(id);
   const esc = VF.esc;
@@ -529,7 +557,7 @@
         <div class="m-head">${VF.logo(code, { size: 18 })}<span class="m-name">${esc(t.name || p.name)}</span></div>
         ${priceHtml}
         <div class="m-desc">${esc(t.description || '')}</div>
-        <div class="m-tags">${t.badge ? `<span class="chip chip-accent">${esc(t.badge)}</span>` : ''}${chans.includes('widget') ? '<span class="chip">Виджет</span><span class="chip">Телефония</span>' : '<span class="chip">Только телефония</span>'}${code === 'fish' ? '<span class="chip" title="Можно клонировать свой голос в кабинете Fish Audio">Клон голоса</span>' : ''}</div>
+        <div class="m-tags">${t.badge ? `<span class="chip chip-accent">${esc(t.badge)}</span>` : ''}${chans.includes('widget') ? '<span class="chip">Виджет</span><span class="chip">Телефония</span>' : '<span class="chip">Только телефония</span>'}${code === 'fish' ? '<span class="chip" title="Можно клонировать свой голос в кабинете Fish Audio">Клон голоса</span>' : ''}${state.onboarding && code === 'fish' ? '<span class="chip chip-success">Рекомендуем для первого звонка</span>' : ''}</div>
       </div>`;
     }).join('');
     grid.querySelectorAll('.model').forEach(el => {
@@ -725,6 +753,7 @@
         toast('Ассистент создан', 'success');
         // Сбрасываем флаг до selectAssistant: иначе он спросит «Несохранённые изменения» сразу после сохранения
         setDirty(false);
+        if (state.onboarding) { gotoOnboardingCall(type, String(r.data.id)); return; }
         await loadAssistants(); await loadUsage();
         await selectAssistant(String(r.data.id), type);
       } else if (type === state.current.type) {
@@ -954,6 +983,45 @@
   }
 
   // ===================================================================
+  // ОНБОРДИНГ (?onboarding=1) — шаг 1: первый ассистент
+  // Режим включает sidebar.js, пока /users/me отдаёт onboarding_completed=false.
+  // Здесь: только редактор нового ассистента, Fish предвыбран, после
+  // сохранения — шаг 2 (тестовый звонок в телефонии).
+  // ===================================================================
+  const OB_DEFAULT_NAME = 'Мой первый ассистент';
+  const OB_DEFAULT_PROMPT = `Ты — вежливый голосовой помощник компании. Отвечай коротко, по делу, дружелюбно.
+Поздоровайся, спроси, чем можешь помочь. Отвечай на вопросы о компании и услугах, если не знаешь ответа — предложи передать вопрос менеджеру.
+В конце разговора поблагодари и попрощайся.`;
+
+  function gotoOnboardingCall(type, id) {
+    const q = new URLSearchParams({ onboarding: '1', assistant_type: type, assistant_id: id });
+    location.href = '/static/telephony.html?' + q.toString() + '#test-number';
+  }
+
+  function enterOnboarding() {
+    document.body.classList.add('vf-onboarding');
+    $('layout').classList.add('ob-mode');
+    $('ob-banner').classList.add('show');
+    document.querySelector('.vf-topbar h1').textContent = 'Шаг 1 из 2: создайте ассистента';
+    $('btn-save').innerHTML = `${ic('phone')} Сохранить и перейти к звонку`;
+    // Уже есть ассистент (например, вернулись на шаг 1) — можно сразу идти звонить
+    const ready = state.assistants.filter(a => ['openai', 'gemini', 'cascade', 'fish', 'yandex'].includes(a.type));
+    if (ready.length) {
+      const a = ready[0];
+      const box = $('ob-existing');
+      box.style.display = '';
+      box.innerHTML = `<span class="small">У вас уже есть ассистент «${esc(a.data.name || 'Без имени')}».</span><button class="btn btn-sm btn-primary" id="ob-go-call">${ic('phone', 'ic-sm')} Перейти к тестовому звонку</button>`;
+      $('ob-go-call').addEventListener('click', () => gotoOnboardingCall(a.type, a.id));
+    }
+  }
+
+  function prefillOnboarding() {
+    if (!$('f-name').value.trim()) $('f-name').value = OB_DEFAULT_NAME;
+    if (!$('f-prompt').value.trim()) { $('f-prompt').value = OB_DEFAULT_PROMPT; $('prompt-count').textContent = OB_DEFAULT_PROMPT.length; }
+    $('editor-title').textContent = $('f-name').value;
+  }
+
+  // ===================================================================
   // INIT
   // ===================================================================
   async function init() {
@@ -964,7 +1032,9 @@
     await Promise.all([loadAssistants(), loadFunctions(), loadUsage()]);
     const params = new URLSearchParams(location.search);
     const id = params.get('id'), model = params.get('model'), tab = params.get('tab');
+    state.onboarding = params.get('onboarding') === '1';
     setLayoutMode(false);
+    if (state.onboarding) { enterOnboarding(); await newAssistant(model || 'fish'); prefillOnboarding(); VF.ready(); return; }
     if (id) { const a = state.assistants.find(x => x.id === id); if (a) await selectAssistant(a.id, a.type); }
     else if (tab === 'knowledge') { if (state.assistants.length) await selectAssistant(state.assistants[0].id, state.assistants[0].type); else await newAssistant(model); activateTab('knowledge'); }
     else if (model || !state.assistants.length) await newAssistant(model);

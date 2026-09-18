@@ -1589,6 +1589,17 @@
     .tn-phone { font-size: 1.75rem; font-weight: 800; letter-spacing: .02em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #1e293b; }
     .tn-timer { font-size: 2.25rem; font-weight: 800; font-variant-numeric: tabular-nums; color: #15803d; line-height: 1; }
     .tn-timer.warn { color: #b45309; }
+    /* Онбординг (?onboarding=1): на странице только карточка тестового номера */
+    body.tn-ob-focus .content-container > :not(#test-number-card):not(#tn-ob-banner) { display: none !important; }
+    .tn-ob-banner { margin-bottom: 1rem; padding: 1rem 1.25rem; border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 12px); background: #fff; }
+    .tn-ob-steps { display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-bottom: .5rem; }
+    .tn-ob-step { display: inline-flex; align-items: center; gap: .5rem; font-size: .85rem; font-weight: 600; color: #64748b; }
+    .tn-ob-step .n { width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .75rem; background: #f1f5f9; border: 1px solid #e2e8f0; }
+    .tn-ob-step.done .n { background: #dcfce7; border-color: #bbf7d0; color: #15803d; }
+    .tn-ob-step.cur { color: #0f172a; } .tn-ob-step.cur .n { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .tn-ob-banner p { margin: 0; color: #64748b; font-size: .9rem; line-height: 1.5; }
+    .tn-ob-done { margin-top: .9rem; padding: .9rem 1rem; border-radius: var(--radius-md, 12px); background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; font-size: .9rem; line-height: 1.5; }
+    .tn-ob-done .btn { margin-top: .6rem; }
     .tn-progress { height: 6px; border-radius: 999px; background: #e2e8f0; overflow: hidden; margin: .75rem 0; }
     .tn-progress > span { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width 1s linear; }
     .tn-muted { color: var(--text-gray); font-size: .875rem; }
@@ -3438,6 +3449,13 @@
       let tnRebindValue = '';
       let tnAssistants = null;  // кэш списка ассистентов
       let tnTariffs = {};
+      // Онбординг (шаг 2): страница открыта из мастера первого ассистента
+      // (voice-assistants.html?onboarding=1). Ассистент предвыбран из URL,
+      // остальные секции телефонии скрыты (body.tn-ob-focus) до «Перейти в кабинет».
+      const tnParams = new URLSearchParams(location.search);
+      const tnOnboarding = tnParams.get('onboarding') === '1';
+      const tnPreselect = (tnParams.get('assistant_type') && tnParams.get('assistant_id'))
+        ? tnParams.get('assistant_type') + ':' + tnParams.get('assistant_id') : '';
       let tnScrolled = false;   // прокрутка к карточке по якорю #test-number выполнена
 
       function tnMmss(sec) {
@@ -3497,7 +3515,17 @@
         const minutes = st.next_attempt_minutes || st.lease_minutes || 10;
         const extraAttempt = (st.attempts_used || 0) > 0 && st.can_start;
 
-        const intro = `
+        const obFirst = !!st.onboarding;  // первый звонок после регистрации: попытка не тратится
+        const intro = obFirst ? `
+          <div>
+            <p class="tn-muted" style="margin:0 0 .5rem;">Это ваш <strong>первый звонок</strong>: мы даём один из наших номеров на <strong>${minutes} минут</strong>, чтобы вы услышали ассистента в реальном разговоре. Попытка не тратится — после онбординга у вас останется ещё одна.</p>
+            <ol class="tn-steps">
+              <li>Нажмите «Включить номер и позвонить»</li>
+              <li>Позвоните на выданный номер с любого телефона</li>
+              <li>Поговорите с ассистентом — и кабинет откроется полностью</li>
+            </ol>
+            <p class="tn-hint">Работают только входящие звонки, таймер идёт с момента включения. Минуты разговора списываются с кошелька по тарифу модели — приветственных рублей на первый звонок хватит.</p>
+          </div>` : `
           <div>
             <p class="tn-muted" style="margin:0 0 .5rem;">Мы даём один из наших номеров на <strong>${minutes} минут</strong>, чтобы вы могли позвонить своему ассистенту и услышать его в реальном звонке.</p>
             <ol class="tn-steps">
@@ -3522,6 +3550,7 @@
               <div class="tn-progress"><span id="tn-progress-bar" style="width:100%"></span></div>
               <div class="tn-timer" id="tn-timer">${tnMmss(lease.seconds_left)}</div>
               <div class="tn-muted">осталось до отключения</div>
+              ${tnOnboarding && lease.is_onboarding ? `<div class="tn-ob-done"><strong>Онбординг пройден!</strong> Позвоните на номер выше и поговорите с ассистентом. Весь кабинет уже открыт: после звонка можно вернуться в настройки ассистента и сменить голосовую модель, чтобы протестировать другие.<br><a class="btn btn-primary" href="/static/dashboard.html"><i class="fas fa-arrow-right"></i> Перейти в кабинет</a></div>` : ''}
               <div class="tn-actions">
                 <button class="btn btn-outline" id="tn-change-btn"><i class="fas fa-arrows-rotate"></i> Сменить ассистента</button>
                 <button class="btn btn-outline" id="tn-release-btn"><i class="fas fa-stop"></i> Отключить</button>
@@ -3602,7 +3631,7 @@
               <div class="tn-hint" id="tn-assistant-hint">Только голосовые ассистенты: OpenAI, Gemini, Каскад, Fish Audio, Яндекс.</div>
             </div>
             <div class="tn-actions">
-              <button class="btn btn-primary" id="tn-start-btn" disabled><i class="fas fa-play"></i> Включить на ${minutes} минут</button>
+              <button class="btn btn-primary" id="tn-start-btn" disabled><i class="fas fa-play"></i> ${obFirst ? 'Включить номер и позвонить' : `Включить на ${minutes} минут`}</button>
             </div>
             ${extraAttempt ? `<div class="tn-hint" style="color:#15803d;">Администратор выдал вам дополнительную попытку на ${minutes} минут.</div>` : ''}
             <div class="tn-hint" id="tn-error" style="color:#dc2626;"></div>
@@ -3661,12 +3690,28 @@
             if (hint) hint.innerHTML = 'Сначала <a href="/static/voice-assistants.html">создайте голосового ассистента</a>, затем вернитесь сюда.';
             return;
           }
-          render(tnAssistants.map(a => ({
+          const options = tnAssistants.map(a => ({
             value: `${a.type}:${a.id}`,
             label: `${a.name}${a.is_active === false ? ' (выключен)' : ''}`,
             sub: [TN_MODEL_NAMES[a.type] || a.type, tnPriceLabel(a.type)].filter(Boolean).join(' · '),
             icon: window.VF ? VF.logo(a.type, { size: 18 }) : '',
-          })));
+          }));
+          render(options);
+          // Онбординг: ассистент, только что созданный на шаге 1, уже выбран
+          // (единственный ассистент подставляем и без параметров в URL)
+          if (!isRebind) {
+            const pre = options.find(o => o.value === tnPreselect) || (tnOnboarding && options.length === 1 ? options[0] : null);
+            if (pre) {
+              tnSelectValue = pre.value;
+              VF.select(root, { groups: [{ label: null, options }], value: pre.value, search: options.length > 8,
+                onChange: (value) => { tnSelectValue = value || ''; const b = document.getElementById('tn-start-btn'); if (b) b.disabled = !tnSelectValue; } });
+              const btn = document.getElementById('tn-start-btn');
+              if (btn) btn.disabled = false;
+              const hint = document.getElementById('tn-assistant-hint');
+              const type = pre.value.split(':')[0];
+              if (hint && tnTariffs[type]) hint.textContent = `${TN_MODEL_NAMES[type] || type}: ${tnPriceLabel(type)}.`;
+            }
+          }
         } catch (e) {
           render([{ value: '', label: 'Ошибка загрузки', disabled: true }], 'Ошибка загрузки');
         }
@@ -3681,7 +3726,9 @@
         const attemptsLeft = tnStatus ? Math.max(0, (tnStatus.attempts_total || 1) - (tnStatus.attempts_used || 0)) : 1;
         const ok = await VF.confirm({
           title: `Включить тестовый номер на ${minutes} минут?`,
-          message: (attemptsLeft > 1 ? `У вас ${attemptsLeft} попытки. ` : 'Это можно сделать только один раз. ') + 'Таймер начнётся сразу после включения, досрочное отключение попытку не возвращает.',
+          message: (tnStatus && tnStatus.onboarding)
+            ? 'Это ваш первый звонок — попытка не тратится. Таймер начнётся сразу после включения, держите телефон под рукой.'
+            : (attemptsLeft > 1 ? `У вас ${attemptsLeft} попытки. ` : 'Это можно сделать только один раз. ') + 'Таймер начнётся сразу после включения, досрочное отключение попытку не возвращает.',
           confirmText: 'Включить',
           icon: 'phone',
         });
@@ -3695,6 +3742,8 @@
           showNotification(res.message || 'Тестовый номер включён', 'success');
           tnStatus = res.status;
           renderTestNumber();
+          // Первый звонок сделан — бэкенд снял онбординг, открываем меню
+          if (window.VoicyfySidebar && window.VoicyfySidebar.refreshOnboarding) window.VoicyfySidebar.refreshOnboarding();
         } catch (e) {
           if (err) err.textContent = e.message || 'Не удалось включить тестовый номер';
           if (btn) btn.disabled = false;
@@ -3740,6 +3789,23 @@
           showNotification(e.message || 'Ошибка отключения', 'error');
           loadTestNumberStatus(true);
         }
+      }
+
+      // Онбординг, шаг 2: только карточка тестового номера и степпер
+      if (tnOnboarding) {
+        document.body.classList.add('tn-ob-focus');
+        const title = document.querySelector('.page-title');
+        if (title) title.textContent = 'Шаг 2 из 2: позвоните ассистенту';
+        const card = document.getElementById('test-number-card');
+        card.insertAdjacentHTML('beforebegin', `
+          <div class="tn-ob-banner" id="tn-ob-banner">
+            <div class="tn-ob-steps">
+              <span class="tn-ob-step done"><span class="n"><i class="fas fa-check"></i></span> Ассистент создан</span>
+              <span class="tn-ob-step"><i class="fas fa-arrow-right" style="color:#94a3b8"></i></span>
+              <span class="tn-ob-step cur"><span class="n">2</span> Позвоните ему на тестовый номер</span>
+            </div>
+            <p>Включите тестовый номер и позвоните на него с любого телефона. После этого откроется весь кабинет. Ассистента всегда можно доработать на странице «Голосовые ассистенты».</p>
+          </div>`);
       }
 
       // Инициализация
