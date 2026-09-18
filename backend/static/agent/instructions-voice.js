@@ -97,6 +97,33 @@ const CASCADE_VOICES = ['Anna','Sergey'];
 // Режимы синтеза Fish (должны совпадать с FISH_LATENCY_MODES в backend/models/fish_assistant.py).
 const FISH_LATENCY_MODES = ['low','balanced','normal'];
 const FISH_LATENCY_LABELS = { low:'Быстрый старт', balanced:'Сбалансированный', normal:'Качественный' };
+// Готовые голоса Fish Audio (должны совпадать с FISH_VOICES в backend/models/fish_assistant.py).
+// Первый — голос по умолчанию. Помимо них можно вписать свой reference_id (в т.ч. клон).
+const FISH_VOICES = [
+  { id:'1ac3ce2f7ba24e90ac2a08055c253fe7', name:'Светлана', gender:'f', desc:'Тёплый, приветливый' },
+  { id:'5ddd9a81cc554841a53b75e355d52628', name:'Сергей',   gender:'m', desc:'Уверенный, деловой' },
+];
+const FISH_CUSTOM_VOICE = '__custom';
+function fishVoicePreviewHtml(id, customId){
+  const v = FISH_VOICES.find(x => x.id === id);
+  if(v){
+    const g = GENDER_INFO[v.gender] || GENDER_INFO.n;
+    return `<span class="voice-ava ${g.cls}"><i class="fas ${g.icon}"></i></span>
+      <div class="voice-pv-txt"><b>${esc(v.name)} · ${g.label} голос</b><span>${esc(v.desc)}</span></div>`;
+  }
+  return `<span class="voice-ava g-n"><i class="fas fa-fingerprint"></i></span>
+    <div class="voice-pv-txt"><b>Свой голос</b><span>${customId ? esc(customId) : 'reference_id из библиотеки fish.audio, можно свой клон'}</span></div>`;
+}
+// Переключение селекта голоса Fish: для «Свой ID» показываем поле ввода.
+function onFishVoiceChange(sel, ids){
+  const wrap = document.getElementById(ids.fvid + '-wrap');
+  const inp = document.getElementById(ids.fvid);
+  const custom = sel.value === FISH_CUSTOM_VOICE;
+  if(wrap) wrap.style.display = custom ? '' : 'none';
+  if(custom && inp) inp.focus();
+  const el = document.getElementById(ids.desc);
+  if(el) el.innerHTML = fishVoicePreviewHtml(sel.value, inp ? inp.value.trim() : '');
+}
 
 // Пол + краткое описание голоса: [gender('m'|'f'|'n'), описание].
 const VOICE_META = {
@@ -150,16 +177,29 @@ function updateVoicePreview(sel, descId, type){
 // ids: { voice, vid, spd, spdv, desc, fvid, flat } — id элементов (модалка и визард используют разные).
 function voiceControlHtml(type, cur, ids){
   if(type==='fish'){
-    // У Fish голос — reference_id из библиотеки fish.audio (в т.ч. свой клон),
-    // фиксированного списка голосов нет. Модель синтеза не показываем: пока
-    // обкатывается только одна (см. FISH_SELECTABLE_MODELS на бэке).
+    // У Fish два готовых голоса (FISH_VOICES) плюс «Свой ID» — reference_id
+    // из библиотеки fish.audio (в т.ч. свой клон). Модель синтеза не показываем:
+    // пока обкатывается только одна (см. FISH_SELECTABLE_MODELS на бэке).
     const spd = (cur.voice_speed!=null) ? cur.voice_speed : 1.0;
     const lat = cur.fish_latency || 'balanced';
     const latOpts = FISH_LATENCY_MODES.map(m =>
       `<option value="${m}" ${m===lat?'selected':''}>${FISH_LATENCY_LABELS[m]||m}</option>`).join('');
+    const curId = cur.fish_voice_id || FISH_VOICES[0].id;
+    const isPreset = FISH_VOICES.some(x => x.id === curId);
+    const selVal = isPreset ? curId : FISH_CUSTOM_VOICE;
+    const customId = isPreset ? '' : curId;
+    const voiceOpts = FISH_VOICES.map(x => {
+      const g = GENDER_INFO[x.gender] || GENDER_INFO.n;
+      return `<option value="${x.id}" ${x.id===selVal?'selected':''}>${x.name} · ${g.label.toLowerCase()}</option>`;
+    }).join('') + `<option value="${FISH_CUSTOM_VOICE}" ${selVal===FISH_CUSTOM_VOICE?'selected':''}>Свой ID голоса…</option>`;
     return `<div class="form-group">
+        <label class="form-label">Голос</label>
+        <select class="form-select" id="${ids.voice}" onchange="onFishVoiceChange(this, ${JSON.stringify(ids).replace(/"/g,'&quot;')})">${voiceOpts}</select>
+        <div class="voice-preview" id="${ids.desc}">${fishVoicePreviewHtml(selVal, customId)}</div>
+      </div>
+      <div class="form-group" id="${ids.fvid}-wrap" style="${isPreset ? 'display:none' : ''}">
         <label class="form-label">Fish Voice ID</label>
-        <input type="text" class="form-input" id="${ids.fvid}" value="${esc(cur.fish_voice_id||'')}" placeholder="e58b0d7efca34eb38d5c4985e378abcb">
+        <input type="text" class="form-input" id="${ids.fvid}" value="${esc(customId)}" placeholder="e58b0d7efca34eb38d5c4985e378abcb">
         <div class="form-hint">ID голоса из <a href="https://fish.audio/" target="_blank">fish.audio</a> (можно свой клон). Пустое поле — голос по умолчанию.</div>
       </div>
       <div class="form-group">
@@ -200,11 +240,15 @@ function voiceControlHtml(type, cur, ids){
 // Считать выбранный голос в объект для тела запроса.
 function readVoiceBody(type, ids){
   if(type==='fish'){
+    const selEl = document.getElementById(ids.voice);
     const vidEl = document.getElementById(ids.fvid);
     const spdEl = document.getElementById(ids.spd);
     const latEl = document.getElementById(ids.flat);
+    // Готовый голос — id из селекта; «Свой ID» — из поля (пусто → дефолт на бэке).
+    const sel = selEl ? selEl.value : FISH_CUSTOM_VOICE;
+    const voiceId = sel !== FISH_CUSTOM_VOICE ? sel : (vidEl ? vidEl.value.trim() : '');
     return {
-      fish_voice_id: vidEl ? (vidEl.value.trim() || null) : null,
+      fish_voice_id: voiceId || null,
       voice_speed: spdEl ? (parseFloat(spdEl.value) || 1.0) : 1.0,
       fish_latency: latEl ? latEl.value : null,
     };

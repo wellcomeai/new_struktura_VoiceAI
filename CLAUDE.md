@@ -226,6 +226,14 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
   `CASCADE_CREDITS_BILLING`. Роутер: `backend/api/wallet.py` (`/api/wallet`).
 - **База знаний** принадлежит пользователю (`pinecone_configs.user_id`), к ассистенту
   подключается строкой `Pinecone namespace: <ns>` в промпте (таб «База знаний»).
+- **Fish Audio** работает только на серверном `FISH_API_KEY`: свой ключ Fish пользователь
+  не указывает (карточки в настройках нет, `provider_keys.resolve("fish")` колонку
+  `users.fish_api_key` не читает, она оставлена для отката), поэтому модель всегда по
+  тарифу. Голоса: готовые `FISH_VOICES` в `backend/models/fish_assistant.py` (Светлана
+  по умолчанию, Сергей) плюс свой `reference_id` из fish.audio; пустой `fish_voice_id`
+  бэкенд заменяет на `DEFAULT_FISH_VOICE_ID`. Список дублируется во фронте
+  (`agent/instructions-voice.js`, fallback в `voice-assistants.html`), справочник —
+  `GET /api/fish-assistants/options`.
 
 ## Память агента (ветка 1909-pamatb)
 

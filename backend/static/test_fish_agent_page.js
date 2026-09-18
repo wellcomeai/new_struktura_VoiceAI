@@ -175,7 +175,8 @@ function check(cond, msg, errors) {
         check(nextDisabled, "«Далее» доступна без ключей Fish", errors);
         console.log("✅ мастер: без ключей дальше не пускает");
 
-        // Шаг выбора голоса: у Fish — текстовое поле reference_id, не селект.
+        // Шаг выбора голоса: у Fish — селект из готовых голосов (Светлана,
+        // Сергей) и пункт «Свой ID», раскрывающий поле reference_id.
         await page.evaluate(async () => {
             wizardData.assistant_type = "fish";
             wizardStep = 7;
@@ -183,15 +184,21 @@ function check(cond, msg, errors) {
         });
         await page.waitForTimeout(400);
 
-        check(await page.locator("#w-fish-voice-id").count() === 1,
-              "нет поля Fish Voice ID на шаге голоса", errors);
+        check(await page.locator("#w-voice").count() === 1,
+              "нет селекта голосов Fish на шаге голоса", errors);
+        const fishOpts = await page.$$eval("#w-voice option", (n) => n.map((x) => x.textContent.trim()));
+        check(fishOpts.some((t) => t.indexOf("Светлана") !== -1) && fishOpts.some((t) => t.indexOf("Сергей") !== -1),
+              "в селекте Fish нет готовых голосов: " + fishOpts.join(" | "), errors);
+        check(await page.locator("#w-fish-voice-id").count() === 1 && await page.locator("#w-fish-voice-id").isHidden(),
+              "поле Fish Voice ID должно быть скрыто, пока выбран готовый голос", errors);
         check(await page.locator("#w-fish-latency").count() === 1,
               "нет селекта режима синтеза Fish", errors);
-        check(await page.locator("#w-voice").count() === 0,
-              "у Fish показан селект голосов вместо поля reference_id", errors);
-        console.log("✅ мастер: голос Fish задаётся reference_id + скорость + режим");
+        console.log("✅ мастер: голос Fish — готовые голоса + свой ID, скорость, режим");
 
-        // Заполняем голос и жмём «Создать агента» — смотрим, что уходит на бэк.
+        // Переключаемся на «Свой ID», вписываем reference_id и жмём «Создать агента».
+        await page.selectOption("#w-voice", "__custom");
+        check(await page.locator("#w-fish-voice-id").isVisible(),
+              "поле Fish Voice ID не раскрылось после выбора «Свой ID»", errors);
         await page.fill("#w-fish-voice-id", FISH_VOICE_ID);
         await page.selectOption("#w-fish-latency", "low");
         await page.evaluate(() => {

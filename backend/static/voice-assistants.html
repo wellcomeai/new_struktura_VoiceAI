@@ -297,6 +297,12 @@
     cascade: { name: 'Каскад', list: '/api/grok-assistants/cascade', create: '/api/grok-assistants/cascade', item: id => '/api/grok-assistants/cascade/' + id, listShape: 'array', widget: false, options: '/api/grok-assistants/cascade/tts-providers' },
   };
   const MODEL_ORDER = ['cascade', 'gemini', 'fish', 'yandex', 'openai'];
+  // Готовые голоса Fish на случай, если /api/fish-assistants/options недоступен
+  // (основной источник — FISH_VOICES в backend/models/fish_assistant.py).
+  const FISH_VOICES_FALLBACK = [
+    { id: '1ac3ce2f7ba24e90ac2a08055c253fe7', name: 'Светлана', gender: 'f' },
+    { id: '5ddd9a81cc554841a53b75e355d52628', name: 'Сергей', gender: 'm' },
+  ];
   const OPENAI_VOICES = ['alloy', 'echo', 'marin', 'cedar', 'shimmer', 'ash', 'ballad', 'coral', 'sage', 'verse'];
   const GEMINI_VOICES = [['Puck','M'],['Charon','M'],['Kore','F'],['Fenrir','M'],['Aoede','F'],['Achernar','F'],['Achird','M'],['Algenib','M'],['Algieba','M'],['Alnilam','M'],['Autonoe','F'],['Callirrhoe','F'],['Despina','F'],['Enceladus','M'],['Erinome','F'],['Gacrux','F'],['Iapetus','M'],['Laomedeia','F'],['Leda','F'],['Orus','M'],['Pulcherrima','F'],['Rasalgethi','M'],['Sadachbia','M'],['Sadaltager','M'],['Schedar','M'],['Sulafat','F'],['Umbriel','M'],['Vindemiatrix','F'],['Zephyr','F'],['Zubenelgenubi','M']];
   const YANDEX_VOICES_FALLBACK = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
@@ -573,14 +579,24 @@
       VF.skeleton(box, 2, 'skeleton-line');
       const o = (await loadOptions('fish')) || {}; if (state.model !== 'fish') return;
       const models = o.models || ['s2.1-pro'], lat = o.latency_modes || ['low', 'balanced', 'normal'];
+      // Готовые голоса из справочника (FISH_VOICES на бэке) + плитка «Свой ID»
+      // для reference_id из библиотеки fish.audio (в т.ч. клон голоса).
+      const voices = (o.voices && o.voices.length) ? o.voices : FISH_VOICES_FALLBACK;
+      const defVoice = o.default_voice_id || voices[0].id;
+      if (!v.fish_voice_id) v.fish_voice_id = defVoice;
+      const isPreset = voices.some(x => x.id === v.fish_voice_id);
+      // Свой id показываем в поле, пока пользователь не переключился на готовый голос.
+      if (!isPreset) v.fish_custom_id = v.fish_voice_id;
+      const useCustom = !isPreset;
       // Модель синтеза в витрине одна — выбранное значение всегда приводим к ней.
       v.fish_model = o.default_model || models[0];
       box.innerHTML = `
-        <div class="form-row">
-          <div class="field"><label class="label">Voice ID (Fish Audio)</label><input class="input" data-vf="fish_voice_id" value="${esc(v.fish_voice_id)}" placeholder="reference_id голоса из fish.audio"><div class="hint">Пусто — голос по умолчанию. Можно клонировать свой голос: загрузите образец в кабинете Fish Audio и вставьте сюда reference_id.</div></div>
-          <div class="field"><label class="label">Модель синтеза</label><div id="sel-fish-model"></div><div class="hint">Единственная доступная модель Fish Audio — премиальная s2.1-pro.</div></div>
+        <div class="field"><label class="label">Голос</label>
+          <div class="voices">${voices.map(x => `<div class="voice${(!useCustom && v.fish_voice_id === x.id) ? ' selected' : ''}" data-voice="${esc(x.id)}" tabindex="0"><span>${esc(x.name)}</span><small>${x.gender === 'f' ? 'жен.' : 'муж.'}</small></div>`).join('')}<div class="voice${useCustom ? ' selected' : ''}" data-voice="__custom" tabindex="0"><span>Свой ID</span><small>fish.audio</small></div></div>
+          <div id="fish-custom-wrap" style="margin-top:8px;${useCustom ? '' : 'display:none;'}"><input class="input" id="fish-custom-id" value="${esc(v.fish_custom_id || '')}" placeholder="reference_id голоса из fish.audio"><div class="hint">Можно клонировать свой голос: загрузите образец в кабинете Fish Audio и вставьте сюда reference_id.</div></div>
         </div>
         <div class="form-row">
+          <div class="field"><label class="label">Модель синтеза</label><div id="sel-fish-model"></div><div class="hint">Единственная доступная модель Fish Audio — премиальная s2.1-pro.</div></div>
           <div class="field"><label class="label">Задержка</label><div id="sel-fish-latency"></div></div>
         </div>
         <div class="form-row">
@@ -589,6 +605,18 @@
         </div>`;
       mkSelect('sel-fish-model', models, v.fish_model, 'fish_model');
       mkSelect('sel-fish-latency', lat, v.fish_latency, 'fish_latency');
+      const customWrap = box.querySelector('#fish-custom-wrap'), customInp = box.querySelector('#fish-custom-id');
+      const pickVoice = id => {
+        box.querySelectorAll('.voice').forEach(el => el.classList.toggle('selected', el.dataset.voice === id));
+        if (id === '__custom') { customWrap.style.display = ''; v.fish_voice_id = customInp.value.trim(); customInp.focus(); }
+        else { customWrap.style.display = 'none'; v.fish_voice_id = id; }
+        setDirty(true);
+      };
+      box.querySelectorAll('.voice').forEach(el => {
+        el.addEventListener('click', () => pickVoice(el.dataset.voice));
+        el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickVoice(el.dataset.voice); } });
+      });
+      customInp.addEventListener('input', () => { v.fish_custom_id = customInp.value.trim(); v.fish_voice_id = v.fish_custom_id; setDirty(true); });
       bindInputs(); return;
     }
     if (type === 'yandex') {

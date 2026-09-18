@@ -10,7 +10,9 @@ provider_keys — единая точка выбора ключа голосов
 конфигурации (WS-хендлеры виджета, /config сценариев Voximplant).
 
 Составные модели:
-  * fish     — диалог ведёт OpenAI Realtime, озвучивает Fish Audio;
+  * fish     — диалог ведёт OpenAI Realtime, озвучивает Fish Audio; ключ Fish
+               всегда серверный (свой указать нельзя), поэтому модель всегда
+               списывается по тарифу, даже при своём ключе OpenAI;
   * cartesia — диалог OpenAI Realtime, озвучивает Cartesia;
   * yandex   — ключ + folder_id;
   * cascade  — всегда серверный ключ OpenAI (модель бесплатна, платит только
@@ -34,7 +36,7 @@ class ResolvedKeys:
     provider: str
     # Ключ LLM/realtime-части (для fish/cartesia/cascade это OpenAI)
     api_key: Optional[str] = None
-    # Ключ TTS-части (fish_api_key / cartesia_api_key) — для составных моделей
+    # Ключ TTS-части (FISH_API_KEY сервера / cartesia_api_key) — для составных моделей
     tts_api_key: Optional[str] = None
     # Yandex folder id
     folder_id: Optional[str] = None
@@ -82,7 +84,10 @@ def resolve(user, provider: str) -> ResolvedKeys:
 
     if provider == "fish":
         key = _pick(g("openai_api_key"), settings.OPENAI_API_KEY, "openai", parts)
-        tts = _pick(g("fish_api_key"), settings.FISH_API_KEY, "fish", parts)
+        # Ключ Fish пользователь не задаёт: озвучка всегда на ключе платформы
+        # (в т.ч. готовые голоса FISH_VOICES и клоны из библиотеки fish.audio).
+        # Колонка users.fish_api_key осталась в БД, но здесь не читается.
+        tts = _pick(None, settings.FISH_API_KEY, "fish", parts)
         return ResolvedKeys(provider, api_key=key, tts_api_key=tts,
                             is_server=bool(parts), server_parts=parts)
 

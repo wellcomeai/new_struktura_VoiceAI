@@ -223,9 +223,11 @@ class UserService:
             if 'yandex_api_key' in update_data:
                 user.yandex_api_key = update_data.pop('yandex_api_key')
 
-            # 🆕 Fish: обработка Fish Audio API ключа
+            # Fish: свой ключ Fish пользователь больше не задаёт — озвучка
+            # всегда на серверном FISH_API_KEY (provider_keys.resolve). Поле
+            # из запроса выбрасываем, колонка в БД остаётся для отката.
             if 'fish_api_key' in update_data:
-                user.fish_api_key = update_data.pop('fish_api_key')
+                update_data.pop('fish_api_key')
 
             if 'yandex_folder_id' in update_data:
                 user.yandex_folder_id = update_data.pop('yandex_folder_id')
