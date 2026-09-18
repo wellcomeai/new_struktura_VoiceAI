@@ -1400,6 +1400,36 @@ def get_user_agent_usage(
         )
 
 
+@router.post("/users/{user_id}/reset-onboarding", response_model=Dict[str, Any])
+def admin_reset_onboarding(
+    user_id: str = Path(..., description="User ID"),
+    current_user: User = Depends(check_admin_access),
+    db: Session = Depends(get_db)
+):
+    """
+    Вернуть пользователя в обязательный онбординг (первый ассистент + тестовый
+    звонок): сбрасывает users.onboarding_completed_at. Нужно, чтобы проверять
+    сценарий на существующем аккаунте, не удаляя его. Ассистенты и аренды
+    не трогаем: следующее включение тестового номера снова пройдёт как
+    онбординг (is_onboarding=True) и попытку не потратит.
+    """
+    try:
+        user = UserService.get_user_by_id(db, user_id)
+        user.onboarding_completed_at = None
+        db.commit()
+        logger.info(f"Admin {current_user.email} reset onboarding for user {user.email}")
+        return {"success": True, "message": f"Онбординг сброшен для {user.email}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error resetting onboarding: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset onboarding"
+        )
+
+
 @router.post("/users/{user_id}/reset-password", response_model=Dict[str, Any])
 def admin_reset_password(
     user_id: str = Path(..., description="User ID"),
