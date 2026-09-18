@@ -21,6 +21,11 @@ from backend.services.assistant_limit_service import count_user_assistants
 
 logger = get_logger(__name__)
 
+
+def _onboarding_done(user) -> bool:
+    """Онбординг пройден (первый тестовый звонок) — или это админ."""
+    return bool(getattr(user, "is_admin", False)) or getattr(user, "onboarding_completed_at", None) is not None
+
 class UserService:
     """Service for user operations"""
     
@@ -98,6 +103,7 @@ class UserService:
             # ✅ Тарифы
             is_trial=user.is_trial,
             is_admin=user.is_admin,
+            onboarding_completed=_onboarding_done(user),
             subscription_end_date=user.subscription_end_date
         )
 
@@ -161,6 +167,7 @@ class UserService:
             # ✅ Тарифы
             is_trial=user.is_trial,
             is_admin=user.is_admin,
+            onboarding_completed=_onboarding_done(user),
             subscription_end_date=user.subscription_end_date,
             
             # ✅ Статистика
@@ -223,9 +230,11 @@ class UserService:
             if 'yandex_api_key' in update_data:
                 user.yandex_api_key = update_data.pop('yandex_api_key')
 
-            # 🆕 Fish: обработка Fish Audio API ключа
+            # Fish: свой ключ Fish пользователь больше не задаёт — озвучка
+            # всегда на серверном FISH_API_KEY (provider_keys.resolve). Поле
+            # из запроса выбрасываем, колонка в БД остаётся для отката.
             if 'fish_api_key' in update_data:
-                user.fish_api_key = update_data.pop('fish_api_key')
+                update_data.pop('fish_api_key')
 
             if 'yandex_folder_id' in update_data:
                 user.yandex_folder_id = update_data.pop('yandex_folder_id')
@@ -275,6 +284,7 @@ class UserService:
                 # ✅ Тарифы
                 is_trial=user.is_trial,
                 is_admin=user.is_admin,
+            onboarding_completed=_onboarding_done(user),
                 subscription_end_date=user.subscription_end_date
             )
             

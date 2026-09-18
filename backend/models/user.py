@@ -98,6 +98,13 @@ class User(Base, BaseModel):
     wallet_balance = Column(Integer, default=0, nullable=False)
     wallet_welcome_granted = Column(Boolean, default=False, nullable=False)
 
+    # ✅ Онбординг: когда пользователь впервые включил тестовый номер со своим
+    # ассистентом (TestNumberService.start). Пока NULL — кабинет держит его в
+    # обязательном сценарии «создай ассистента → позвони ему» (sidebar.js).
+    # Существующим пользователям проставляется при добавлении колонки
+    # (ensure_onboarding_columns в app.py / миграция add_user_onboarding).
+    onboarding_completed_at = Column(DateTime(timezone=True), nullable=True)
+
     # Отношения
     assistants = relationship("AssistantConfig", back_populates="user", cascade="all, delete-orphan")
     gemini_assistants = relationship("GeminiAssistantConfig", back_populates="user", cascade="all, delete-orphan")

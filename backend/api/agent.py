@@ -35,7 +35,7 @@ from backend.api.grok_assistants import CASCADE_TTS_PROVIDER
 from backend.models.fish_assistant import (
     FishAssistantConfig, FISH_MODELS, FISH_LATENCY_MODES,
     DEFAULT_FISH_MODEL, DEFAULT_FISH_LATENCY, DEFAULT_FISH_SAMPLE_RATE,
-    DEFAULT_FISH_LLM_MODEL,
+    DEFAULT_FISH_LLM_MODEL, DEFAULT_FISH_VOICE_ID,
 )
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
@@ -474,12 +474,13 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
         )
     elif assistant_type == "fish":
         # Fish: диалог ведёт OpenAI Realtime внутри сценария Voximplant,
-        # озвучка идёт через наш прокси синтеза (/ws/fish/tts/{id}) на ключе
-        # Fish владельца. Голос — reference_id из библиотеки fish.audio.
+        # озвучка идёт через наш прокси синтеза (/ws/fish/tts/{id}) на
+        # серверном ключе Fish. Голос — reference_id из библиотеки fish.audio:
+        # готовый из FISH_VOICES или свой; пусто — Светлана по умолчанию.
         va = FishAssistantConfig(
             id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
             system_prompt=prompt, greeting_message="", is_active=True,
-            fish_voice_id=(fish_voice_id or None),
+            fish_voice_id=((fish_voice_id or "").strip() or DEFAULT_FISH_VOICE_ID),
             fish_model=_valid_fish_model(fish_model),
             fish_latency=_valid_fish_latency(fish_latency),
             sample_rate=DEFAULT_FISH_SAMPLE_RATE,
@@ -1054,7 +1055,7 @@ async def update_agent(
                     va.voice_speed = update_data["voice_speed"]
             elif agent.assistant_type == "fish":
                 if "fish_voice_id" in update_data:
-                    va.fish_voice_id = update_data["fish_voice_id"] or None
+                    va.fish_voice_id = (update_data["fish_voice_id"] or "").strip() or DEFAULT_FISH_VOICE_ID
                 if update_data.get("fish_model"):
                     va.fish_model = _valid_fish_model(update_data["fish_model"])
                 if update_data.get("fish_latency"):

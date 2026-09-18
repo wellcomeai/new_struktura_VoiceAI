@@ -65,7 +65,7 @@ function keyState(type){
     openai: !!u.has_api_key,
     yandex: !!(u.has_yandex_api_key && u.yandex_folder_id),
     cascade: false,
-    fish: !!(u.has_api_key && u.has_fish_api_key),
+    fish: false, // ключ Fish всегда серверный — модель всегда по тарифу
     cartesia: !!(u.has_api_key && u.has_cartesia_api_key),
   };
   if(!(type in own)) return { ok:false, missing:[], own:false };

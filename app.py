@@ -1563,6 +1563,51 @@ def ensure_agent_knowledge_base_columns():
         logger.error(f"❌ ensure_agent_knowledge_base_columns error: {e}")
 
 
+def ensure_onboarding_columns():
+    """
+    Идемпотентно добавляет колонки обязательного онбординга:
+      users.onboarding_completed_at     — когда сделан первый тестовый звонок;
+      test_number_leases.is_onboarding  — аренда онбординга (попытку не тратит).
+
+    При ПЕРВОМ добавлении колонки всем существующим пользователям ставится
+    «пройдено» — сценарий обязателен только для новых регистраций.
+    Дублирует alembic-миграцию add_user_onboarding.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                if inspector.has_table('users'):
+                    cols = {c['name'] for c in inspector.get_columns('users')}
+                    if 'onboarding_completed_at' not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                            "onboarding_completed_at TIMESTAMPTZ NULL"
+                        ))
+                        conn.execute(text(
+                            "UPDATE users SET onboarding_completed_at = NOW() "
+                            "WHERE onboarding_completed_at IS NULL"
+                        ))
+                        logger.info("✅ Added users.onboarding_completed_at (existing users marked done)")
+                if inspector.has_table('test_number_leases'):
+                    cols = {c['name'] for c in inspector.get_columns('test_number_leases')}
+                    if 'is_onboarding' not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE test_number_leases ADD COLUMN IF NOT EXISTS "
+                            "is_onboarding BOOLEAN NOT NULL DEFAULT FALSE"
+                        ))
+                        logger.info("✅ Added test_number_leases.is_onboarding")
+                trans.commit()
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add onboarding columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_onboarding_columns error: {e}")
+
+
 def ensure_agent_memory_column():
     """
     Идемпотентно добавляет колонку памяти агента (agent_configs.memory JSONB).
@@ -2233,6 +2278,10 @@ async def startup_event():
 
                 # 🆕 Шаг 18: Память агента (agent_configs.memory JSONB)
                 ensure_agent_memory_column()
+
+                # 🆕 Шаг 18а: Обязательный онбординг (users.onboarding_completed_at,
+                #             test_number_leases.is_onboarding)
+                ensure_onboarding_columns()
 
                 # 🆕 Шаг 18: Таблица внешних коннекторов агента (Composio)
                 ensure_agent_connectors_table()
