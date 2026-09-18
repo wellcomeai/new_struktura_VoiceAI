@@ -59,7 +59,7 @@ from backend.api import (
 from backend.models.base import create_tables
 from backend.db.session import engine, check_database_connection
 from backend.core.scheduler import start_subscription_checker
-from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware
+from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware, TrailingSlashRewriteMiddleware
 from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
@@ -135,6 +135,12 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# Завершающий слэш: /api/contacts?… → маршрут /api/contacts/ без 307-редиректа.
+# Редирект Starlette строит Location из заголовка Host, а за прокси Render это
+# внутренний *.onrender.com: браузер уходил на другой origin, терял Authorization
+# и получал 403 (так падала CRM). Список путей берётся из app.routes на первом запросе.
+app.add_middleware(TrailingSlashRewriteMiddleware, get_routes=lambda: app.routes)
 
 # Сжатие ответов и кэш статики (backend/core/http_optimizations.py).
 # GZip добавлен последним, значит снаружи всех остальных middleware.

@@ -326,4 +326,5 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 - **Multi-provider voice:** The WebSocket layer abstracts three different voice AI providers (OpenAI, Gemini, Grok) behind similar handler interfaces, with Voximplant telephony bridge support.
 - **Startup schema fixes:** `app.py` startup event runs comprehensive schema checks and auto-adds missing columns for backwards compatibility.
 - **Task scheduler:** Background scheduler (`core/task_scheduler.py`) polls for scheduled call tasks every 30 seconds and executes them automatically.
+- **Trailing slash:** маршруты вида `@router.get("/")` с префиксом (`/api/contacts/`) доступны и без слэша: `TrailingSlashRewriteMiddleware` в `backend/core/http_optimizations.py` подменяет путь вместо 307-редиректа Starlette, потому что за прокси Render Location редиректа собирался с внутренним хостом `*.onrender.com` и фронт получал 403.
 - **Static pages:** App pages (agents, dashboard, CRM, etc.) are vanilla HTML/JS served by FastAPI's `StaticFiles`. The React app is only used for the landing page.
