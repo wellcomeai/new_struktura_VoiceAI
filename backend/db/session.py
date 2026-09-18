@@ -125,6 +125,17 @@ def release_db_connection(db: Session) -> None:
         safe_rollback(db)
 
 
+def release_db_connection_if_clean(db: Session) -> None:
+    """
+    То же, что release_db_connection, но только если в сессии нет несохранённых
+    изменений: не коммитим за чужой код посреди его транзакции. Для мест, где
+    между запросами к БД идут долгие await (ответ LLM, HTTP к внешним API).
+    """
+    if db.new or db.dirty or db.deleted:
+        return
+    release_db_connection(db)
+
+
 # ---------------------------------------------------------------------------
 # Проверка здоровья базы для /health (Render перезапускает инстанс по нему)
 # ---------------------------------------------------------------------------

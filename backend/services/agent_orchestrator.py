@@ -21,7 +21,7 @@ from openai import AsyncOpenAI
 from sqlalchemy.orm.attributes import flag_modified
 
 from backend.core.logging import get_logger
-from backend.db.session import SessionLocal
+from backend.db.session import SessionLocal, release_db_connection, release_db_connection_if_clean
 from backend.models.agent_config import AgentConfig
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
@@ -709,6 +709,10 @@ class PostCallOrchestrator:
             call_time = agent_call.started_at or agent_call.created_at
 
             for attempt in range(retries):
+                # Поллер живёт до 5 минут на каждый звонок; пачка исходящих звонков
+                # из планировщика раньше занимала весь пул (30 соединений) на всё
+                # это время. На время сна соединение возвращаем в пул.
+                release_db_connection(db)
                 await asyncio.sleep(delay)
                 logger.info(f"[AGENT-POSTCALL] Poll attempt {attempt + 1}/{retries} for call {agent_call_id}")
 
@@ -770,6 +774,7 @@ class PostCallOrchestrator:
                 logger.info(f"[AGENT-POSTCALL] Call {agent_call_id} already finalized elsewhere, skipping reserve poller")
                 return
             db.refresh(agent_call)
+            release_db_connection(db)  # дальше долгие await LLM в _analyze
 
             orchestrator = PostCallOrchestrator()
             await orchestrator._analyze(
@@ -1272,6 +1277,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         post_call_input += build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)
 
         tools = await build_postcall_tools(agent_config, db)
+        release_db_connection_if_clean(db)  # тулзы собраны, дальше ждём LLM
         tool_calls_log: List[Dict[str, Any]] = []
 
         context = {
@@ -1302,6 +1308,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
             while iteration < max_iterations:
                 iteration += 1
+                release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
                 response = await client.chat_completion(
                     model=agent_config.orchestrator_model,
                     messages=messages,
@@ -1510,6 +1517,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             if agent_call.pre_call_response_id:
                 kwargs["previous_response_id"] = agent_call.pre_call_response_id
 
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.responses.create(**kwargs)
             postcall_response_id = response.id
 
@@ -1588,6 +1596,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 if not has_tool_calls:
                     break
 
+                release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
                 response = await client.responses.create(
                     model="gpt-5-2025-08-07",
                     input=tool_results,
