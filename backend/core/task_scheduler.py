@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, Tuple
 
 from backend.core.logging import get_logger
-from backend.db.session import SessionLocal
+from backend.db.session import SessionLocal, safe_rollback
 from backend.models.task import Task, TaskStatus
 from backend.models.contact import Contact
 from backend.models.user import User
@@ -415,6 +415,7 @@ class TaskScheduler:
 
         except Exception as e:
             logger.error(f"[TASK-SCHEDULER] Error in agent task {task.id}: {e}", exc_info=True)
+            safe_rollback(db)  # иначе при ошибке SQL пометка FAILED ниже тоже упадёт
             try:
                 task.status = TaskStatus.FAILED
                 task.call_result = f"Internal error: {str(e)}"
@@ -513,6 +514,7 @@ class TaskScheduler:
 
         except Exception as e:
             logger.error(f"[TASK-SCHEDULER] Error in {label} messenger task {task.id}: {e}", exc_info=True)
+            safe_rollback(db)  # иначе при ошибке SQL пометка FAILED ниже тоже упадёт
             try:
                 task.status = TaskStatus.FAILED
                 task.call_result = f"Internal error: {str(e)}"
@@ -742,6 +744,7 @@ class TaskScheduler:
             
         except Exception as e:
             logger.error(f"[TASK-SCHEDULER] Error executing task {task.id}: {e}", exc_info=True)
+            safe_rollback(db)  # иначе при ошибке SQL пометка FAILED ниже тоже упадёт
             
             # Помечаем задачу как failed
             try:
@@ -901,6 +904,7 @@ class TaskScheduler:
             
         except Exception as e:
             logger.error(f"[TASK-SCHEDULER] Partner API exception: {e}", exc_info=True)
+            safe_rollback(db)  # иначе при ошибке SQL пометка FAILED ниже тоже упадёт
             task.status = TaskStatus.FAILED
             task.call_result = f"Partner API exception: {str(e)}"
             db.commit()
@@ -1052,6 +1056,7 @@ class TaskScheduler:
         
         except Exception as e:
             logger.error(f"[TASK-SCHEDULER] Legacy API exception: {e}", exc_info=True)
+            safe_rollback(db)  # иначе при ошибке SQL пометка FAILED ниже тоже упадёт
             task.status = TaskStatus.FAILED
             task.call_result = f"Legacy API exception: {str(e)}"
             db.commit()

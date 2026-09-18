@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
+
+from backend.db.session import safe_rollback
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import func, or_
 
@@ -2897,4 +2899,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
 
     except Exception as e:
         logger.error(f"[AGENT-TOOLS] Error executing {tool_name}: {e}", exc_info=True)
+        if db is not None:
+            # Упавший SQL внутри тулзы оставляет транзакцию прерванной; без rollback
+            # следующий запрос оркестратора упадёт с InFailedSqlTransaction и анализ звонка пропадёт.
+            safe_rollback(db)
         return json.dumps({"ok": False, "error": str(e)})

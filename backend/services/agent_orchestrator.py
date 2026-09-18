@@ -21,7 +21,7 @@ from openai import AsyncOpenAI
 from sqlalchemy.orm.attributes import flag_modified
 
 from backend.core.logging import get_logger
-from backend.db.session import SessionLocal, release_db_connection, release_db_connection_if_clean
+from backend.db.session import SessionLocal, release_db_connection, release_db_connection_if_clean, safe_rollback
 from backend.models.agent_config import AgentConfig
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
@@ -454,6 +454,7 @@ class PreCallOrchestrator:
                 )
             except Exception as ce:
                 logger.error(f"[AGENT-PRECALL] (v3) Charge failed: {ce}", exc_info=True)
+                safe_rollback(db)
 
             json_text = output_text
             if "```json" in json_text:
@@ -903,6 +904,7 @@ class PostCallOrchestrator:
             except Exception as analyze_err:
                 # Возвращаем в 'calling', чтобы резервный поллер мог повторить.
                 logger.error(f"[AGENT-POSTCALL] (webhook) analyze failed: {analyze_err}", exc_info=True)
+                safe_rollback(db)  # упавший SQL внутри анализа оставляет транзакцию прерванной — иначе update/commit ниже тоже упадут
                 db.query(AgentCall).filter(AgentCall.id == agent_call_id).update(
                     {"status": "calling"}, synchronize_session=False
                 )
@@ -1436,6 +1438,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
         except Exception as e:
             logger.error(f"[AGENT-POSTCALL] (v3) Analysis error: {e}", exc_info=True)
+            safe_rollback(db)  # если ошибка была в SQL, без rollback все обращения ниже упадут с InFailedSqlTransaction
             agent_call.postcall_log = {
                 "error": str(e),
                 "model": agent_config.orchestrator_model,
@@ -1477,6 +1480,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                     )
                 except Exception as ce:
                     logger.error(f"[AGENT-POSTCALL] (v3) Charge failed: {ce}", exc_info=True)
+                    safe_rollback(db)
 
     async def _analyze_v2_responses_api(
         self,
@@ -1653,6 +1657,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
         except Exception as e:
             logger.error(f"[AGENT-POSTCALL] Analysis error: {e}", exc_info=True)
+            safe_rollback(db)  # если ошибка была в SQL, без rollback все обращения ниже упадут с InFailedSqlTransaction
 
             # ✅ v2.1: Сохраняем ошибку в лог
             agent_call.postcall_log = {
@@ -1847,6 +1852,7 @@ class ChatOrchestrator:
                 )
             except Exception as ce:
                 logger.error(f"[AGENT-TG-CHAT] (v3) Charge failed: {ce}", exc_info=True)
+                safe_rollback(db)
 
         self._persist_telegram_history(telegram_history_row, message, final_text, db)
         return {"reply": final_text}
@@ -2004,6 +2010,7 @@ class ChatOrchestrator:
                     )
                 except Exception as ce:
                     logger.error(f"[AGENT-TG-CHAT] (stream) Charge failed: {ce}", exc_info=True)
+                    safe_rollback(db)
 
             self._persist_telegram_history(telegram_history_row, message, final_text, db)
             yield {"type": "done", "reply": final_text}
@@ -2217,6 +2224,7 @@ class ChatOrchestrator:
                 )
             except Exception as ce:
                 logger.error(f"[AGENT-CHAT] (v3) Charge failed: {ce}", exc_info=True)
+                safe_rollback(db)
 
         new_history = list(history)
         new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
@@ -2329,6 +2337,7 @@ class ChatOrchestrator:
                 )
             except Exception as ce:
                 logger.error(f"[AGENT-PUBLIC] Charge failed: {ce}", exc_info=True)
+                safe_rollback(db)
 
         return {"reply": final_text}
 
@@ -2523,6 +2532,7 @@ class ChatOrchestrator:
                     )
                 except Exception as ce:
                     logger.error(f"[AGENT-CHAT] (stream) Charge failed: {ce}", exc_info=True)
+                    safe_rollback(db)
 
             new_history = list(history)
             new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
