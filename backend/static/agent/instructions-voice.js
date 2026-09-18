@@ -193,14 +193,14 @@ function voiceControlHtml(type, cur, ids){
       return `<option value="${x.id}" ${x.id===selVal?'selected':''}>${x.name} · ${g.label.toLowerCase()}</option>`;
     }).join('') + `<option value="${FISH_CUSTOM_VOICE}" ${selVal===FISH_CUSTOM_VOICE?'selected':''}>Свой ID голоса…</option>`;
     return `<div class="form-group">
-        <label class="form-label">Голос</label>
+        <label class="form-label">Голос <span class="hint" tabindex="0" data-hint="Зайдите на fish.audio: можно клонировать свой голос, и агент будет разговаривать вашим голосом, или выбрать любой из сотен готовых голосов библиотеки. Достаточно вставить сюда ID голосовой модели (reference_id)."><i class="far fa-circle-question"></i></span></label>
         <select class="form-select" id="${ids.voice}" onchange="onFishVoiceChange(this, ${JSON.stringify(ids).replace(/"/g,'&quot;')})">${voiceOpts}</select>
         <div class="voice-preview" id="${ids.desc}">${fishVoicePreviewHtml(selVal, customId)}</div>
       </div>
       <div class="form-group" id="${ids.fvid}-wrap" style="${isPreset ? 'display:none' : ''}">
         <label class="form-label">Fish Voice ID</label>
         <input type="text" class="form-input" id="${ids.fvid}" value="${esc(customId)}" placeholder="e58b0d7efca34eb38d5c4985e378abcb">
-        <div class="form-hint">ID голоса из <a href="https://fish.audio/" target="_blank">fish.audio</a> (можно свой клон). Пустое поле — голос по умолчанию.</div>
+        <div class="form-hint">На <a href="https://fish.audio/" target="_blank" rel="noopener">fish.audio</a> можно клонировать свой голос (агент будет говорить вашим голосом) или выбрать любой из сотен готовых. Вставьте сюда ID голосовой модели. Пустое поле — голос по умолчанию.</div>
       </div>
       <div class="form-group">
         <label class="form-label">Скорость голоса: <span id="${ids.spdv}">${spd}</span></label>

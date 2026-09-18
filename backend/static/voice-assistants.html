@@ -90,6 +90,9 @@
     .voice:hover { border-color: var(--vf-border-strong); }
     .voice.selected { border-color: var(--vf-accent); background: var(--vf-accent-soft); font-weight: 600; color: var(--vf-accent); }
     .voice small { color: var(--vf-text-4); font-weight: 400; font-size: 11px; }
+    /* Многострочная подсказка под плиткой «Свой ID» (базовый data-tip — однострочный, сверху). */
+    .voice.tip-wide::after { white-space: normal; width: 300px; text-align: left; line-height: 1.45; font-weight: 400; top: calc(100% + 8px); bottom: auto; transform: translateX(-50%) translateY(-4px); }
+    .voice.tip-wide:hover::after { transform: translateX(-50%); }
     .presets { display: flex; gap: 8px; flex-wrap: wrap; }
     .preset { padding: 10px 14px; border: 1px solid var(--vf-border); border-radius: var(--vf-r-sm); background: var(--vf-surface); cursor: pointer; font-size: 13px; font-weight: 500; transition: border-color var(--vf-fast), background var(--vf-fast); }
     .preset small { display: block; font-size: 11.5px; color: var(--vf-text-4); font-weight: 400; margin-top: 2px; }
@@ -592,8 +595,8 @@
       v.fish_model = o.default_model || models[0];
       box.innerHTML = `
         <div class="field"><label class="label">Голос</label>
-          <div class="voices">${voices.map(x => `<div class="voice${(!useCustom && v.fish_voice_id === x.id) ? ' selected' : ''}" data-voice="${esc(x.id)}" tabindex="0"><span>${esc(x.name)}</span><small>${x.gender === 'f' ? 'жен.' : 'муж.'}</small></div>`).join('')}<div class="voice${useCustom ? ' selected' : ''}" data-voice="__custom" tabindex="0"><span>Свой ID</span><small>fish.audio</small></div></div>
-          <div id="fish-custom-wrap" style="margin-top:8px;${useCustom ? '' : 'display:none;'}"><input class="input" id="fish-custom-id" value="${esc(v.fish_custom_id || '')}" placeholder="reference_id голоса из fish.audio"><div class="hint">Можно клонировать свой голос: загрузите образец в кабинете Fish Audio и вставьте сюда reference_id.</div></div>
+          <div class="voices">${voices.map(x => `<div class="voice${(!useCustom && v.fish_voice_id === x.id) ? ' selected' : ''}" data-voice="${esc(x.id)}" tabindex="0"><span>${esc(x.name)}</span><small>${x.gender === 'f' ? 'жен.' : 'муж.'}</small></div>`).join('')}<div class="voice tip-wide${useCustom ? ' selected' : ''}" data-voice="__custom" tabindex="0" data-tip="Зайдите на fish.audio: можно клонировать свой голос, и агент будет разговаривать вашим голосом, или выбрать любой из сотен готовых голосов библиотеки. Достаточно вставить сюда ID голосовой модели (reference_id)."><span>Свой ID</span><small>fish.audio</small></div></div>
+          <div id="fish-custom-wrap" style="margin-top:8px;${useCustom ? '' : 'display:none;'}"><input class="input" id="fish-custom-id" value="${esc(v.fish_custom_id || '')}" placeholder="reference_id голоса из fish.audio"><div class="hint">На <a href="https://fish.audio/" target="_blank" rel="noopener">fish.audio</a> можно клонировать свой голос (агент будет говорить вашим голосом) или выбрать любой из сотен готовых. Вставьте сюда ID голосовой модели.</div></div>
         </div>
         <div class="form-row">
           <div class="field"><label class="label">Модель синтеза</label><div id="sel-fish-model"></div><div class="hint">Единственная доступная модель Fish Audio — премиальная s2.1-pro.</div></div>
