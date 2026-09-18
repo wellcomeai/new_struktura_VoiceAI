@@ -18,6 +18,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from websockets.exceptions import ConnectionClosed
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
 from backend.models.user import User
@@ -114,6 +115,8 @@ class VoximplantProtocolHandler:
                 await self._send_error("no_api_key", "Missing OpenAI API key")
                 return
             
+            # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+            release_db_connection(self.db)
             # Create and connect OpenAI client
             self.openai_client = OpenAIRealtimeClientNew(
                 api_key=api_key,

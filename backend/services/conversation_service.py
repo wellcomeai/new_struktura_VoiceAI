@@ -18,6 +18,7 @@ import uuid
 import traceback
 
 from backend.core.logging import get_logger
+from backend.db.session import SessionLocal, DB_CONNECTION_ERRORS, safe_rollback
 from backend.models.conversation import Conversation
 from backend.models.assistant import AssistantConfig
 from backend.models.gemini_assistant import GeminiAssistantConfig  # 🆕 v3.2
@@ -478,6 +479,57 @@ class ConversationService:
         tokens_used: Optional[int] = 0
     ) -> Optional[Conversation]:
         """
+        Сохранить диалог (логика в _save_conversation_once).
+
+        Если соединение с базой оборвалось (перезапуск Postgres, «SSL SYSCALL error:
+        EOF detected», сетевой сбой — типично для сессии, которую голосовой хендлер
+        держал весь звонок), запись повторяется один раз на свежей сессии из пула,
+        чтобы разговор не пропал. Ошибки данных (не соединения) не повторяются.
+        """
+        kwargs = dict(
+            assistant_id=assistant_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            session_id=session_id,
+            caller_number=caller_number,
+            call_direction=call_direction,
+            client_info=client_info,
+            audio_duration=audio_duration,
+            tokens_used=tokens_used,
+        )
+        try:
+            return ConversationService._save_conversation_once(db, **kwargs)
+        except DB_CONNECTION_ERRORS as e:
+            logger.warning(
+                f"[CONVERSATION-SERVICE] DB connection lost while saving conversation "
+                f"({type(e).__name__}); retrying on a fresh session"
+            )
+
+        fresh = SessionLocal(expire_on_commit=False)
+        try:
+            return ConversationService._save_conversation_once(fresh, **kwargs)
+        except Exception as e:
+            logger.error(f"❌ Conversation save retry failed: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            safe_rollback(fresh)
+            return None
+        finally:
+            fresh.close()
+
+    @staticmethod
+    def _save_conversation_once(
+        db: Session,
+        assistant_id: str,
+        user_message: str,
+        assistant_message: str,
+        session_id: Optional[str] = None,
+        caller_number: Optional[str] = None,
+        call_direction: Optional[str] = None,
+        client_info: Optional[Dict[str, Any]] = None,
+        audio_duration: Optional[float] = None,
+        tokens_used: Optional[int] = 0
+    ) -> Optional[Conversation]:
+        """
         🆕 v3.2: Сохранить диалог в БД с автосозданием контакта и нормализацией номера.
         Поддерживает OpenAI И Gemini ассистентов.
         Используется для Voximplant и других внешних источников.
@@ -572,10 +624,14 @@ class ConversationService:
             
             return conversation
             
+        except DB_CONNECTION_ERRORS:
+            # Соединение с базой потеряно — пробрасываем, save_conversation повторит на свежей сессии
+            safe_rollback(db)
+            raise
         except Exception as e:
             logger.error(f"❌ Error saving conversation: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
-            db.rollback()
+            safe_rollback(db)
             return None
     
     @staticmethod

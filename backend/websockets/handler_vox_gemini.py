@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Dict
 from websockets.exceptions import ConnectionClosed
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.models.user import User
 from backend.services import provider_keys  # ✅ v6.0: серверные ключи
@@ -178,6 +179,8 @@ async def handle_vox_gemini_websocket(
         _log("🔌 Connecting to Gemini Live API...")
         t0 = time.time()
 
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(db)
         gemini_client = GeminiLiveClient(api_key, assistant, client_id, db)
 
         if not await gemini_client.connect():

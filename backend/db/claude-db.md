@@ -4,7 +4,7 @@
 Слой работы с PostgreSQL через SQLAlchemy 2.x. Создаёт engine и фабрику сессий (`session.py`), объявляет общий declarative `Base` и базовые CRUD-абстракции (`base.py`), предоставляет конкретные репозитории для основных моделей (`repositories.py`) и тонкую обёртку над командами Alembic (`migrations_manager.py`). Точка, через которую остальной код получает сессию БД.
 
 ## Состав
-- `session.py` — `create_engine` (NullPool, `pool_pre_ping`, `sslmode=require`), фабрика `SessionLocal`, FastAPI-зависимость `get_db()` (yield + close).
+- `session.py` — `create_engine` (QueuePool 5+25, `pool_pre_ping`, `pool_timeout`/`connect_timeout`/TCP keepalive из env, `sslmode=require`), фабрика `SessionLocal`, FastAPI-зависимость `get_db()` (yield + close), хелперы `release_db_connection` / `safe_rollback` / `DB_CONNECTION_ERRORS` для долгоживущих WS-сессий и `check_database_connection()` для `/health` (отдельный engine без пула).
 - `base.py` — `Base = declarative_base()`, абстрактный `BaseModel` (поля `id: UUID`, `created_at`, `updated_at`, метод `get_by_id`), дженерик `CRUDBase[Model, Create, Update]` с `get/get_multi/create/update/remove`.
 - `repositories.py` — конкретные репозитории поверх `CRUDBase`: `UserRepository`, `AssistantRepository`, `ConversationRepository`, `FileRepository` + готовые синглтон-экземпляры.
 - `migrations_manager.py` — функции-обёртки над Alembic: `upgrade_database`, `downgrade_database`, `create_migration`, `get_current_revision`, `get_history`, `check_migrations`, `create_initial_migration`.
@@ -23,7 +23,10 @@
 - Использует: `backend/core/config.py` (`settings.DATABASE_URL`, `settings.DEBUG`), `backend/core/logging.py` (`get_logger`), `backend/models/*` и `backend/schemas/*` (в `repositories.py`), пакет `alembic` (в `migrations_manager.py`).
 
 ## На что обратить внимание
-- `poolclass=NullPool` — пулинг отключён, каждый checkout создаёт свежее соединение (выбор под Render/managed Postgres). `pool_pre_ping=True` отсеивает мёртвые коннекты.
+- Пул `QueuePool` (`DB_POOL_SIZE`=5, `DB_MAX_OVERFLOW`=25). Прод — один процесс uvicorn с одним event loop, а запросы синхронные, поэтому ожидания короткие: `DB_POOL_TIMEOUT`=10 с, `DB_CONNECT_TIMEOUT`=5 с, TCP keepalive 30/10/3. Без них обрыв базы (Render, «SSL SYSCALL error: EOF detected») замораживал весь процесс до ручного перезапуска.
+- WebSocket-хендлеры голосовых сессий держат сессию БД весь звонок. Сразу после загрузки ассистента/пользователя они вызывают `release_db_connection(db)`: commit только-читающей транзакции + `expire_on_commit=False`, чтобы соединение вернулось в пул, а объекты не перечитывались. Следующий запрос через ту же сессию возьмёт соединение заново.
+- `ConversationService.save_conversation` при `DB_CONNECTION_ERRORS` повторяет запись на свежей `SessionLocal(expire_on_commit=False)`, чтобы диалог не пропал при обрыве базы посреди звонка.
+- `/health` (`app.py`) делает `SELECT 1` через `check_database_connection()` в потоке с таймаутом `HEALTH_DB_TIMEOUT`=4 с (две попытки); при недоступной базе отдаёт 503, и Render перезапускает инстанс сам.
 - `connect_args={"sslmode": "require"}` зашит — в локальной разработке без SSL может потребоваться правка.
 - Основная система миграций — каталог `../../alembic/` (Alembic). `migrations_manager.py` указывает `script_location` на `backend/migrations` и `backend/alembic.ini` — это альтернативный/легаси путь; не путать с корневым `alembic/`. Многие изменения схемы также авто-применяются в startup-событии `app.py`.
 - `CRUDBase.update` итерирует по `db_obj.__dict__` — поля, отсутствующие в загруженном объекте, не обновятся; это легаси-реализация.

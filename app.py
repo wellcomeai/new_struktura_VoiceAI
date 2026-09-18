@@ -57,7 +57,7 @@ from backend.api import (
     seo,  # ✅ robots.txt, sitemap.xml, llms.txt
 )
 from backend.models.base import create_tables
-from backend.db.session import engine
+from backend.db.session import engine, check_database_connection
 from backend.core.scheduler import start_subscription_checker
 from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware
 from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
@@ -2548,11 +2548,43 @@ async def serve_landing():
     return FileResponse("backend/static/landing/index.html")
 
 
+HEALTH_DB_TIMEOUT = float(os.getenv("HEALTH_DB_TIMEOUT", "4"))
+
+
 @app.get("/health")
 async def health_check():
-    """Health check for deployment platforms"""
+    """
+    Health check для Render (healthCheckPath в render.yaml).
+
+    Проверяет не только что процесс жив, но и что база отвечает. Раньше при обрыве
+    соединения с Postgres процесс оставался живым, но не обслуживал запросы, а
+    Render считал его здоровым — приходилось перезапускать руками. Теперь при
+    недоступной базе отдаём 503, и Render перезапускает инстанс сам.
+
+    Проверка идёт в отдельном потоке с жёстким таймаутом, чтобы /health не завис
+    вместе с базой. Две попытки, чтобы один сетевой чих не ронял инстанс.
+    """
+    db_error = None
+    for attempt in (1, 2):
+        try:
+            await asyncio.wait_for(asyncio.to_thread(check_database_connection), timeout=HEALTH_DB_TIMEOUT)
+            db_error = None
+            break
+        except Exception as e:
+            db_error = f"{type(e).__name__}: {e}".strip(": ")
+            logger.warning(f"[HEALTH] database check failed (attempt {attempt}/2): {db_error}")
+            if attempt == 1:
+                await asyncio.sleep(0.5)
+
+    if db_error is not None:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "service": "wellcome-ai", "database": "error", "database_error": db_error},
+        )
+
     return {
         "status": "healthy",
+        "database": "ok",
         "service": "wellcome-ai",
         "version": "3.0.0",  # 🆕 Обновлена версия
         "features": {

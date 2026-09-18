@@ -44,6 +44,7 @@ import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.models.fish_assistant import FishAssistantConfig, DEFAULT_FISH_MODEL
 from backend.models.user import User
@@ -543,6 +544,8 @@ async def handle_fish_tts_connection(
             await websocket.close(code=1008, reason="Fish API key is not configured")
             return
 
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(db)
         # --- поднимаем сессию ----------------------------------------------
         session = _FishTTSSession(websocket, assistant, api_key)
 

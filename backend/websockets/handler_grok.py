@@ -31,6 +31,7 @@ import sys
 from typing import Dict, List
 from websockets.exceptions import ConnectionClosed
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
@@ -430,6 +431,8 @@ async def handle_grok_websocket_connection(
 
         # Create Grok client
         log_to_render(f"🚀 Creating Grok Voice client...")
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(db)
         grok_client = GrokVoiceClient(
             api_key=api_key,
             assistant_config=assistant,

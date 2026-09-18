@@ -47,6 +47,7 @@ import os
 import aiohttp
 from typing import Optional, Dict, Any, List
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.models.gemini_assistant import GeminiAssistantConfig
 from backend.models.user import User
@@ -350,6 +351,8 @@ async def handle_agent_query(
         await websocket.send_json({"type": "agent.error", "request_id": request_id, "error": "No OpenAI API key"})
         return
 
+    # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+    release_db_connection(db)
     logger.error(f"[AGENT DEBUG] ━━━ START task={task[:50]}")
     logger.error(f"[AGENT DEBUG] Config: {agent_cfg.name}, model={agent_cfg.orchestrator_model}, functions={agent_cfg.agent_functions}")
 
@@ -661,6 +664,7 @@ async def handle_openai_streaming_websocket(
         if not api_key_resolved:
             api_key_resolved = True
             api_key = get_openai_api_key_from_assistant(db, assistant_id)
+            release_db_connection(db)  # ключ получен — вернуть соединение в пул на время сессии
         return api_key
 
     try:

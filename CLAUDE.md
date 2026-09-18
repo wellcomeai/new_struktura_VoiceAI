@@ -265,6 +265,15 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
 400 символов на заметку, 8000 символов всего. Колонка добавляется на старте
 (`ensure_agent_memory_column` в `app.py`) и миграцией `add_agent_memory`.
 
+## Устойчивость к обрыву БД (ветка 1909-pamatb)
+
+Прод — один процесс uvicorn, запросы к БД синхронные, поэтому любое долгое ожидание базы
+замораживает весь сервер. Защита в `backend/db/session.py`: `connect_timeout`, короткий
+`pool_timeout`, TCP keepalive; `release_db_connection(db)` в WS-хендлерах сразу после
+загрузки конфига (соединение не держится весь звонок); `ConversationService.save_conversation`
+повторяет запись на свежей сессии при обрыве соединения; `/health` проверяет базу и отдаёт
+503, чтобы Render перезапускал инстанс сам. Подробнее — `backend/db/claude-db.md`.
+
 ## Key API Prefixes
 
 | Prefix | Description |
