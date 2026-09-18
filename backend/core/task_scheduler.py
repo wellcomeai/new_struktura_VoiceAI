@@ -109,28 +109,53 @@ class TaskScheduler:
     
     async def check_and_execute_tasks(self):
         """Проверка и выполнение задач (agent + regular)"""
+        now = datetime.utcnow()
+
+        def _fetch_due_ids():
+            # Опрос раз в 30 с — в отдельном потоке, чтобы запрос к БД не держал
+            # event loop. Если задач нет (обычный случай), сессия в loop не открывается.
+            sdb = SessionLocal()
+            try:
+                # 1. AGENT TASKS (is_agent_task=True)
+                agent_ids = [r[0] for r in sdb.query(Task.id).filter(
+                    Task.status == TaskStatus.SCHEDULED,
+                    Task.scheduled_time <= now,
+                    Task.is_agent_task == True
+                ).all()]
+                # 2. REGULAR TASKS (is_agent_task=False or NULL)
+                regular_ids = [r[0] for r in sdb.query(Task.id).filter(
+                    Task.status == TaskStatus.SCHEDULED,
+                    Task.scheduled_time <= now,
+                    Task.is_agent_task != True
+                ).all()]
+                return agent_ids, regular_ids
+            finally:
+                sdb.close()
+
+        try:
+            agent_ids, regular_ids = await asyncio.to_thread(_fetch_due_ids)
+        except Exception as e:
+            logger.error(f"[TASK-SCHEDULER] Error fetching due tasks: {e}", exc_info=True)
+            return
+
+        if not agent_ids and not regular_ids:
+            logger.debug(f"[TASK-SCHEDULER] No pending tasks at {now}")
+            return
+
         db = SessionLocal()
 
         try:
-            now = datetime.utcnow()
-
-            # 1. AGENT TASKS (is_agent_task=True)
+            # Перечитываем задачи в рабочей сессии; повторная проверка статуса —
+            # на случай, если задачу уже забрали между двумя запросами.
             agent_tasks = db.query(Task).filter(
-                Task.status == TaskStatus.SCHEDULED,
-                Task.scheduled_time <= now,
-                Task.is_agent_task == True
-            ).all()
-
-            # 2. REGULAR TASKS (is_agent_task=False or NULL)
+                Task.id.in_(agent_ids), Task.status == TaskStatus.SCHEDULED
+            ).all() if agent_ids else []
             regular_tasks = db.query(Task).filter(
-                Task.status == TaskStatus.SCHEDULED,
-                Task.scheduled_time <= now,
-                Task.is_agent_task != True
-            ).all()
+                Task.id.in_(regular_ids), Task.status == TaskStatus.SCHEDULED
+            ).all() if regular_ids else []
 
             total = len(agent_tasks) + len(regular_tasks)
             if not total:
-                logger.debug(f"[TASK-SCHEDULER] No pending tasks at {now}")
                 return
 
             logger.info(f"[TASK-SCHEDULER] Found {total} tasks ({len(agent_tasks)} agent, {len(regular_tasks)} regular)")

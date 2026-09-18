@@ -272,7 +272,10 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
 `pool_timeout`, TCP keepalive; `release_db_connection(db)` в WS-хендлерах сразу после
 загрузки конфига (соединение не держится весь звонок); `ConversationService.save_conversation`
 повторяет запись на свежей сессии при обрыве соединения; `/health` проверяет базу и отдаёт
-503, чтобы Render перезапускал инстанс сам. Подробнее — `backend/db/claude-db.md`.
+503, чтобы Render перезапускал инстанс сам. Синхронные SDK (Pinecone, OpenAI-эмбеддинги,
+`requests`) и опросы БД в фоновых циклах идут через `asyncio.to_thread`, чтобы не
+останавливать loop; новый синхронный сетевой вызов или запрос к БД в `async def`
+добавляйте только так. Подробнее — `backend/db/claude-db.md`.
 
 ## Key API Prefixes
 

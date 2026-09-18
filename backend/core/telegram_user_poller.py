@@ -61,14 +61,26 @@ async def start_telegram_user_poller(check_interval: int = 60):
 async def _tick():
     from backend.models.agent_telegram_account import AgentTelegramAccount
 
+    def _load_account_ids():
+        sdb = SessionLocal()
+        try:
+            return [
+                row.id for row in sdb.query(AgentTelegramAccount.id).filter(
+                    AgentTelegramAccount.status == "connected",
+                    AgentTelegramAccount.auto_reply_enabled == True,  # noqa: E712
+                ).all()
+            ]
+        finally:
+            sdb.close()
+
+    # Список аккаунтов — в потоке, чтобы запрос к БД не держал event loop.
+    # В обычном случае (аккаунтов нет) сессия в loop вообще не открывается.
+    account_ids = await asyncio.to_thread(_load_account_ids)
+    if not account_ids:
+        return
+
     db = SessionLocal()
     try:
-        account_ids = [
-            row.id for row in db.query(AgentTelegramAccount.id).filter(
-                AgentTelegramAccount.status == "connected",
-                AgentTelegramAccount.auto_reply_enabled == True,  # noqa: E712
-            ).all()
-        ]
         for account_id in account_ids:
             if not _claim(db, account_id):
                 continue

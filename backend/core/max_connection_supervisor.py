@@ -56,7 +56,12 @@ async def start_max_supervisor(check_interval: int = 30):
         await asyncio.sleep(check_interval)
 
 
-async def _tick():
+def _scan_accounts_sync():
+    """
+    Вся работа с БД одного тика: список подключённых аккаунтов и захват/продление
+    lease. Синхронно, вызывается через asyncio.to_thread, чтобы запросы к БД не
+    держали event loop. Возвращает [(account_id, phone, claimed)].
+    """
     from backend.models.agent_max_account import AgentMaxAccount
 
     db = SessionLocal()
@@ -65,29 +70,38 @@ async def _tick():
             AgentMaxAccount.status == "connected",
             AgentMaxAccount.auto_reply_enabled == True,  # noqa: E712
         ).all()
-
-        wanted = set()
+        result = []
         for acc in accounts:
             aid = str(acc.id)
-            wanted.add(aid)
             already_ours = aid in _owned_leases
             # Держим/захватываем lease. Owner обновляет heartbeat безусловно;
             # чужой аккаунт берём, только если его lease протух.
-            if _claim_or_renew(db, acc.id, already_ours):
-                _owned_leases.add(aid)
-                # idempotent: поднимет клиент, если он ещё не запущен или упал.
-                max_user.ensure_live_client(aid, acc.phone or "")
-            else:
-                _owned_leases.discard(aid)  # аккаунт держит другой процесс
-
-        # Отпускаем и гасим соединения аккаунтов, которые больше не нужны
-        # (отключены, автоответ выключен, удалены).
-        for aid in list(_owned_leases):
-            if aid not in wanted:
-                _owned_leases.discard(aid)
-                max_user.stop_live_client(aid)
+            result.append((aid, acc.phone or "", _claim_or_renew(db, acc.id, already_ours)))
+        return result
     finally:
         db.close()
+
+
+async def _tick():
+    scan = await asyncio.to_thread(_scan_accounts_sync)
+
+    # Клиенты MAX живут в event loop — их поднимаем/гасим уже здесь, не в потоке.
+    wanted = set()
+    for aid, phone, claimed in scan:
+        wanted.add(aid)
+        if claimed:
+            _owned_leases.add(aid)
+            # idempotent: поднимет клиент, если он ещё не запущен или упал.
+            max_user.ensure_live_client(aid, phone)
+        else:
+            _owned_leases.discard(aid)  # аккаунт держит другой процесс
+
+    # Отпускаем и гасим соединения аккаунтов, которые больше не нужны
+    # (отключены, автоответ выключен, удалены).
+    for aid in list(_owned_leases):
+        if aid not in wanted:
+            _owned_leases.discard(aid)
+            max_user.stop_live_client(aid)
 
 
 def _claim_or_renew(db, account_id, i_own: bool) -> bool:

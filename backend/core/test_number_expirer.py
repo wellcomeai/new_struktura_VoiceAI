@@ -31,16 +31,21 @@ async def start_test_number_expirer(check_interval: int = 15):
     from backend.services.test_number_service import TestNumberService
     while _running:
         try:
-            db = SessionLocal()
-            try:
-                released = TestNumberService.expire_due(db)
-                if released:
-                    logger.info(f"[TEST-NUMBER] Expirer released {released} lease(s)")
-            finally:
-                db.close()
+            # Запрос к БД — в потоке, чтобы не держать event loop
+            released = await asyncio.to_thread(_expire_once, TestNumberService)
+            if released:
+                logger.info(f"[TEST-NUMBER] Expirer released {released} lease(s)")
         except Exception as e:
             logger.error(f"[TEST-NUMBER] Expirer error: {e}")
         await asyncio.sleep(check_interval)
+
+
+def _expire_once(service) -> int:
+    db = SessionLocal()
+    try:
+        return service.expire_due(db)
+    finally:
+        db.close()
 
 
 def stop_test_number_expirer():

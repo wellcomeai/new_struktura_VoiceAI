@@ -27,7 +27,16 @@ CHECK_INTERVAL_SEC = 5 * 60  # каждые 5 минут
 
 
 async def check_expired_agent_subscriptions():
-    """Один проход: отмена SCHEDULED agent-задач у юзеров без доступа к агенту."""
+    """
+    Один проход: отмена SCHEDULED agent-задач у юзеров без доступа к агенту.
+
+    Запросы к БД синхронные, поэтому проход идёт в отдельном потоке: иначе
+    медленная база останавливает event loop (звонки, виджеты, /health).
+    """
+    await asyncio.to_thread(_check_expired_agent_subscriptions_sync)
+
+
+def _check_expired_agent_subscriptions_sync():
     db = SessionLocal()
     try:
         # Уникальные пользователи, у которых есть запланированные agent-звонки
