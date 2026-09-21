@@ -46,7 +46,7 @@ from backend.models.agent_connector import AgentConnector, CONNECTOR_TOOLKITS
 from backend.services import composio_service
 from backend.core.config import settings
 from backend.core.dependencies import get_current_user, get_current_user_flexible
-from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
+from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, AGENT_CONTACT_STAGE_KEYS, is_valid_stage
 from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_agent_prompt
 from backend.services.agent_models import (
     ORCHESTRATOR_MODELS, get_default_model, is_valid_model, resolve_slug,
@@ -2549,7 +2549,15 @@ def list_agent_contacts(
 
     q = db.query(AgentContact).filter(AgentContact.agent_config_id == agent.id)
     if status:
-        q = q.filter(AgentContact.status == status)
+        if status == "active":
+            # Легаси-статусы (напр. "calling"), которых больше нет в воронке,
+            # показываем в колонке «В работе», чтобы контакт не выпал из доски.
+            q = q.filter(or_(
+                AgentContact.status == "active",
+                AgentContact.status.notin_(AGENT_CONTACT_STAGE_KEYS),
+            ))
+        else:
+            q = q.filter(AgentContact.status == status)
     if search:
         pattern = f"%{search.strip()}%"
         q = q.filter(
@@ -2567,6 +2575,35 @@ def list_agent_contacts(
         "total": total,
         "contacts": [c.to_dict() for c in contacts],
     }
+
+
+@router.get("/contacts/export")
+def export_agent_contacts(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Выгрузка всей базы контактов агента в Excel: лист «Контакты» (данные,
+    стадия, память агента, следующий шаг) + лист «Звонки» (история с
+    транскриптами). Роут объявлен ДО /contacts/{contact_id}, иначе "export"
+    перехватится как contact_id.
+    """
+    from backend.services.contact_export_service import generate_contacts_export_xlsx
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    content = generate_contacts_export_xlsx(db, agent.id)
+    stamp = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"contacts_{stamp}.xlsx"
+    logger.info(f"[AGENT] contacts export: agent={agent.id} user={current_user.id} bytes={len(content)}")
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/contacts/{contact_id}")

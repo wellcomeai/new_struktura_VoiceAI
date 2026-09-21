@@ -147,6 +147,7 @@
               <span class="stat-go" onclick="openContactsListModal()">Все</span>
               <span class="stat-go" onclick="openAddContactModal()">Добавить</span>
               <span class="stat-go" onclick="openImportModal()">Импорт</span>
+              <span class="stat-go" onclick="exportContacts()">Экспорт</span>
             </div>
           </div>
         </div>
@@ -541,6 +542,7 @@
       <div style="display:flex;gap:10px;margin-bottom:14px">
         <input type="text" class="form-input" id="contacts-search" placeholder="🔍 Поиск по имени, телефону или компании..." style="flex:1">
         <button class="btn btn-danger btn-sm" id="contacts-delete-all-btn" onclick="deleteAllContacts()"><i class="fas fa-trash-alt"></i> Удалить все</button>
+        <button class="btn btn-secondary btn-sm contacts-export-btn" onclick="exportContacts()" title="Скачать всю базу в Excel: контакты, память агента и история звонков"><i class="fas fa-file-export"></i> Экспорт</button>
         <button class="btn btn-secondary btn-sm" onclick="openImportModal()"><i class="fas fa-file-import"></i> Импорт</button>
         <button class="btn btn-primary btn-sm" onclick="openAddContactModal()"><i class="fas fa-plus"></i> Добавить</button>
       </div>
@@ -580,6 +582,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary btn-sm" onclick="loadPipeline()"><i class="fas fa-rotate"></i> Обновить</button>
+      <button class="btn btn-secondary btn-sm contacts-export-btn" onclick="exportContacts()" title="Скачать всю базу в Excel: контакты, память агента и история звонков"><i class="fas fa-file-export"></i> Экспорт</button>
       <button class="btn btn-secondary" onclick="closePipelineModal()">Закрыть</button>
     </div>
   </div>

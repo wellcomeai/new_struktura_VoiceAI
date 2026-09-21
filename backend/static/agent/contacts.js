@@ -1,5 +1,5 @@
 /* ============================================================================
- * agent/contacts.js — CRM-контакты: добавление, список, карточка, задачи контакта, смена стадии → /api/agent/contacts
+ * agent/contacts.js — CRM-контакты: добавление, список (постранично), экспорт xlsx, карточка, задачи контакта, смена стадии → /api/agent/contacts
  * Часть страницы /static/agent.html (Voicyfy Agent).
  * Классический скрипт (НЕ ES-модуль): функции и состояние — глобальные,
  * доступны между всеми файлами agent/*.js и из inline-onclick в разметке.
@@ -38,15 +38,52 @@ function closeContactsListModal(){
   document.getElementById('contacts-list-modal-overlay').classList.add('hidden');
 }
 
+// Постраничная подгрузка: первые CONTACTS_PAGE записей, дальше кнопка «Показать ещё».
+const CONTACTS_PAGE = 100;
+let contactsListState = { search:'', offset:0, total:0 };
+
+function contactRowHtml(c){
+  return `
+    <tr style="cursor:pointer" onclick="openContactDetailsModal('${c.id}')">
+      <td style="font-weight:600">${esc(c.name || '—')}</td>
+      <td style="color:var(--muted)">${esc(c.phone)}</td>
+      <td style="color:var(--muted)">${esc(c.company || '—')}</td>
+      <td>${stageBadge(c.status)}</td>
+      <td style="color:var(--muted)">${c.attempts_count || 0}</td>
+      <td style="color:var(--muted)">${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</td>
+      <td style="text-align:right;white-space:nowrap"><span class="btn btn-secondary btn-sm" style="pointer-events:none"><i class="fas fa-eye"></i> Смотреть инфо</span></td>
+    </tr>`;
+}
+
+function renderContactsMoreBtn(){
+  const wrap = document.getElementById('contacts-list-more');
+  if(!wrap) return;
+  const left = contactsListState.total - contactsListState.offset;
+  if(left <= 0){ wrap.innerHTML = ''; return; }
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:center;align-items:center;gap:10px;padding:12px 0 4px">
+      <span style="font-size:12px;color:var(--muted)">Показано ${contactsListState.offset} из ${contactsListState.total}</span>
+      <button class="btn btn-secondary btn-sm" id="contacts-more-btn" onclick="loadMoreContacts()"><i class="fas fa-angles-down"></i> Показать ещё ${Math.min(left, CONTACTS_PAGE)}</button>
+    </div>`;
+}
+
+async function fetchContactsPage(search, offset){
+  const qs = new URLSearchParams({ limit: CONTACTS_PAGE, offset });
+  if(search) qs.set('search', search);
+  const r = await apiFetch(API + '/contacts?' + qs);
+  if(!r || r.status !== 200) return null;
+  return r.json();
+}
+
 async function loadContactsList(search){
   const body = document.getElementById('contacts-list-body');
   body.innerHTML = '<div class="empty">Загрузка...</div>';
+  contactsListState = { search: search || '', offset: 0, total: 0 };
   try{
-    const qs = new URLSearchParams({ limit: 100, offset: 0 });
-    if(search) qs.set('search', search);
-    const r = await apiFetch(API + '/contacts?' + qs);
-    if(!r || r.status !== 200){ body.innerHTML='<div class="empty">Ошибка</div>'; return; }
-    const data = await r.json();
+    const data = await fetchContactsPage(contactsListState.search, 0);
+    if(!data){ body.innerHTML='<div class="empty">Ошибка</div>'; return; }
+    contactsListState.total = data.total || 0;
+    contactsListState.offset = data.contacts.length;
     document.getElementById('contacts-list-count').textContent =
       `· всего ${data.total}`;
     if(!data.contacts.length){
@@ -56,22 +93,44 @@ async function loadContactsList(search){
     body.innerHTML = `
       <table class="calls-table">
         <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Стадия</th><th>Попыток</th><th>Последний звонок</th><th></th></tr></thead>
-        <tbody>
-          ${data.contacts.map(c => `
-            <tr style="cursor:pointer" onclick="openContactDetailsModal('${c.id}')">
-              <td style="font-weight:600">${esc(c.name || '—')}</td>
-              <td style="color:var(--muted)">${esc(c.phone)}</td>
-              <td style="color:var(--muted)">${esc(c.company || '—')}</td>
-              <td>${stageBadge(c.status)}</td>
-              <td style="color:var(--muted)">${c.attempts_count || 0}</td>
-              <td style="color:var(--muted)">${c.last_called_at ? fmtDate(c.last_called_at) : '—'}</td>
-              <td style="text-align:right;white-space:nowrap"><span class="btn btn-secondary btn-sm" style="pointer-events:none"><i class="fas fa-eye"></i> Смотреть инфо</span></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>`;
+        <tbody id="contacts-list-tbody">${data.contacts.map(contactRowHtml).join('')}</tbody>
+      </table>
+      <div id="contacts-list-more"></div>`;
+    renderContactsMoreBtn();
   }catch(e){
     body.innerHTML = '<div class="empty">Ошибка сети</div>';
+  }
+}
+
+async function loadMoreContacts(){
+  const btn = document.getElementById('contacts-more-btn');
+  if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Загрузка...'; }
+  try{
+    const data = await fetchContactsPage(contactsListState.search, contactsListState.offset);
+    if(!data){ showToast('Не удалось загрузить контакты','error'); renderContactsMoreBtn(); return; }
+    const tbody = document.getElementById('contacts-list-tbody');
+    if(tbody) tbody.insertAdjacentHTML('beforeend', data.contacts.map(contactRowHtml).join(''));
+    contactsListState.total = data.total || contactsListState.total;
+    contactsListState.offset += data.contacts.length;
+    if(!data.contacts.length) contactsListState.offset = contactsListState.total; // защита от зацикливания
+    renderContactsMoreBtn();
+  }catch(e){ showToast('Ошибка сети','error'); renderContactsMoreBtn(); }
+}
+
+// ── EXPORT ──
+// Вся база агента (не зависит от поиска/стадии): xlsx с листами «Контакты» и «Звонки».
+let contactsExportBusy = false;
+async function exportContacts(){
+  if(contactsExportBusy) return;
+  contactsExportBusy = true;
+  document.querySelectorAll('.contacts-export-btn').forEach(b => b.disabled = true);
+  try{
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    await downloadAuthedFile(withAgentId(API + '/contacts/export'), `contacts_${stamp}.xlsx`);
+  }finally{
+    contactsExportBusy = false;
+    document.querySelectorAll('.contacts-export-btn').forEach(b => b.disabled = false);
   }
 }
 
