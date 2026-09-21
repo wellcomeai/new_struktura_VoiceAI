@@ -42,9 +42,12 @@ function closeContactsListModal(){
 const CONTACTS_PAGE = 100;
 let contactsListState = { search:'', offset:0, total:0 };
 
-function contactRowHtml(c){
+// n — порядковый номер строки (сквозной через подгруженные страницы), чтобы
+// проще ориентироваться в длинном списке.
+function contactRowHtml(c, n){
   return `
     <tr style="cursor:pointer" onclick="openContactDetailsModal('${c.id}')">
+      <td style="color:var(--hint);font-size:12px;text-align:right;white-space:nowrap">${n}</td>
       <td style="font-weight:600">${esc(c.name || '—')}</td>
       <td style="color:var(--muted)">${esc(c.phone)}</td>
       <td style="color:var(--muted)">${esc(c.company || '—')}</td>
@@ -92,8 +95,8 @@ async function loadContactsList(search){
     }
     body.innerHTML = `
       <table class="calls-table">
-        <thead><tr><th>Имя</th><th>Телефон</th><th>Компания</th><th>Стадия</th><th>Попыток</th><th>Последний звонок</th><th></th></tr></thead>
-        <tbody id="contacts-list-tbody">${data.contacts.map(contactRowHtml).join('')}</tbody>
+        <thead><tr><th style="text-align:right">#</th><th>Имя</th><th>Телефон</th><th>Компания</th><th>Стадия</th><th>Попыток</th><th>Последний звонок</th><th></th></tr></thead>
+        <tbody id="contacts-list-tbody">${data.contacts.map((c, i) => contactRowHtml(c, i + 1)).join('')}</tbody>
       </table>
       <div id="contacts-list-more"></div>`;
     renderContactsMoreBtn();
@@ -109,7 +112,8 @@ async function loadMoreContacts(){
     const data = await fetchContactsPage(contactsListState.search, contactsListState.offset);
     if(!data){ showToast('Не удалось загрузить контакты','error'); renderContactsMoreBtn(); return; }
     const tbody = document.getElementById('contacts-list-tbody');
-    if(tbody) tbody.insertAdjacentHTML('beforeend', data.contacts.map(contactRowHtml).join(''));
+    const start = contactsListState.offset;
+    if(tbody) tbody.insertAdjacentHTML('beforeend', data.contacts.map((c, i) => contactRowHtml(c, start + i + 1)).join(''));
     contactsListState.total = data.total || contactsListState.total;
     contactsListState.offset += data.contacts.length;
     if(!data.contacts.length) contactsListState.offset = contactsListState.total; // защита от зацикливания
