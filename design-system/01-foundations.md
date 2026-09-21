@@ -96,9 +96,9 @@
 | Роль | Токен | Стек | Google Fonts |
 |---|---|---|---|
 | Основной | `--vf-font` | `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif` | `Inter:wght@400;500;600;700` (лендинг — `Inter:opsz,wght@14..32,400..700`) |
-| Заголовочный/дисплейный | `--vf-font-display` | `'Syne', var(--vf-font)` | `Syne:wght@700;800` (лендинг — `600;700;800`) |
+| Заголовочный/дисплейный (кабинет) | `--vf-font-display` | `'Syne', var(--vf-font)` | `Syne:wght@700;800` |
 | Моно | `--vf-font-mono` | `ui-monospace, SFMono-Regular, Menlo, Consolas, monospace` | — |
-| Бренд-шрифт страницы агента | `--font-brand` | `'Unbounded', var(--vf-font-display)` | `Unbounded:wght@400;500;600;700` |
+| Дисплейный на лендинге (`.lp` переопределяет `--vf-font-display`) и бренд-шрифт страницы агента (`--font-brand`) | — | `'Unbounded', 'Inter', sans-serif` | лендинг `Unbounded:wght@500;600;700`, агент `Unbounded:wght@400;500;600;700` |
 
 Единая строка подключения для страниц кабинета:
 
@@ -148,9 +148,9 @@ Inter 700/800.
 
 ### 2.3 Шкала лендинга
 
-Лендинг задаёт собственную шкалу в `css/landing.css` (см. `05-landing.md`): hero-заголовок
-Syne 800 `clamp(40px, 6vw, 68px)`, заголовки секций Syne 800 `clamp(28px, 3.6vw, 40px)`,
-текст Inter 16–18px, line-height 1.6.
+Лендинг задаёт собственную шкалу в `css/landing.css` (см. `05-landing.md`): дисплейный шрифт
+там Unbounded (не Syne): h1 42px/700 (36 ≤1100, 32 ≤900, 26 ≤600), h2 28px/700 (24 ≤900,
+21 ≤600), h3 Inter 18px/700, h4 12px uppercase, лид 16.5px, базовый текст 15px, line-height 1.6.
 
 ---
 
