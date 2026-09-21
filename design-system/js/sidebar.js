@@ -10,7 +10,13 @@
  *   3. добавляет раздел «Администрирование» админу (is_admin или email);
  *   4. рисует карточку кошелька с балансом и кнопкой «Пополнить» (платёжный шлюз);
  *   5. применяет блокировку по тарифу для CRM/Телефонии, если страница сама
- *      этого не делает (класс plan-locked-feature).
+ *      этого не делает (класс plan-locked-feature);
+ *   6. держит нового пользователя в обязательном онбординге «создай
+ *      ассистента → позвони ему»: пока /users/me отдаёт
+ *      onboarding_completed=false, с любой страницы редирект на
+ *      voice-assistants.html?onboarding=1 (или telephony.html?onboarding=1),
+ *      остальные пункты меню заблокированы (класс ob-locked). Флаг снимает
+ *      бэкенд при первом включении тестового номера (TestNumberService.start).
  *
  * Стили меню берутся из CSS страницы (.sidebar-nav-item и т.д. есть везде);
  * стили карточки кошелька и модалки — инлайн ниже, с fallback-цветами.
@@ -19,6 +25,10 @@
   'use strict';
 
   var API = '/api';
+  // Страницы, доступные до прохождения онбординга (шаг 1 и шаг 2)
+  var ONBOARDING_PAGES = ['/static/voice-assistants.html', '/static/telephony.html'];
+  var ONBOARDING_START = '/static/voice-assistants.html?onboarding=1';
+  var ONBOARDING_MSG = 'Сначала создайте ассистента и позвоните ему на тестовый номер — после этого откроется весь кабинет.';
   var ADMIN_EMAILS = []; // e-mail администраторов VoksiAI (или полагаемся на user.is_admin)
 
   var MENU = [
@@ -139,6 +149,8 @@
     '.vf-btn{padding:.6rem 1rem;border-radius:.5rem;border:1px solid var(--border-color,#e2e8f0);background:#fff;cursor:pointer;font-weight:600}',
     '.vf-btn-primary{background:var(--primary-blue,#2a5ce8);border-color:var(--primary-blue,#2a5ce8);color:#fff}',
     '.vf-btn[disabled]{opacity:.6;cursor:default}',
+    '#sidebar-nav .sidebar-nav-item.ob-locked{opacity:.45;cursor:not-allowed;position:relative;padding-right:34px}',
+    '#sidebar-nav .sidebar-nav-item.ob-locked .ob-lock{position:absolute;right:12px;top:50%;width:14px;height:14px;transform:translateY(-50%);display:block}',
     '.vf-hint{font-size:.75rem;color:var(--text-light,#93a2b8);margin-top:.5rem}'
   ].join('');
 
@@ -260,6 +272,75 @@
   // ---------------------------------------------------------------------
   // Тарифная блокировка (fallback, если страница сама не применяет)
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // Обязательный онбординг (первый ассистент + тестовый звонок)
+  // ---------------------------------------------------------------------
+  function onboardingPending(user) {
+    return !!user && user.onboarding_completed === false && !isAdminUser(user);
+  }
+
+  function lockNavForOnboarding() {
+    document.querySelectorAll('#sidebar-nav .sidebar-nav-item').forEach(function (el) {
+      var href = (el.getAttribute('href') || '').split('?')[0].split('#')[0];
+      if (ONBOARDING_PAGES.indexOf(href) !== -1) return;
+      el.classList.add('ob-locked');
+      el.setAttribute('title', ONBOARDING_MSG);
+      if (!el.querySelector('.ob-lock')) {
+        el.insertAdjacentHTML('beforeend', window.VF
+          ? window.VF.icon('lock', 'ob-lock')
+          : '<i class="fas fa-lock ob-lock" style="margin-left:auto;font-size:11px;"></i>');
+      }
+    });
+    document.body.classList.add('vf-onboarding');
+  }
+
+  function unlockNavForOnboarding() {
+    document.querySelectorAll('#sidebar-nav .ob-locked').forEach(function (el) {
+      el.classList.remove('ob-locked');
+      el.removeAttribute('title');
+      var ic = el.querySelector('.ob-lock'); if (ic) ic.remove();
+    });
+    document.body.classList.remove('vf-onboarding');
+  }
+
+  function applyOnboardingGate(user) {
+    if (!onboardingPending(user)) { unlockNavForOnboarding(); return false; }
+    var p = currentPath();
+    var params = new URLSearchParams(location.search);
+    if (ONBOARDING_PAGES.indexOf(p) === -1) {
+      location.replace(ONBOARDING_START);
+      return true;
+    }
+    if (params.get('onboarding') !== '1') {
+      // Страница шага открыта без режима онбординга — включаем его, остальные параметры сохраняем
+      params.set('onboarding', '1');
+      location.replace(p + '?' + params.toString() + (location.hash || ''));
+      return true;
+    }
+    lockNavForOnboarding();
+    return true;
+  }
+
+  // Клик по заблокированному пункту — подсказка вместо перехода
+  document.addEventListener('click', function (e) {
+    var el = e.target && e.target.closest ? e.target.closest('#sidebar-nav .ob-locked') : null;
+    if (!el) return;
+    e.preventDefault(); e.stopPropagation();
+    if (window.VF && window.VF.toast) window.VF.toast(ONBOARDING_MSG, { type: 'warning' });
+    else if (typeof window.showNotification === 'function') window.showNotification(ONBOARDING_MSG, 'warning');
+    else alert(ONBOARDING_MSG);
+  }, true);
+
+  // Перечитать профиль (после первого тестового звонка страница шага 2 снимает замки)
+  function refreshOnboarding() {
+    if (!token()) return Promise.resolve(null);
+    return apiFetch('/users/me').then(function (r) { return r.ok ? r.json() : null; }).then(function (user) {
+      if (!user) return null;
+      if (!onboardingPending(user)) unlockNavForOnboarding();
+      return user;
+    }).catch(function () { return null; });
+  }
+
   function applyPlanLocks(user) {
     var plan = user && (user.subscription_plan_code || user.subscription_plan || user.plan_code);
     if (!plan) return;
@@ -307,6 +388,9 @@
       var admin = isAdminUser(user);
       try { sessionStorage.setItem('vf_is_admin', admin ? '1' : '0'); } catch (e) { /* ignore */ }
       if (admin) injectAdmin(nav);
+      document.dispatchEvent(new CustomEvent('vf:user', { detail: user }));
+      // Онбординг не пройден: редирект на шаг или замки в меню (см. applyOnboardingGate)
+      if (applyOnboardingGate(user)) return;
       // Блокировку по тарифу применяют сами страницы (дашборд/настройки);
       // здесь — только если через секунду никто не применил.
       setTimeout(function () {
@@ -318,6 +402,8 @@
 
   window.VoksiAISidebar = {
     logout: logout,
+    refreshOnboarding: refreshOnboarding,
+    ONBOARDING_MSG: ONBOARDING_MSG,
     refreshBalance: refreshBalance,
     openTopupModal: openTopupModal,
     fmtMoney: fmtMoney,
