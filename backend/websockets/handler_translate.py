@@ -20,6 +20,7 @@ from datetime import datetime
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 
+from backend.db.session import release_db_connection, SessionLocal, DB_CONNECTION_ERRORS, safe_rollback
 from backend.core.logging import get_logger
 from backend.models.translate_assistant import TranslateAssistantConfig, TranslateConversation
 
@@ -64,6 +65,9 @@ async def handle_translate_connection(client_ws: WebSocket, assistant_id: str, d
             pass
         await client_ws.close(code=1008)
         return
+
+    # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+    release_db_connection(db)
 
     # 3. Подключение к OpenAI translation endpoint
     headers = [("Authorization", f"Bearer {user.openai_api_key}")]
@@ -132,6 +136,20 @@ async def handle_translate_connection(client_ws: WebSocket, assistant_id: str, d
         # 4. Залогировать диалог
         try:
             _save_conversation(db, assistant, session_state)
+        except DB_CONNECTION_ERRORS as conn_err:
+            # Соединение оборвалось за время сессии — повторяем на свежей сессии, чтобы диалог не пропал
+            logger.warning(f"[TRANSLATE] DB connection lost while saving ({type(conn_err).__name__}), retrying on a fresh session")
+            safe_rollback(db)
+            fresh = SessionLocal(expire_on_commit=False)
+            try:
+                fresh_assistant = fresh.get(TranslateAssistantConfig, assistant_uuid)
+                if fresh_assistant is not None:
+                    _save_conversation(fresh, fresh_assistant, session_state)
+            except Exception as save_err:
+                logger.error(f"[TRANSLATE] Failed to save conversation on retry: {save_err}", exc_info=True)
+                safe_rollback(fresh)
+            finally:
+                fresh.close()
         except Exception as save_err:
             logger.error(f"[TRANSLATE] Failed to save conversation: {save_err}", exc_info=True)
 

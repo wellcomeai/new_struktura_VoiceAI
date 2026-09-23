@@ -5,6 +5,7 @@
 import os
 import json
 import re
+import asyncio
 import requests
 from typing import Dict, Any, Optional, List
 
@@ -73,6 +74,61 @@ def extract_namespace_from_prompt(prompt: str) -> Optional[str]:
             return matches[0]
             
     return None
+
+# (connect, read) таймауты HTTP-запросов к OpenAI и Pinecone
+HTTP_TIMEOUT = (5, 20)
+
+
+def _embed_and_query_sync(query: str, openai_api_key: str, pinecone_api_key: str, namespace: str, top_k: int):
+    """
+    Эмбеддинг запроса через OpenAI и поиск в Pinecone. Синхронно (requests),
+    поэтому вызывается только через asyncio.to_thread. Возвращает (error, results):
+    error — словарь {"error": ...} для ответа модели, results — JSON ответа Pinecone.
+    """
+    embed_response = requests.post(
+        "https://api.openai.com/v1/embeddings",
+        headers={
+            "Authorization": f"Bearer {openai_api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "input": query,
+            # Должно совпадать с моделью при создании базы
+            # (PineconeService.create_or_update_knowledge_base), иначе
+            # вектора окажутся в разных пространствах и поиск будет нерелевантным.
+            "model": "text-embedding-3-small"
+        },
+        timeout=HTTP_TIMEOUT,
+    )
+    if embed_response.status_code != 200:
+        logger.error(f"Error creating embedding: {embed_response.text}")
+        return {"error": f"Failed to create embedding: {embed_response.status_code}"}, None
+
+    embedding = embed_response.json().get("data", [{}])[0].get("embedding", [])
+    if not embedding:
+        return {"error": "Failed to generate embedding for query"}, None
+
+    pinecone_url = "https://voicufi-gpr1sqd.svc.aped-4627-b74a.pinecone.io/query"
+    pinecone_response = requests.post(
+        pinecone_url,
+        headers={
+            "Api-Key": pinecone_api_key,
+            "Content-Type": "application/json"
+        },
+        json={
+            "vector": embedding,
+            "namespace": namespace,
+            "topK": top_k,
+            "includeMetadata": True
+        },
+        timeout=HTTP_TIMEOUT,
+    )
+    if pinecone_response.status_code != 200:
+        logger.error(f"Error from Pinecone: {pinecone_response.text}")
+        return {"error": f"Pinecone query failed: {pinecone_response.status_code}"}, None
+
+    return None, pinecone_response.json()
+
 
 @register_function
 class PineconeSearchFunction(FunctionBase):
@@ -265,18 +321,20 @@ class PineconeSearchFunction(FunctionBase):
                 from backend.models.user import User
                 
                 # Получаем сессию базы данных
-                db_session = None
-                if hasattr(assistant_config, 'db_session'):
-                    db_session = assistant_config.db_session
-                else:
-                    # Создаем новую сессию если нет в объекте
-                    from backend.db.session import get_db
-                    db_session = next(get_db())
-                    
-                # Получаем пользователя и его API ключ
-                user = db_session.query(User).get(assistant_config.user_id)
-                if user and user.openai_api_key:
-                    openai_api_key = user.openai_api_key
+                db_session = getattr(assistant_config, 'db_session', None)
+                own_session = db_session is None
+                if own_session:
+                    # Своя сессия — обязательно закрываем, иначе соединение утекает из пула
+                    from backend.db.session import SessionLocal
+                    db_session = SessionLocal()
+                try:
+                    # Получаем пользователя и его API ключ
+                    user = db_session.query(User).get(assistant_config.user_id)
+                    if user and user.openai_api_key:
+                        openai_api_key = user.openai_api_key
+                finally:
+                    if own_session:
+                        db_session.close()
             
             if not openai_api_key:
                 # Попытка использовать ключ из переменных окружения
@@ -285,57 +343,14 @@ class PineconeSearchFunction(FunctionBase):
                     return {"error": "OpenAI API key not available"}
             
             # Создаем эмбеддинг через OpenAI API
-            embed_response = requests.post(
-                "https://api.openai.com/v1/embeddings",
-                headers={
-                    "Authorization": f"Bearer {openai_api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "input": query,
-                    # Должно совпадать с моделью при создании базы
-                    # (PineconeService.create_or_update_knowledge_base), иначе
-                    # вектора окажутся в разных пространствах и поиск будет нерелевантным.
-                    "model": "text-embedding-3-small"
-                }
+            # Два HTTP-запроса (OpenAI + Pinecone) — в отдельном потоке и с таймаутами.
+            # Раньше они шли синхронно внутри async-функции и без таймаута: зависший
+            # ответ останавливал весь процесс (все звонки и виджеты) до перезапуска.
+            error, results = await asyncio.to_thread(
+                _embed_and_query_sync, query, openai_api_key, pinecone_api_key, namespace, top_k
             )
-            
-            if embed_response.status_code != 200:
-                logger.error(f"Error creating embedding: {embed_response.text}")
-                return {"error": f"Failed to create embedding: {embed_response.status_code}"}
-            
-            # Извлекаем эмбеддинг из ответа
-            embedding = embed_response.json().get("data", [{}])[0].get("embedding", [])
-            
-            if not embedding:
-                return {"error": "Failed to generate embedding for query"}
-            
-            # Создаем запрос к Pinecone
-            pinecone_url = "https://voicufi-gpr1sqd.svc.aped-4627-b74a.pinecone.io/query"
-            
-            pinecone_request = {
-                "vector": embedding,
-                "namespace": namespace,
-                "topK": top_k,
-                "includeMetadata": True
-            }
-            
-            # Отправляем запрос к Pinecone
-            pinecone_response = requests.post(
-                pinecone_url,
-                headers={
-                    "Api-Key": pinecone_api_key,
-                    "Content-Type": "application/json"
-                },
-                json=pinecone_request
-            )
-            
-            if pinecone_response.status_code != 200:
-                logger.error(f"Error from Pinecone: {pinecone_response.text}")
-                return {"error": f"Pinecone query failed: {pinecone_response.status_code}"}
-            
-            # Обрабатываем результаты
-            results = pinecone_response.json()
+            if error:
+                return error
             
             # Форматируем результаты и укладываемся в бюджет MAX_RESULT_CHARS.
             # Фрагменты идут от самого релевантного к менее релевантным (так их

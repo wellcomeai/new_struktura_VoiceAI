@@ -104,6 +104,10 @@ class UserResponse(UserBase):
     is_trial: bool = Field(False, description="Whether user is in trial period")
     is_admin: bool = Field(False, description="Whether user is an admin")
     subscription_end_date: Optional[datetime] = Field(None, description="End date of subscription")
+
+    # ✅ Онбординг: False — кабинет держит пользователя в сценарии
+    # «создай ассистента → позвони ему на тестовый номер» (sidebar.js)
+    onboarding_completed: bool = Field(True, description="Whether the mandatory first-call onboarding is done")
     
     class Config:
         from_attributes = True

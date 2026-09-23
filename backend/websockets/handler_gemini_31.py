@@ -48,6 +48,7 @@ import sys
 from typing import Dict, List
 from websockets.exceptions import ConnectionClosed
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
@@ -309,6 +310,8 @@ async def handle_gemini_31_websocket_connection(
         log_to_render(f"🚀 Creating Gemini Live client...")
         log_to_render(f"   Client ID: {client_id}")
         log_to_render(f"   API Key: {api_key[:10]}...")
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(db)
         gemini_client = GeminiLiveClient31(api_key, assistant, client_id, db, user_agent)
         
         log_to_render(f"🔌 Connecting to Gemini Live API...")

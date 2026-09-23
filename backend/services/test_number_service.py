@@ -186,7 +186,11 @@ class TestNumberService:
         Возвращает total, used, can_start, next_minutes и грант, который
         будет потрачен следующим включением (None — базовая попытка).
         """
-        leases_count = db.query(TestNumberLease).filter(TestNumberLease.user_id == user.id).count()
+        # Аренда онбординга (первый звонок после регистрации) попытку не тратит
+        leases_count = db.query(TestNumberLease).filter(
+            TestNumberLease.user_id == user.id,
+            TestNumberLease.is_onboarding == False,  # noqa: E712
+        ).count()
         grants_total = db.query(TestNumberGrant).filter(TestNumberGrant.user_id == user.id).count()
         unused = cls.unused_grants(db, user.id)
         is_admin = bool(getattr(user, "is_admin", False))
@@ -204,6 +208,13 @@ class TestNumberService:
             "next_minutes": next_minutes,
             "next_grant": next_grant,
         }
+
+    @staticmethod
+    def needs_onboarding(user: User) -> bool:
+        """Пользователь ещё в обязательном онбординге (нет первого тестового звонка)."""
+        if getattr(user, "is_admin", False):
+            return False
+        return getattr(user, "onboarding_completed_at", None) is None
 
     @classmethod
     def user_can_start(cls, db: Session, user: User) -> bool:
@@ -261,6 +272,9 @@ class TestNumberService:
             "pool_free": len(free),
             "next_free_in_seconds": next_free_in,
             "can_start": can_start and state in ("available", "busy"),
+            # Онбординг не пройден: следующее включение — первый звонок,
+            # попытку не тратит и снимает блокировку кабинета.
+            "onboarding": cls.needs_onboarding(user),
             "allowed_assistant_types": list(ALLOWED_ASSISTANT_TYPES),
             "lease": cls._lease_dict(db, my) if my else None,
             "last_lease": last.to_dict() if (last and not my) else None,
@@ -355,10 +369,18 @@ class TestNumberService:
 
         if cls.active_lease_for_user(db, user.id):
             raise TestNumberError("Тестовый номер уже включён", "already_active")
+        onboarding = cls.needs_onboarding(user)
         att = cls.attempts(db, user)
-        if not att["can_start"]:
-            raise TestNumberError("Тестовый номер можно включить только один раз", "used")
-        grant: Optional[TestNumberGrant] = att["next_grant"]
+        if onboarding:
+            # Первый звонок после регистрации: вне лимита попыток, без грантов,
+            # стандартная длительность. Завершает онбординг (см. ниже).
+            grant: Optional[TestNumberGrant] = None
+            minutes = cls.lease_minutes()
+        else:
+            if not att["can_start"]:
+                raise TestNumberError("Тестовый номер можно включить только один раз", "used")
+            grant = att["next_grant"]
+            minutes = att["next_minutes"]
 
         assistant = load_voice_assistant(db, assistant_type, assistant_id, user.id)
         if not assistant:
@@ -393,7 +415,6 @@ class TestNumberService:
             raise TestNumberError(
                 "Не удалось настроить маршрутизацию номера, попробуйте позже", "rule_failed")
 
-        minutes = att["next_minutes"]
         now = _now()
         lease = TestNumberLease(
             user_id=user.id,
@@ -402,9 +423,16 @@ class TestNumberService:
             assistant_type=assistant_type,
             assistant_id=assistant.id,
             assistant_name=getattr(assistant, "name", None),
+            is_onboarding=onboarding,
             started_at=now,
             expires_at=now + timedelta(minutes=minutes),
         )
+        if onboarding:
+            # Онбординг пройден: с этого момента кабинет открыт полностью.
+            db_user = db.query(User).filter(User.id == user.id).first() or user
+            db_user.onboarding_completed_at = now
+            user.onboarding_completed_at = now
+            db.add(db_user)
         phone.assistant_type = assistant_type
         phone.assistant_id = assistant.id
         phone.agent_config_id = None

@@ -5,7 +5,9 @@ REST API endpoints for Fish Audio voice assistants management.
 Fish Audio — TTS-провайдер. Диалог ведёт OpenAI Realtime
 (gpt-realtime-2.1, output_modalities=["text"]) прямо в сценарии
 Voximplant, озвучивает Fish через наш прокси /ws/fish/tts/{assistant_id}.
-Оба ключа пользовательские: openai_api_key (LLM) и fish_api_key (TTS).
+Ключ Fish всегда серверный (FISH_API_KEY); ключ OpenAI (LLM) — из профиля или серверный.
+Голос — reference_id из fish.audio: готовые FISH_VOICES или свой id (в т.ч. клон),
+пустое значение заменяется на DEFAULT_FISH_VOICE_ID.
 
 Конфиг ассистента отдаётся сценарию через существующие
 /api/telephony/config и /api/telephony/outbound-config.
@@ -34,9 +36,11 @@ from backend.models.fish_assistant import (
     FISH_SPEED_MAX,
     FISH_TEMPERATURE_MIN,
     FISH_TEMPERATURE_MAX,
+    FISH_VOICES, DEFAULT_FISH_VOICE_ID,
 )
 from backend.core.dependencies import get_current_user, check_assistant_limit
 from backend.services.assistant_limit_service import exclude_agent_owned
+from backend.services import provider_keys
 
 logger = get_logger(__name__)
 
@@ -221,6 +225,9 @@ def verify_assistant_access(
 def get_fish_options():
     """Справочник моделей синтеза и режимов латентности Fish Audio."""
     return {
+        # Готовые голоса для витрины (плюс пользователь может вписать свой id).
+        "voices": FISH_VOICES,
+        "default_voice_id": DEFAULT_FISH_VOICE_ID,
         # В селекторе — только обкатываемая модель; API при этом принимает
         # весь FISH_MODELS, чтобы старые агенты продолжали сохраняться.
         "models": FISH_SELECTABLE_MODELS,
@@ -242,12 +249,15 @@ def get_api_keys_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get status of API keys needed for Fish agents."""
+    """Get status of API keys needed for Fish agents.
+
+    Ключ Fish пользовательским больше не бывает — отдаём наличие серверного.
+    """
     return FishApiKeysStatus(
         has_openai_key=bool(current_user.openai_api_key),
-        has_fish_key=bool(current_user.fish_api_key),
+        has_fish_key=provider_keys.has_server_key("fish"),
         openai_key_preview=mask_api_key(current_user.openai_api_key),
-        fish_key_preview=mask_api_key(current_user.fish_api_key),
+        fish_key_preview=None,
     )
 
 
@@ -262,8 +272,8 @@ def update_api_keys(
         if keys_data.openai_api_key is not None:
             current_user.openai_api_key = keys_data.openai_api_key or None
 
-        if keys_data.fish_api_key is not None:
-            current_user.fish_api_key = keys_data.fish_api_key or None
+        # fish_api_key в запросе игнорируется: озвучка идёт на ключе платформы,
+        # свой ключ Fish пользователь указать не может.
 
         db.commit()
         db.refresh(current_user)
@@ -272,9 +282,9 @@ def update_api_keys(
 
         return FishApiKeysStatus(
             has_openai_key=bool(current_user.openai_api_key),
-            has_fish_key=bool(current_user.fish_api_key),
+            has_fish_key=provider_keys.has_server_key("fish"),
             openai_key_preview=mask_api_key(current_user.openai_api_key),
-            fish_key_preview=mask_api_key(current_user.fish_api_key),
+            fish_key_preview=None,
         )
 
     except Exception as e:
@@ -313,7 +323,8 @@ def get_fish_assistants(
         return {
             "assistants": [to_response(a) for a in assistants],
             "has_openai_key": bool(current_user.openai_api_key),
-            "has_fish_key": bool(current_user.fish_api_key),
+            # Ключ Fish пользовательским больше не бывает: озвучка на ключе платформы.
+            "has_fish_key": provider_keys.has_server_key("fish"),
         }
 
     except Exception as e:
@@ -342,7 +353,7 @@ def create_fish_assistant(
             name=assistant_data.name,
             description=assistant_data.description,
             system_prompt=assistant_data.system_prompt,
-            fish_voice_id=assistant_data.fish_voice_id,
+            fish_voice_id=(assistant_data.fish_voice_id or "").strip() or DEFAULT_FISH_VOICE_ID,
             fish_model=assistant_data.fish_model,
             fish_latency=assistant_data.fish_latency,
             sample_rate=assistant_data.sample_rate,
@@ -411,6 +422,9 @@ def update_fish_assistant(
         validate_fish_latency(assistant_data.fish_latency)
 
         update_data = assistant_data.model_dump(exclude_unset=True)
+        if "fish_voice_id" in update_data:
+            # Пустой голос — голос по умолчанию, а не «какой-нибудь» дефолт Fish.
+            update_data["fish_voice_id"] = (update_data["fish_voice_id"] or "").strip() or DEFAULT_FISH_VOICE_ID
         for field, value in update_data.items():
             setattr(assistant, field, value)
 

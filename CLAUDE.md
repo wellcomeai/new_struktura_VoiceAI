@@ -226,6 +226,30 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
   `CASCADE_CREDITS_BILLING`. Роутер: `backend/api/wallet.py` (`/api/wallet`).
 - **База знаний** принадлежит пользователю (`pinecone_configs.user_id`), к ассистенту
   подключается строкой `Pinecone namespace: <ns>` в промпте (таб «База знаний»).
+- **Fish Audio** работает только на серверном `FISH_API_KEY`: свой ключ Fish пользователь
+  не указывает (карточки в настройках нет, `provider_keys.resolve("fish")` колонку
+  `users.fish_api_key` не читает, она оставлена для отката), поэтому модель всегда по
+  тарифу. Голоса: готовые `FISH_VOICES` в `backend/models/fish_assistant.py` (Светлана
+  по умолчанию, Сергей) плюс свой `reference_id` из fish.audio; пустой `fish_voice_id`
+  бэкенд заменяет на `DEFAULT_FISH_VOICE_ID`. Список дублируется во фронте
+  (`agent/instructions-voice.js`, fallback в `voice-assistants.html`), справочник —
+  `GET /api/fish-assistants/options`.
+
+## Обязательный онбординг (ветка 1909-pamatb)
+
+Новый пользователь после регистрации не попадает в кабинет, пока не создаст
+ассистента и не включит тестовый номер: `users.onboarding_completed_at` (NULL —
+онбординг не пройден; существующим пользователям проставлен при добавлении колонки,
+`ensure_onboarding_columns` в `app.py` / миграция `add_user_onboarding`). `/users/me`
+отдаёт `onboarding_completed`; `backend/static/js/sidebar.js` при `false` редиректит
+с любой страницы на `voice-assistants.html?onboarding=1` (шаг 1: только редактор
+нового ассистента, Fish предвыбран) → после сохранения
+`telephony.html?onboarding=1&assistant_type=&assistant_id=` (шаг 2: только карточка
+тестового номера, ассистент предвыбран), остальные пункты меню — класс `ob-locked`.
+Флаг снимает `TestNumberService.start`: аренда онбординга помечается
+`test_number_leases.is_onboarding` и в лимит попыток не входит (после онбординга
+остаётся обычная попытка). Блокировка только в интерфейсе, API не ограничен; админов
+не касается.
 
 ## Память агента (ветка 1909-pamatb)
 
@@ -240,6 +264,31 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
 (`backend/static/agent/memory.js`, API `/api/agent/memory`). Лимиты: 60 заметок,
 400 символов на заметку, 8000 символов всего. Колонка добавляется на старте
 (`ensure_agent_memory_column` в `app.py`) и миграцией `add_agent_memory`.
+
+## Устойчивость к обрыву БД (ветка 1909-pamatb)
+
+Прод — один процесс uvicorn, запросы к БД синхронные, поэтому любое долгое ожидание базы
+замораживает весь сервер. Защита в `backend/db/session.py`: `connect_timeout`, короткий
+`pool_timeout`, TCP keepalive; `release_db_connection(db)` в WS-хендлерах сразу после
+загрузки конфига (соединение не держится весь звонок); `ConversationService.save_conversation`
+повторяет запись на свежей сессии при обрыве соединения; `/health` проверяет базу и отдаёт
+503, чтобы Render перезапускал инстанс сам. Синхронные SDK (Pinecone, OpenAI-эмбеддинги,
+`requests`) и опросы БД в фоновых циклах идут через `asyncio.to_thread`, чтобы не
+останавливать loop; новый синхронный сетевой вызов или запрос к БД в `async def`
+добавляйте только так. Подробнее — `backend/db/claude-db.md`.
+
+## Контакты агента обзвона: экспорт и пагинация (ветка 1909-pamatb)
+
+- **Экспорт базы** `GET /api/agent/contacts/export` → xlsx (`backend/services/contact_export_service.py`,
+  openpyxl, файл в памяти). Два листа: «Контакты» (данные + стадия + итог последнего звонка +
+  память агента + ближайший шаг; первые пять колонок совпадают с шаблоном импорта) и «Звонки»
+  (все завершённые звонки/сообщения с транскриптами). Всегда вся база выбранного агента,
+  время в МСК. Роут объявлен до `/contacts/{contact_id}`. Кнопки «Экспорт» — в модалке
+  контактов, футере воронки и карточке «Контакты» на дашборде (`exportContacts` в `contacts.js`).
+- **Пагинация.** Список контактов и воронка раньше показывали максимум 100/200 записей.
+  Теперь список подгружается по 100 кнопкой «Показать ещё», воронка грузит каждую стадию
+  отдельным запросом `GET /contacts?status=` по 100 карточек с кнопкой «Ещё» в колонке.
+  Фильтр `status=active` на бэке включает и легаси-статусы вне воронки (напр. `calling`).
 
 ## Key API Prefixes
 
@@ -290,4 +339,5 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 - **Multi-provider voice:** The WebSocket layer abstracts three different voice AI providers (OpenAI, Gemini, Grok) behind similar handler interfaces, with Voximplant telephony bridge support.
 - **Startup schema fixes:** `app.py` startup event runs comprehensive schema checks and auto-adds missing columns for backwards compatibility.
 - **Task scheduler:** Background scheduler (`core/task_scheduler.py`) polls for scheduled call tasks every 30 seconds and executes them automatically.
+- **Trailing slash:** маршруты вида `@router.get("/")` с префиксом (`/api/contacts/`) доступны и без слэша: `TrailingSlashRewriteMiddleware` в `backend/core/http_optimizations.py` подменяет путь вместо 307-редиректа Starlette, потому что за прокси Render Location редиректа собирался с внутренним хостом `*.onrender.com` и фронт получал 403.
 - **Static pages:** App pages (agents, dashboard, CRM, etc.) are vanilla HTML/JS served by FastAPI's `StaticFiles`. The React app is only used for the landing page.

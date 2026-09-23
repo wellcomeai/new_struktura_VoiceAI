@@ -10,6 +10,7 @@ from typing import Dict, Optional, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.models.assistant import AssistantConfig
 from backend.models.conversation import Conversation
@@ -509,6 +510,8 @@ async def handle_voximplant_websocket(websocket: WebSocket, assistant_id: str, d
             except Exception as db_error:
                 logger.error(f"[VOXIMPLANT-v2.1] Ошибка проверки подписки: {db_error}")
 
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(db)
         # Создаем копию сессии БД для адаптера
         try:
             from backend.db.session import SessionLocal

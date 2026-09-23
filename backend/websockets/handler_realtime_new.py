@@ -34,6 +34,7 @@ import sys
 from typing import Dict, List
 from websockets.exceptions import ConnectionClosed
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.core.config import settings
 from backend.models.user import User
@@ -596,6 +597,8 @@ async def handle_websocket_connection_new(
         log_to_render(f"🚀 Creating OpenAI Realtime client v3.3...")
         log_to_render(f"   Client ID: {client_id}")
         log_to_render(f"   API Key: {api_key[:10]}...")
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(db)
         openai_client = OpenAIRealtimeClientNew(api_key, assistant, client_id, db, user_agent)
         
         log_to_render(f"🔌 Connecting to OpenAI GA API...")

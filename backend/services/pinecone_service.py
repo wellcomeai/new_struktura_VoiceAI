@@ -16,6 +16,10 @@ from backend.models.pinecone_config import PineconeConfig
 logger = get_logger(__name__)
 
 class PineconeService:
+    # Клиенты Pinecone и OpenAI синхронные. Все их сетевые вызовы идут через
+    # asyncio.to_thread: прод — один процесс с одним event loop, и синхронный HTTP
+    # внутри async-метода замораживал звонки и виджеты на время загрузки базы знаний.
+
     @staticmethod
     async def initialize():
         """Initialize Pinecone connection"""
@@ -37,11 +41,13 @@ class PineconeService:
     @staticmethod
     async def create_embeddings(text: str, api_key: str, model: str = "text-embedding-3-small") -> List[float]:
         """Create embeddings using OpenAI API"""
-        client = openai.OpenAI(api_key=api_key)
+        # SDK синхронный: вызов в потоке, чтобы не останавливать event loop на HTTP
+        client = openai.OpenAI(api_key=api_key, timeout=30.0)
         try:
-            response = client.embeddings.create(
-                model=model, 
-                input=text
+            response = await asyncio.to_thread(
+                client.embeddings.create,
+                model=model,
+                input=text,
             )
             return response.data[0].embedding
         except Exception as e:
@@ -80,7 +86,7 @@ class PineconeService:
             # Get index
             index_name = "voicufi"  # Используем ваш существующий индекс
             try:
-                index = pc.Index(index_name)
+                index = await asyncio.to_thread(pc.Index, index_name)
             except Exception as e:
                 logger.error(f"Error accessing Pinecone index: {str(e)}")
                 raise HTTPException(
@@ -90,11 +96,11 @@ class PineconeService:
             
             # If namespace exists, delete old vectors
             try:
-                stats = index.describe_index_stats()
+                stats = await asyncio.to_thread(index.describe_index_stats)
                 namespaces = stats.get("namespaces", {})
                 if namespace in namespaces:
                     logger.info(f"Deleting existing namespace: {namespace}")
-                    index.delete(namespace=namespace, delete_all=True)
+                    await asyncio.to_thread(index.delete, namespace=namespace, delete_all=True)
             except Exception as e:
                 logger.warning(f"Error checking/deleting namespace: {str(e)}")
             
@@ -126,7 +132,7 @@ class PineconeService:
                 # Upsert vectors into the index
                 if vectors:
                     try:
-                        index.upsert(vectors=vectors, namespace=namespace)
+                        await asyncio.to_thread(index.upsert, vectors=vectors, namespace=namespace)
                         logger.info(f"Upserted {len(vectors)} vectors in batch {batch_idx+1}")
                     except Exception as e:
                         logger.error(f"Error upserting vectors: {str(e)}")
@@ -189,11 +195,12 @@ class PineconeService:
             return []
 
         pc = await PineconeService.initialize()
-        index = pc.Index("voicufi")
+        index = await asyncio.to_thread(pc.Index, "voicufi")
 
         embedding = await PineconeService.create_embeddings(query, api_key, model=model)
 
-        response = index.query(
+        response = await asyncio.to_thread(
+            index.query,
             vector=embedding,
             namespace=namespace,
             top_k=top_k,
@@ -221,14 +228,14 @@ class PineconeService:
             # Get the index
             index_name = "voicufi"
             try:
-                index = pc.Index(index_name)
+                index = await asyncio.to_thread(pc.Index, index_name)
             except Exception as e:
                 logger.error(f"Error accessing Pinecone index: {str(e)}")
                 return False
             
             # Delete all vectors in the namespace
             try:
-                index.delete(namespace=namespace, delete_all=True)
+                await asyncio.to_thread(index.delete, namespace=namespace, delete_all=True)
                 logger.info(f"Deleted namespace: {namespace}")
                 return True
             except Exception as e:

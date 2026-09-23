@@ -143,3 +143,45 @@ class StaticCacheHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
+
+
+class TrailingSlashRewriteMiddleware:
+    """
+    Подменяет путь запроса вместо 307-редиректа Starlette при несовпадении
+    завершающего слэша (``/api/contacts?…`` при маршруте ``/api/contacts/``).
+
+    Зачем: редирект строит абсолютный ``Location`` из заголовка ``Host``, а за
+    прокси Render приложение видит внутренний хост ``*.onrender.com``. Браузер
+    уходит на другой origin, теряет заголовок ``Authorization`` и получает 403.
+    Так падала CRM (``crm.js`` → ``/api/contacts?limit=100``).
+
+    Список известных путей собирается лениво на первом запросе из ``app.routes``
+    (роутеры подключаются позже middleware). Пути с параметрами (``{id}``) не
+    трогаем — там проблемы нет, а подмена могла бы задеть чужие маршруты.
+    """
+
+    def __init__(self, app: ASGIApp, get_routes) -> None:
+        self.app = app
+        self._get_routes = get_routes
+        self._paths = None
+
+    def _build_paths(self) -> set:
+        paths = set()
+        for route in self._get_routes():
+            path = getattr(route, "path", None)
+            if isinstance(path, str) and "{" not in path:
+                paths.add(path)
+        return paths
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            if self._paths is None:
+                self._paths = self._build_paths()
+            path = scope.get("path", "")
+            if path not in self._paths:
+                alt = path[:-1] if (path.endswith("/") and len(path) > 1) else path + "/"
+                if alt in self._paths:
+                    scope["path"] = alt
+                    if scope.get("raw_path"):
+                        scope["raw_path"] = alt.encode("utf-8")
+        await self.app(scope, receive, send)

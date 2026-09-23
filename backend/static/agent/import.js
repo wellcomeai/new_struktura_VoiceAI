@@ -101,9 +101,31 @@ async function handleImportFile(file){
   }
 }
 
+// Строка стоимости импорта: зависит от ползунка авто-задач.
+// Галочка включена — оркестратор обработает каждый контакт, нужен баланс.
+// Галочка снята — контакты загружаются целиком вне зависимости от баланса;
+// стоимость задач из файла показываем справочно, импорт по ней не блокируем.
+function renderImportCostLine(d){
+  const fmtN = n => (n||0).toLocaleString('ru');
+  const cb = document.getElementById('import-tasks-checkbox');
+  const createTasks = cb ? cb.checked : true;
+  if(createTasks){
+    const enough = d.credits_required_estimate <= d.credits_available;
+    return `
+      <div style="${enough?'':'color:var(--red,#dc2626)'}"><i class="fas fa-coins"></i> Примерная стоимость: <b>${fmtN(d.credits_required_estimate)}</b> кредитов из ${fmtN(d.credits_available)}</div>
+      ${!enough ? `<div style="background:var(--amber-light);padding:10px 12px;border-radius:8px;font-size:12.5px;margin:8px 0">Недостаточно кредитов для авто-задач. <a href="#" onclick="closeImportModal();openCreditsModal();return false" style="color:var(--blue);font-weight:600">Пополнить баланс →</a> или снимите галочку «Проставлять авто-задачи» — контакты загрузятся без списания кредитов.</div>` : ''}
+    `;
+  }
+  const explicit = d.explicit_task_rows || 0;
+  const est = d.credits_required_estimate_no_tasks || 0;
+  return `
+    <div><i class="fas fa-coins"></i> Кредиты для импорта не требуются: контакты сохраняются без оркестратора.</div>
+    ${explicit ? `<div style="color:var(--muted)"><i class="fas fa-calendar-check"></i> Задач из файла («Задача»/«Когда звонить»): <b>${fmtN(explicit)}</b> — примерно ${fmtN(est)} кредитов при обзвоне (баланс: ${fmtN(d.credits_available)})</div>` : ''}
+  `;
+}
+
 function renderImportPreview(d){
   const fmtN = n => (n||0).toLocaleString('ru');
-  const enough = d.credits_required_estimate <= d.credits_available;
   const summary = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;margin-bottom:14px">
       <div style="background:var(--bg);border-radius:8px;padding:10px"><b style="font-size:18px;color:var(--green,#16a34a)">${fmtN(d.valid_rows)}</b><div style="color:var(--muted);font-size:11.5px">контактов будет создано</div></div>
@@ -113,9 +135,8 @@ function renderImportPreview(d){
       ${d.errors && d.errors.length ? `<div style="color:var(--red,#dc2626)"><i class="fas fa-circle-exclamation"></i> Ошибок: <b>${d.errors.length}</b></div>` : ''}
       ${d.duplicates && d.duplicates.length ? `<div style="color:var(--amber,#d97706)"><i class="fas fa-clone"></i> Дубликатов (будут пропущены): <b>${d.duplicates.length}</b></div>` : ''}
       ${d.shifted_to_working_hours ? `<div style="color:var(--blue)"><i class="far fa-clock"></i> Задач сдвинуто на след. рабочий день: <b>${d.shifted_to_working_hours}</b> (рабочие часы по МСК)</div>` : ''}
-      <div style="${enough?'':'color:var(--red,#dc2626)'}"><i class="fas fa-coins"></i> Примерная стоимость: <b>${fmtN(d.credits_required_estimate)}</b> кредитов из ${fmtN(d.credits_available)}</div>
+      <div id="import-cost-line"></div>
     </div>
-    ${!enough ? `<div style="background:var(--amber-light);padding:10px 12px;border-radius:8px;font-size:12.5px;margin-bottom:8px">Недостаточно кредитов. <a href="#" onclick="closeImportModal();openCreditsModal();return false" style="color:var(--blue);font-weight:600">Пополнить баланс →</a></div>` : ''}
   `;
   document.getElementById('import-preview-summary').innerHTML = summary;
 
@@ -136,30 +157,38 @@ function renderImportPreview(d){
   if(d.valid_rows > 0){
     toggle.style.display = '';
     document.getElementById('import-tasks-checkbox').checked = true;
-    onImportTasksToggle();
   } else {
     toggle.style.display = 'none';
   }
+  onImportTasksToggle();
 
   // proceed button
   document.getElementById('import-proceed-btn').style.display = '';
   updateImportProceedBtn();
 }
 
-// Переключатель авто-задач: меняет только пояснение (превью не пересчитываем).
+// Переключатель авто-задач: пояснение + строка стоимости + доступность кнопки
+// (превью на сервере не пересчитываем — он отдаёт обе оценки сразу).
 function onImportTasksToggle(){
   const on = document.getElementById('import-tasks-checkbox').checked;
   const hint = document.getElementById('import-tasks-hint');
-  if(!hint) return;
-  hint.innerHTML = on
-    ? 'Агент запланирует звонок по каждому контакту: возьмёт «Задачу» и «Когда звонить» из файла, а если их нет — назначит время сам (в рабочие часы по МСК).'
-    : 'Контакты просто сохранятся в базу. Задачи создадутся только для строк, где в файле заполнены «Задача» и/или «Когда звонить» — их ставим напрямую, без оркестратора. По остальным звонки не планируются, пока вы не поставите задачи вручную или через чат с оркестратором.';
+  if(hint){
+    hint.innerHTML = on
+      ? 'Агент запланирует звонок по каждому контакту: возьмёт «Задачу» и «Когда звонить» из файла, а если их нет — назначит время сам (в рабочие часы по МСК). Нужен баланс кредитов оркестратора (≈30 на контакт).'
+      : 'Контакты просто сохранятся в базу — все, вне зависимости от баланса кредитов. Задачи создадутся только для строк, где в файле заполнены «Задача» и/или «Когда звонить» — их ставим напрямую, без оркестратора. По остальным звонки не планируются, пока вы не поставите задачи вручную или через чат с оркестратором.';
+  }
+  const costEl = document.getElementById('import-cost-line');
+  if(costEl && importState.preview) costEl.innerHTML = renderImportCostLine(importState.preview);
+  updateImportProceedBtn();
 }
 
 function updateImportProceedBtn(){
   const d = importState.preview || {};
   const btn = document.getElementById('import-proceed-btn');
-  let ok = !!d.can_proceed;
+  const cb = document.getElementById('import-tasks-checkbox');
+  const createTasks = cb ? cb.checked : true;
+  // Без авто-задач нехватка кредитов импорт не блокирует.
+  let ok = createTasks ? !!d.can_proceed : !!d.can_proceed_without_tasks;
   if(d.shifted_to_working_hours > 0){
     const cb = document.getElementById('import-shift-checkbox');
     if(cb && !cb.checked) ok = false;

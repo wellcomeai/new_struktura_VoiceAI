@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.core.security import decode_jwt_token
 from backend.db.session import SessionLocal
@@ -188,6 +189,8 @@ async def handle_live_connection(websocket: WebSocket, assistant_id: str, db: Se
         return
 
     # 3. Сессия GPT-Live
+    # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+    release_db_connection(db)
     client = OpenAILiveClient(api_key, assistant, client_id, db_session=db, audio_rate=LIVE_AUDIO_RATE,
                               voice_override=voice)
     if not await client.connect():

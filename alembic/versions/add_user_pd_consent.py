@@ -1,7 +1,7 @@
 """Add personal data consent columns to users (152-ФЗ, отдельное согласие)
 
 Revision ID: add_user_pd_consent
-Revises: add_agent_memory
+Revises: add_user_onboarding
 Create Date: 2026-09-23 12:00:00.000000
 
 Отметка ставится при регистрации (/static/consent.html), пишется в
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_user_pd_consent'
-down_revision = 'add_agent_memory'
+down_revision = 'add_user_onboarding'
 branch_labels = None
 depends_on = None
 

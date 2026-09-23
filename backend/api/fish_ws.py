@@ -40,7 +40,7 @@ async def fish_tts_websocket_endpoint(
     медиа-фреймы Voximplant с PCM16 и проигрывает их в звонок через
     websocket.sendMediaTo(call).
 
-    Ключ Fish берётся из профиля владельца ассистента (User.fish_api_key).
+    Ключ Fish — серверный (FISH_API_KEY), см. provider_keys.resolve("fish").
     """
     try:
         logger.info(f"[FISH-WS] New TTS connection: assistant_id={assistant_id}")

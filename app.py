@@ -57,9 +57,9 @@ from backend.api import (
     seo,  # ✅ robots.txt, sitemap.xml, llms.txt
 )
 from backend.models.base import create_tables
-from backend.db.session import engine
+from backend.db.session import engine, check_database_connection
 from backend.core.scheduler import start_subscription_checker
-from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware
+from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware, TrailingSlashRewriteMiddleware
 from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
@@ -135,6 +135,12 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# Завершающий слэш: /api/contacts?… → маршрут /api/contacts/ без 307-редиректа.
+# Редирект Starlette строит Location из заголовка Host, а за прокси Render это
+# внутренний *.onrender.com: браузер уходил на другой origin, терял Authorization
+# и получал 403 (так падала CRM). Список путей берётся из app.routes на первом запросе.
+app.add_middleware(TrailingSlashRewriteMiddleware, get_routes=lambda: app.routes)
 
 # Сжатие ответов и кэш статики (backend/core/http_optimizations.py).
 # GZip добавлен последним, значит снаружи всех остальных middleware.
@@ -1563,6 +1569,51 @@ def ensure_agent_knowledge_base_columns():
         logger.error(f"❌ ensure_agent_knowledge_base_columns error: {e}")
 
 
+def ensure_onboarding_columns():
+    """
+    Идемпотентно добавляет колонки обязательного онбординга:
+      users.onboarding_completed_at     — когда сделан первый тестовый звонок;
+      test_number_leases.is_onboarding  — аренда онбординга (попытку не тратит).
+
+    При ПЕРВОМ добавлении колонки всем существующим пользователям ставится
+    «пройдено» — сценарий обязателен только для новых регистраций.
+    Дублирует alembic-миграцию add_user_onboarding.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                if inspector.has_table('users'):
+                    cols = {c['name'] for c in inspector.get_columns('users')}
+                    if 'onboarding_completed_at' not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                            "onboarding_completed_at TIMESTAMPTZ NULL"
+                        ))
+                        conn.execute(text(
+                            "UPDATE users SET onboarding_completed_at = NOW() "
+                            "WHERE onboarding_completed_at IS NULL"
+                        ))
+                        logger.info("✅ Added users.onboarding_completed_at (existing users marked done)")
+                if inspector.has_table('test_number_leases'):
+                    cols = {c['name'] for c in inspector.get_columns('test_number_leases')}
+                    if 'is_onboarding' not in cols:
+                        conn.execute(text(
+                            "ALTER TABLE test_number_leases ADD COLUMN IF NOT EXISTS "
+                            "is_onboarding BOOLEAN NOT NULL DEFAULT FALSE"
+                        ))
+                        logger.info("✅ Added test_number_leases.is_onboarding")
+                trans.commit()
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add onboarding columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_onboarding_columns error: {e}")
+
+
 def ensure_user_pd_consent_columns():
     """
     Идемпотентно добавляет колонки отдельного согласия на обработку ПДн в users.
@@ -2270,6 +2321,10 @@ async def startup_event():
                 # 🆕 Шаг 18: Память агента (agent_configs.memory JSONB)
                 ensure_agent_memory_column()
 
+                # 🆕 Шаг 18а: Обязательный онбординг (users.onboarding_completed_at,
+                #             test_number_leases.is_onboarding)
+                ensure_onboarding_columns()
+
                 # 🆕 Шаг 18.1: Отдельное согласие на обработку ПДн (users.pd_consent_*)
                 ensure_user_pd_consent_columns()
 
@@ -2538,11 +2593,43 @@ async def serve_landing():
     return FileResponse("backend/static/landing/index.html")
 
 
+HEALTH_DB_TIMEOUT = float(os.getenv("HEALTH_DB_TIMEOUT", "4"))
+
+
 @app.get("/health")
 async def health_check():
-    """Health check for deployment platforms"""
+    """
+    Health check для Render (healthCheckPath в render.yaml).
+
+    Проверяет не только что процесс жив, но и что база отвечает. Раньше при обрыве
+    соединения с Postgres процесс оставался живым, но не обслуживал запросы, а
+    Render считал его здоровым — приходилось перезапускать руками. Теперь при
+    недоступной базе отдаём 503, и Render перезапускает инстанс сам.
+
+    Проверка идёт в отдельном потоке с жёстким таймаутом, чтобы /health не завис
+    вместе с базой. Две попытки, чтобы один сетевой чих не ронял инстанс.
+    """
+    db_error = None
+    for attempt in (1, 2):
+        try:
+            await asyncio.wait_for(asyncio.to_thread(check_database_connection), timeout=HEALTH_DB_TIMEOUT)
+            db_error = None
+            break
+        except Exception as e:
+            db_error = f"{type(e).__name__}: {e}".strip(": ")
+            logger.warning(f"[HEALTH] database check failed (attempt {attempt}/2): {db_error}")
+            if attempt == 1:
+                await asyncio.sleep(0.5)
+
+    if db_error is not None:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "service": "wellcome-ai", "database": "error", "database_error": db_error},
+        )
+
     return {
         "status": "healthy",
+        "database": "ok",
         "service": "wellcome-ai",
         "version": "3.0.0",  # 🆕 Обновлена версия
         "features": {

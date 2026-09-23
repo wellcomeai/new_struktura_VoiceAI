@@ -35,7 +35,7 @@ from backend.api.grok_assistants import CASCADE_TTS_PROVIDER
 from backend.models.fish_assistant import (
     FishAssistantConfig, FISH_MODELS, FISH_LATENCY_MODES,
     DEFAULT_FISH_MODEL, DEFAULT_FISH_LATENCY, DEFAULT_FISH_SAMPLE_RATE,
-    DEFAULT_FISH_LLM_MODEL,
+    DEFAULT_FISH_LLM_MODEL, DEFAULT_FISH_VOICE_ID,
 )
 from backend.models.voximplant_child import VoximplantChildAccount
 from backend.models.task import Task, TaskStatus
@@ -46,7 +46,7 @@ from backend.models.agent_connector import AgentConnector, CONNECTOR_TOOLKITS
 from backend.services import composio_service
 from backend.core.config import settings
 from backend.core.dependencies import get_current_user, get_current_user_flexible
-from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, is_valid_stage
+from backend.core.pipeline_stages import AGENT_CONTACT_STAGES, AGENT_CONTACT_STAGE_KEYS, is_valid_stage
 from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_agent_prompt
 from backend.services.agent_models import (
     ORCHESTRATOR_MODELS, get_default_model, is_valid_model, resolve_slug,
@@ -474,12 +474,13 @@ def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
         )
     elif assistant_type == "fish":
         # Fish: диалог ведёт OpenAI Realtime внутри сценария Voximplant,
-        # озвучка идёт через наш прокси синтеза (/ws/fish/tts/{id}) на ключе
-        # Fish владельца. Голос — reference_id из библиотеки fish.audio.
+        # озвучка идёт через наш прокси синтеза (/ws/fish/tts/{id}) на
+        # серверном ключе Fish. Голос — reference_id из библиотеки fish.audio:
+        # готовый из FISH_VOICES или свой; пусто — Светлана по умолчанию.
         va = FishAssistantConfig(
             id=uuid.uuid4(), user_id=user_id, name=f"{name} Voice",
             system_prompt=prompt, greeting_message="", is_active=True,
-            fish_voice_id=(fish_voice_id or None),
+            fish_voice_id=((fish_voice_id or "").strip() or DEFAULT_FISH_VOICE_ID),
             fish_model=_valid_fish_model(fish_model),
             fish_latency=_valid_fish_latency(fish_latency),
             sample_rate=DEFAULT_FISH_SAMPLE_RATE,
@@ -1054,7 +1055,7 @@ async def update_agent(
                     va.voice_speed = update_data["voice_speed"]
             elif agent.assistant_type == "fish":
                 if "fish_voice_id" in update_data:
-                    va.fish_voice_id = update_data["fish_voice_id"] or None
+                    va.fish_voice_id = (update_data["fish_voice_id"] or "").strip() or DEFAULT_FISH_VOICE_ID
                 if update_data.get("fish_model"):
                     va.fish_model = _valid_fish_model(update_data["fish_model"])
                 if update_data.get("fish_latency"):
@@ -2548,7 +2549,15 @@ def list_agent_contacts(
 
     q = db.query(AgentContact).filter(AgentContact.agent_config_id == agent.id)
     if status:
-        q = q.filter(AgentContact.status == status)
+        if status == "active":
+            # Легаси-статусы (напр. "calling"), которых больше нет в воронке,
+            # показываем в колонке «В работе», чтобы контакт не выпал из доски.
+            q = q.filter(or_(
+                AgentContact.status == "active",
+                AgentContact.status.notin_(AGENT_CONTACT_STAGE_KEYS),
+            ))
+        else:
+            q = q.filter(AgentContact.status == status)
     if search:
         pattern = f"%{search.strip()}%"
         q = q.filter(
@@ -2566,6 +2575,35 @@ def list_agent_contacts(
         "total": total,
         "contacts": [c.to_dict() for c in contacts],
     }
+
+
+@router.get("/contacts/export")
+def export_agent_contacts(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Выгрузка всей базы контактов агента в Excel: лист «Контакты» (данные,
+    стадия, память агента, следующий шаг) + лист «Звонки» (история с
+    транскриптами). Роут объявлен ДО /contacts/{contact_id}, иначе "export"
+    перехватится как contact_id.
+    """
+    from backend.services.contact_export_service import generate_contacts_export_xlsx
+
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    content = generate_contacts_export_xlsx(db, agent.id)
+    stamp = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"contacts_{stamp}.xlsx"
+    logger.info(f"[AGENT] contacts export: agent={agent.id} user={current_user.id} bytes={len(content)}")
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/contacts/{contact_id}")
@@ -3026,8 +3064,17 @@ async def import_contacts_preview(
     )
 
     valid_rows = len(unique_rows)
+    # Оценка для режима «авто-задачи через оркестратора» (create_tasks=True):
+    # оркестратор отработает PreCall/PostCall по каждому контакту.
     credits_required = valid_rows * CREDITS_PER_CONTACT
     credits_available = current_user.credits_balance or 0
+
+    # Режим без авто-задач (create_tasks=False): контакты просто сохраняются,
+    # оркестратор не трогает их, кредиты не нужны и баланс не проверяется.
+    # Задачи из файла (строки с «Задача»/«Когда звонить») ставятся напрямую —
+    # их стоимость показываем справочно, но импорт по ней не блокируем.
+    explicit_task_rows = sum(1 for r in unique_rows if _row_has_explicit_task(r))
+    credits_required_no_tasks = explicit_task_rows * CREDITS_PER_CONTACT
 
     blocked_reasons: List[str] = []
     if valid_rows == 0:
@@ -3035,6 +3082,8 @@ async def import_contacts_preview(
     if credits_required > credits_available:
         blocked_reasons.append("insufficient_credits")
     can_proceed = len(blocked_reasons) == 0
+    # Без авто-задач нехватка кредитов импорт не блокирует.
+    can_proceed_without_tasks = valid_rows > 0
 
     token = save_preview({
         "agent_id": str(agent.id),
@@ -3060,6 +3109,10 @@ async def import_contacts_preview(
         "credits_available": credits_available,
         "can_proceed": can_proceed,
         "blocked_reasons": blocked_reasons,
+        # Режим create_tasks=False (галочка авто-задач снята)
+        "explicit_task_rows": explicit_task_rows,
+        "credits_required_estimate_no_tasks": credits_required_no_tasks,
+        "can_proceed_without_tasks": can_proceed_without_tasks,
     }
 
 
@@ -3228,14 +3281,18 @@ def import_contacts_execute(
     if not rows:
         raise HTTPException(status_code=400, detail="no_valid_rows")
 
-    # Финальная проверка баланса кредитов
-    credits_required = len(rows) * CREDITS_PER_CONTACT
-    if credits_required > (current_user.credits_balance or 0):
-        raise HTTPException(status_code=402, detail={
-            "error": "insufficient_credits",
-            "required": credits_required,
-            "available": current_user.credits_balance or 0,
-        })
+    # Финальная проверка баланса кредитов — только если оркестратор будет
+    # проставлять авто-задачи. Без авто-задач (create_tasks=False) контакты
+    # загружаются целиком вне зависимости от баланса: оркестратор их не
+    # обрабатывает, кредиты не списываются.
+    if body.create_tasks:
+        credits_required = len(rows) * CREDITS_PER_CONTACT
+        if credits_required > (current_user.credits_balance or 0):
+            raise HTTPException(status_code=402, detail={
+                "error": "insufficient_credits",
+                "required": credits_required,
+                "available": current_user.credits_balance or 0,
+            })
 
     background_tasks.add_task(
         _run_contacts_import,

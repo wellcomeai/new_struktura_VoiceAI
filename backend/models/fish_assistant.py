@@ -20,7 +20,9 @@ Fish Audio TTS provider integration — config only, call logic lives in Voximpl
 Modules.Cartesia), а медиа-WebSocket VoxEngine принимает только собственный
 JSON-протокол. Fish говорит на своём — состыковать их напрямую нельзя.
 
-Оба ключа пользовательские: User.openai_api_key (LLM) и User.fish_api_key (TTS).
+Ключ Fish — всегда серверный (FISH_API_KEY, см. provider_keys.resolve):
+свой ключ Fish пользователь не указывает, минуты списываются с кошелька.
+Ключ OpenAI для LLM-части берётся из профиля, если он есть, иначе серверный.
 """
 
 import uuid
@@ -65,6 +67,20 @@ FISH_SELECTABLE_MODELS = ["s2.1-pro"]
 # low — быстрее всего начинает говорить, normal — лучшее качество.
 FISH_LATENCY_MODES = ["low", "balanced", "normal"]
 
+# Готовые голоса Fish Audio, которые предлагаем в UI, чтобы ассистента можно
+# было протестировать сразу, без похода в библиотеку fish.audio. Это публичные
+# reference_id из библиотеки; помимо них пользователь может вписать любой
+# другой id (в т.ч. клон) — API принимает произвольную строку. Список должен
+# совпадать с FISH_VOICES в backend/static/agent/instructions-voice.js.
+FISH_VOICES = [
+    {"id": "1ac3ce2f7ba24e90ac2a08055c253fe7", "name": "Светлана", "gender": "f"},
+    {"id": "5ddd9a81cc554841a53b75e355d52628", "name": "Сергей", "gender": "m"},
+]
+
+# Голос по умолчанию — Светлана. Подставляется, когда fish_voice_id пуст
+# (и при создании/правке, и в StartEvent для старых записей без голоса).
+DEFAULT_FISH_VOICE_ID = FISH_VOICES[0]["id"]
+
 
 class FishAssistantConfig(Base):
     """
@@ -84,7 +100,8 @@ class FishAssistantConfig(Base):
     system_prompt = Column(Text, nullable=True)
 
     # Fish voice settings
-    # fish_voice_id — reference_id голоса из библиотеки fish.audio (в т.ч. клон).
+    # fish_voice_id — reference_id голоса из библиотеки fish.audio: один из
+    # FISH_VOICES или свой (в т.ч. клон). Пусто — DEFAULT_FISH_VOICE_ID.
     fish_voice_id = Column(String(255), nullable=True)
     fish_model = Column(String(50), default=DEFAULT_FISH_MODEL, nullable=False)
     fish_latency = Column(String(20), default=DEFAULT_FISH_LATENCY, nullable=False)
@@ -157,8 +174,9 @@ class FishAssistantConfig(Base):
                 ),
             },
         }
-        if self.fish_voice_id:
-            request["reference_id"] = self.fish_voice_id
+        # Пустой голос у старых записей — говорим голосом по умолчанию,
+        # а не «каким-нибудь» дефолтом Fish.
+        request["reference_id"] = self.fish_voice_id or DEFAULT_FISH_VOICE_ID
         return request
 
     def to_dict(self):

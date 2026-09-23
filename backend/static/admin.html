@@ -1796,6 +1796,9 @@
               <button class="btn btn-warning" id="reset-password-btn">
                 <i class="fas fa-key"></i> Сбросить пароль
               </button>
+              <button class="btn btn-outline" id="reset-onboarding-btn" title="Вернуть пользователя в сценарий «создай ассистента → позвони ему»">
+                <i class="fas fa-rotate-left"></i> Сбросить онбординг
+              </button>
               <button class="btn btn-primary" id="edit-subscription-btn">
                 <i class="fas fa-edit"></i> Изменить подписку
               </button>
@@ -2236,6 +2239,11 @@
 
         resetUserPassword(userId, newPassword) {
           return this.post(`/admin/users/${userId}/reset-password`, { new_password: newPassword });
+        },
+
+        // Сброс обязательного онбординга (users.onboarding_completed_at = NULL)
+        resetOnboarding(userId) {
+          return this.post(`/admin/users/${userId}/reset-onboarding`, {});
         },
         
         getAdminStatistics() {
@@ -3451,6 +3459,18 @@
         if (!selectedUserId) return;
         const emailEl = document.querySelector('#user-profile .item-value');
         openPasswordModal(selectedUserId, emailEl ? emailEl.textContent : selectedUserId);
+      });
+
+      document.getElementById('reset-onboarding-btn').addEventListener('click', async function() {
+        if (!selectedUserId) return;
+        if (!confirm('Вернуть пользователя в онбординг? При следующем входе он увидит «создай ассистента → позвони ему», пока не включит тестовый номер.')) return;
+        const btn = this; btn.disabled = true;
+        try {
+          const res = await api.resetOnboarding(selectedUserId);
+          ui.showNotification((res && res.message) || 'Онбординг сброшен', 'success');
+        } catch (e) {
+          ui.showNotification('Не удалось сбросить онбординг: ' + (e.message || e), 'error');
+        } finally { btn.disabled = false; }
       });
       
       // ✅ v2.2: Исправленное сохранение подписки

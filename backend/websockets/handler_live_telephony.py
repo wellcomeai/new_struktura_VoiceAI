@@ -48,6 +48,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from backend.db.session import release_db_connection
 from backend.core.logging import get_logger
 from backend.db.session import SessionLocal
 from backend.models.assistant import AssistantConfig
@@ -483,6 +484,8 @@ class LiveTelephonyBridge:
         return "\n".join(lines)
 
     async def _connect_live(self):
+        # Конфиг загружен — вернуть соединение в пул на время звонка (см. release_db_connection)
+        release_db_connection(self.db)
         self.live = OpenAILiveClient(
             self.api_key, self.assistant, self.client_id, db_session=self.db,
             audio_rate=LIVE_RATE,
