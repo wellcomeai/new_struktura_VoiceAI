@@ -73,10 +73,30 @@ def _rates(usd_per_1k_in: float, usd_per_1k_out: float) -> dict:
 
 ORCHESTRATOR_MODELS = [
     {
+        "slug": "openai/gpt-6-luna",
+        "name": "GPT-6 Luna",
+        "description": "Быстрая и самая экономичная модель OpenAI поколения GPT-6. 1M контекст. "
+                       "Для чата, подготовки и разбора звонков в больших объёмах.",
+        # Модель по умолчанию для новых агентов и пометка «рекомендуем» в селекте.
+        "is_default": True,
+        "is_recommended": True,
+        **_rates(0.0001, 0.0005),
+    },
+    {
+        # Та же модель, что GPT-6 Luna, с reasoning.mode=pro на стороне OpenAI.
+        # Цена за токен такая же, но рассуждения идут в выходные токены — реальный
+        # вызов дороже и медленнее, чем показывает оценка credits_per_call.
+        # Вариант «:batch» не добавляем: пакетный режим отвечает с задержкой.
+        "slug": "openai/gpt-6-luna-pro",
+        "name": "GPT-6 Luna Pro",
+        "description": "GPT-6 Luna в режиме глубоких рассуждений: точнее на сложных сценариях, "
+                       "но медленнее и в несколько раз дороже за запрос, чем показывает оценка.",
+        **_rates(0.0001, 0.0005),
+    },
+    {
         "slug": "deepseek/deepseek-v4-pro",
         "name": "DeepSeek V4 Pro",
         "description": "Лучшее соотношение цена/качество. 1M контекст. Топ для агентов.",
-        "is_default": True,
         **_rates(0.000435, 0.00087),
     },
     {
@@ -119,11 +139,8 @@ ORCHESTRATOR_MODELS = [
     {
         "slug": "openai/gpt-5.6-luna",
         "name": "GPT-5.6 Luna",
-        "description": "Самая дешёвая модель OpenAI. Быстрая, 1M контекст. "
+        "description": "Предыдущее поколение Luna. Быстрая, 1M контекст. "
                        "Для больших объёмов звонков и лёгких агентных задач.",
-        # Пометка «рекомендуем» в селекте. На модель по умолчанию не влияет —
-        # новым агентам по-прежнему подставляется is_default (DeepSeek V4 Pro).
-        "is_recommended": True,
         **_rates(0.0001, 0.0006),
     },
     {
@@ -220,6 +237,12 @@ LEGACY_MODEL_ALIASES = {
 def resolve_slug(slug: str) -> str:
     """Привести устаревший слаг к актуальному. Неизвестный — вернуть как есть."""
     return LEGACY_MODEL_ALIASES.get(slug, slug)
+
+
+# Ставки для неизвестного слага (устаревшая модель у старого агента) в
+# CreditService.calculate_cost. Не модель по умолчанию: та теперь самая дешёвая,
+# и неизвестная модель списывалась бы по минимальной цене.
+FALLBACK_RATES_SLUG = "deepseek/deepseek-v4-pro"
 
 
 def get_default_model() -> str:

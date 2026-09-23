@@ -60,7 +60,7 @@ class AgentConfig(Base):
 
     # ── Оркестратор (планировщик) ──
     # Формат OpenRouter (provider/model-name) для новых агентов v3.0+
-    orchestrator_model = Column(String(100), default="deepseek/deepseek-v4-pro", nullable=False)
+    orchestrator_model = Column(String(100), default="openai/gpt-6-luna", nullable=False)
     orchestrator_prompt = Column(Text, nullable=True)  # для старых агентов (gpt-4o-mini)
 
     # Агенты (выполнение шагов) — legacy поля, не используются (оставлены до миграции)

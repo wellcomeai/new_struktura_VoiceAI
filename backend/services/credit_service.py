@@ -20,7 +20,7 @@ from backend.models.user import User
 from backend.models.subscription import PaymentTransaction, SubscriptionPlan
 from backend.models.credit_transaction import CreditTransaction, CreditTransactionType
 from backend.models.credit_package import CreditPackage
-from backend.services.agent_models import get_model_rates, get_default_model
+from backend.services.agent_models import get_model_rates, FALLBACK_RATES_SLUG
 
 logger = get_logger(__name__)
 
@@ -126,9 +126,9 @@ class CreditService:
         """Считает стоимость в кредитах. Минимум 1 кредит за любой вызов."""
         rates = get_model_rates(model_slug)
         if not rates:
-            # Неизвестный slug — берём ставки дефолтной модели как защиту.
-            logger.warning(f"[CREDITS] Unknown model slug '{model_slug}', using default rates")
-            rates = get_model_rates(get_default_model())
+            # Неизвестный slug — берём ставки FALLBACK_RATES_SLUG как защиту.
+            logger.warning(f"[CREDITS] Unknown model slug '{model_slug}', using fallback rates")
+            rates = get_model_rates(FALLBACK_RATES_SLUG)
 
         prompt_tokens = max(0, prompt_tokens or 0)
         completion_tokens = max(0, completion_tokens or 0)
