@@ -438,6 +438,11 @@ html.lenis, html.lenis body { height: auto; }
 .lp .lp-form-submit .ic { transition: transform var(--vf-fast); }
 .lp .lp-form-submit:hover .ic { transform: translateX(3px); }
 .lp-form-hint { margin-top: auto; padding-top: 20px; text-align: center; font-size: 13.5px; color: var(--vf-text-3); }
+.lp-form-consents { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; }
+.lp-consent { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.45; color: var(--vf-text-3); cursor: pointer; text-align: left; }
+.lp-consent input { margin-top: 2px; flex: none; width: 15px; height: 15px; accent-color: var(--vf-accent); }
+.lp-consent a { color: var(--vf-text-2); text-decoration: underline; text-decoration-color: var(--vf-border-strong); text-underline-offset: 2px; }
+.lp-consent a:hover { color: var(--vf-accent); }
 .lp-form-legal { text-align: center; font-size: 12px; line-height: 1.5; color: var(--vf-text-4); margin-top: 14px; }
 .lp-form-legal a { color: var(--vf-text-3); text-decoration: underline; text-decoration-color: var(--vf-border-strong); text-underline-offset: 2px; }
 .lp-form-legal a:hover { color: var(--vf-accent); }

@@ -41,6 +41,8 @@ class RegisterRequest(BaseModel):
     first_name: Optional[str] = Field(None, max_length=50, description="User first name")
     last_name: Optional[str] = Field(None, max_length=50, description="User last name")
     company_name: Optional[str] = Field(None, max_length=100, description="Company name")
+    # Отметка «Даю согласие на обработку ПДн» (/static/consent.html)
+    pd_consent: Optional[bool] = Field(None, description="Separate personal data processing consent")
     
     # 🆕 ПАРТНЕРСКИЕ ПОЛЯ
     referral_code: Optional[str] = Field(

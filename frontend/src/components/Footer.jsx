@@ -21,6 +21,8 @@ function Footer() {
           <a href="/static/privacy-policy.html">Конфиденциальность</a>
           <a href="/static/terms-of-service.html">Соглашение</a>
           <a href="/static/public-offer.html">Оферта</a>
+          <a href="/static/consent.html">Согласие на обработку ПДн</a>
+          <a href="/static/payment-terms.html">Оплата и возврат</a>
         </div>
         <div className="lp-footer-col">
           <h4>Контакты</h4>

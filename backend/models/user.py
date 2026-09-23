@@ -61,6 +61,10 @@ class User(Base, BaseModel):
     google_sheets_authorized = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     email_verified = Column(Boolean, default=False, nullable=False, index=True)
+    # Отдельное согласие на обработку ПДн (152-ФЗ, ст. 9): когда, какая редакция, с какого IP
+    pd_consent_at = Column(DateTime(timezone=True), nullable=True)
+    pd_consent_version = Column(String(20), nullable=True)
+    pd_consent_ip = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

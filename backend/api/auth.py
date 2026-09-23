@@ -4,7 +4,10 @@ Authentication API endpoints for WellcomeAI application.
 ✅ PRODUCTION READY: Email verification с обработкой "застревания"
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -25,10 +28,27 @@ router = APIRouter()
 # Security scheme
 security = HTTPBearer()
 
+# Редакция /static/consent.html, на которую пользователь ставит отметку при регистрации
+PD_CONSENT_VERSION = "2026-09-23"
+
+
+def _record_pd_consent(db: Session, user_id, request: Request) -> None:
+    """Фиксирует отдельное согласие на обработку ПДн: время, редакцию и IP."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() or (request.client.host if request.client else None)
+    user = db.query(User).filter(User.id == uuid.UUID(str(user_id))).first()
+    if not user:
+        return
+    user.pd_consent_at = datetime.now(timezone.utc)
+    user.pd_consent_version = PD_CONSENT_VERSION
+    user.pd_consent_ip = (ip or "")[:64] or None
+    db.commit()
+
 
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register(
     user_data: RegisterRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -45,6 +65,12 @@ async def register(
     """
     try:
         logger.info(f"📝 Registration request for: {user_data.email}")
+
+        if user_data.pd_consent is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Personal data processing consent is required"
+            )
         
         # ✅ ВАРИАНТ A: Проверяем существует ли пользователь
         existing_user = db.query(User).filter(User.email == user_data.email).first()
@@ -60,6 +86,8 @@ async def register(
             
             # ✅ Email НЕ ПОДТВЕРЖДЕН - отправляем новый код
             logger.info(f"🔄 User exists but not verified. Resending code to: {user_data.email}")
+            if user_data.pd_consent:
+                _record_pd_consent(db, existing_user.id, request)
             
             try:
                 verification_result = await EmailService.send_verification_code(
@@ -103,6 +131,13 @@ async def register(
             )
         
         logger.info(f"✅ User created: {user_email} (ID: {user_id})")
+
+        if user_data.pd_consent:
+            try:
+                _record_pd_consent(db, user_id, request)
+            except Exception as consent_error:
+                db.rollback()
+                logger.error(f"Failed to record PD consent for {user_email}: {consent_error}")
         
         # ✅ Автоматически отправить код верификации
         try:

@@ -12,6 +12,8 @@ function RegisterForm({ onSwitchToLogin }) {
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [companyName, setCompanyName] = useState('');
+  const [offerAccepted, setOfferAccepted] = useState(false);
+  const [pdConsent, setPdConsent] = useState(false);
   const [notification, setNotification] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
@@ -21,6 +23,10 @@ function RegisterForm({ onSwitchToLogin }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!offerAccepted || !pdConsent) {
+      setNotification({ type: 'error', message: 'Отметьте согласие с офертой и на обработку персональных данных' });
+      return;
+    }
     setNotification({ type: 'loading', message: 'Отправляем код подтверждения на email...' });
     setIsLoading(true);
     try {
@@ -31,6 +37,7 @@ function RegisterForm({ onSwitchToLogin }) {
         first_name: firstName || null,
         last_name: null,
         company_name: companyName || null,
+        pd_consent: pdConsent,
         referral_code: referralData?.referral_code || null,
         utm_data: referralData?.utm_data || null,
       };
@@ -111,17 +118,30 @@ function RegisterForm({ onSwitchToLogin }) {
           />
         </div>
 
+        <div className="lp-form-consents">
+          <label className="lp-consent">
+            <input type="checkbox" required checked={offerAccepted} onChange={(e) => setOfferAccepted(e.target.checked)} />
+            <span>
+              Принимаю условия <a href="/static/public-offer.html" target="_blank" rel="noopener">публичной оферты</a> и{' '}
+              <a href="/static/terms-of-service.html" target="_blank" rel="noopener">пользовательского соглашения</a>
+            </span>
+          </label>
+          <label className="lp-consent">
+            <input type="checkbox" required checked={pdConsent} onChange={(e) => setPdConsent(e.target.checked)} />
+            <span>
+              Даю <a href="/static/consent.html" target="_blank" rel="noopener">согласие на обработку персональных данных</a> в соответствии с{' '}
+              <a href="/static/privacy-policy.html" target="_blank" rel="noopener">политикой</a>
+            </span>
+          </label>
+        </div>
+
         <InlineNotification notification={notification} />
 
-        <button type="submit" className="btn btn-primary btn-lg lp-form-submit" disabled={isLoading}>
+        <button type="submit" className="btn btn-primary btn-lg lp-form-submit" disabled={isLoading || !offerAccepted || !pdConsent}>
           {isLoading
             ? <><span className="spin" /> Регистрируем...</>
             : <>Создать аккаунт <Icon name="arrow-right" /></>}
         </button>
-        <p className="lp-form-legal">
-          Нажимая кнопку, вы принимаете <a href="/static/terms-of-service.html" target="_blank" rel="noopener">соглашение</a> и{' '}
-          <a href="/static/privacy-policy.html" target="_blank" rel="noopener">политику конфиденциальности</a>.
-        </p>
       </div>
 
       <p className="lp-form-hint">

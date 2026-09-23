@@ -1563,6 +1563,42 @@ def ensure_agent_knowledge_base_columns():
         logger.error(f"❌ ensure_agent_knowledge_base_columns error: {e}")
 
 
+def ensure_user_pd_consent_columns():
+    """
+    Идемпотентно добавляет колонки отдельного согласия на обработку ПДн в users.
+
+    Дублирует alembic-миграцию add_user_pd_consent. Пишутся при регистрации
+    (backend/api/auth.py, _record_pd_consent).
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('users'):
+            return
+        existing = {c['name'] for c in inspector.get_columns('users')}
+        columns = {
+            'pd_consent_at': 'TIMESTAMPTZ',
+            'pd_consent_version': 'VARCHAR(20)',
+            'pd_consent_ip': 'VARCHAR(64)',
+        }
+        missing = {k: v for k, v in columns.items() if k not in existing}
+        if not missing:
+            return
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                for name, ddl in missing.items():
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {name} {ddl}"))
+                trans.commit()
+                logger.info(f"✅ Added users PD consent columns: {', '.join(missing)}")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add users PD consent columns: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_user_pd_consent_columns error: {e}")
+
+
 def ensure_agent_memory_column():
     """
     Идемпотентно добавляет колонку памяти агента (agent_configs.memory JSONB).
@@ -2233,6 +2269,9 @@ async def startup_event():
 
                 # 🆕 Шаг 18: Память агента (agent_configs.memory JSONB)
                 ensure_agent_memory_column()
+
+                # 🆕 Шаг 18.1: Отдельное согласие на обработку ПДн (users.pd_consent_*)
+                ensure_user_pd_consent_columns()
 
                 # 🆕 Шаг 18: Таблица внешних коннекторов агента (Composio)
                 ensure_agent_connectors_table()

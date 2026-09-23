@@ -30,6 +30,7 @@ PUBLIC_PAGES = [
     ("/static/terms-of-service.html", "0.2", "yearly"),
     ("/static/public-offer.html", "0.2", "yearly"),
     ("/static/payment-terms.html", "0.2", "yearly"),
+    ("/static/consent.html", "0.2", "yearly"),
 ]
 
 # Страницы кабинета, тестовые и устаревшие. Файлы остаются на месте
@@ -158,9 +159,11 @@ Voicyfy is a Russian SaaS platform for building voice AI assistants and autonomo
 - [База знаний и промпты]({base}/static/prompts-wiki.html): как писать промпты для голосовых ассистентов
 - [API документация]({base}/static/api-docs.html)
 - [Agent API]({base}/static/agent-api-docs.html)
-- [Политика конфиденциальности]({base}/static/privacy-policy.html)
+- [Политика обработки персональных данных]({base}/static/privacy-policy.html)
+- [Согласие на обработку персональных данных]({base}/static/consent.html)
 - [Пользовательское соглашение]({base}/static/terms-of-service.html)
 - [Публичная оферта]({base}/static/public-offer.html)
+- [Оплата и возврат]({base}/static/payment-terms.html)
 
 ## Контакты
 
