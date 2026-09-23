@@ -290,6 +290,24 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
   отдельным запросом `GET /contacts?status=` по 100 карточек с кнопкой «Ещё» в колонке.
   Фильтр `status=active` на бэке включает и легаси-статусы вне воронки (напр. `calling`).
 
+## Контакты агента обзвона: фильтры и массовые действия для ИИ (ветка 1909-pamatb)
+
+Инструменты оркестратора в `backend/services/agent_tools.py` работают через общий фильтр
+`_contact_filter_query` (`CONTACT_FILTER_PROPERTIES`: query, stage/stages, company,
+attempts_min/max, never_called, not_called_days, called_within_days, created_after/before,
+has_scheduled_call; всегда скоуп user_id + agent_config_id; stage `active` включает легаси-статусы).
+- `search_contacts` — постранично: `limit` (по умолчанию 30, максимум `CONTACT_LIST_MAX`=200),
+  `offset`, `sort`; в ответе точный `total`, `has_more`, `next_offset`; `count_only` — только число.
+  Строки компактные (`_compact_contact`, пустые поля не передаются) — ~55 токенов на контакт.
+  `get_agent_contacts` — тот же вывод без фильтров (по умолчанию 50).
+- Массовые действия принимают `filter` (те же поля + `agent_contact_ids` / `all_contacts`),
+  `dry_run`, `max_contacts` (до `BULK_ACTION_MAX`=1000): `bulk_schedule_calls` (никогда не
+  планирует `do_not_call`, по умолчанию пропускает контакты с уже запланированным звонком;
+  легаси `agent_contact_ids`/`stage` верхнего уровня работают), `bulk_move_contacts_stage`
+  (`do_not_call` трогает только при явной стадии в фильтре; перевод в `do_not_call`
+  отменяет запланированные задачи), `bulk_cancel_calls` (статус cancelled, `channel`).
+  Пустой фильтр запрещён. Ответы короткие: числа + первые 20 задач.
+
 ## Key API Prefixes
 
 | Prefix | Description |

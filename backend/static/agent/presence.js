@@ -31,6 +31,7 @@ function _orbPing(){
 const TOOL_RIPPLE = {
   trigger_immediate_call:['calls','recent'],
   create_agent_task:['tasks'], bulk_schedule_calls:['tasks'], update_agent_task:['tasks'],
+  bulk_cancel_calls:['tasks'], bulk_move_contacts_stage:['contacts','tasks'],
   delete_agent_task:['tasks'], get_agent_tasks:['tasks'], get_upcoming_schedule:['tasks'],
   create_agent_contact:['contacts'], bulk_create_contacts:['contacts'], update_contact_info:['contacts'],
   append_contact_note:['contacts'], move_contact_stage:['contacts'], delete_agent_contact:['contacts'],

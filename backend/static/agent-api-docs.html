@@ -237,13 +237,14 @@
             <tbody>
               <tr><td><span class="param-name">create_agent_contact</span></td><td>Создать контакт (телефон обязателен)</td><td></td></tr>
               <tr><td><span class="param-name">bulk_create_contacts</span></td><td>Создать несколько контактов разом, дубли по номеру пропускаются</td><td></td></tr>
-              <tr><td><span class="param-name">search_contacts</span></td><td>Поиск по имени/телефону/компании и/или стадии</td><td></td></tr>
+              <tr><td><span class="param-name">search_contacts</span></td><td>Поиск, отбор и подсчёт по фильтрам (стадии, попытки, давность звонка, дата добавления); постранично до 200 строк, точный total</td><td></td></tr>
               <tr><td><span class="param-name">get_agent_contacts</span></td><td>Общий список контактов</td><td></td></tr>
               <tr><td><span class="param-name">get_contact_details</span></td><td>Полная карточка: поля, стадия, заметки, память, попытки</td><td></td></tr>
               <tr><td><span class="param-name">get_contacts_by_stage</span></td><td>Разбивка контактов по стадиям воронки</td><td></td></tr>
               <tr><td><span class="param-name">update_contact_info</span></td><td>Перезаписать имя/компанию/должность/заметки</td><td></td></tr>
               <tr><td><span class="param-name">append_contact_note</span></td><td>Дописать заметку с датой, не стирая старые</td><td></td></tr>
               <tr><td><span class="param-name">move_contact_stage</span></td><td>Перевести контакт на стадию воронки</td><td></td></tr>
+              <tr><td><span class="param-name">bulk_move_contacts_stage</span></td><td>Перевести группу контактов на стадию по фильтру</td><td></td></tr>
               <tr><td><span class="param-name">snooze_contact</span></td><td>Пауза до даты: отменяет запланированные звонки</td><td></td></tr>
               <tr><td><span class="param-name">delete_agent_contact</span></td><td>Удалить контакт (необратимо, по явной просьбе)</td><td></td></tr>
             </tbody>
@@ -257,7 +258,8 @@
               <tr><td><span class="param-name">create_agent_task</span></td><td>Запланировать звонок; сдвигается в рабочие часы</td><td></td></tr>
               <tr><td><span class="param-name">update_agent_task</span></td><td>Перенести/переименовать запланированный звонок</td><td></td></tr>
               <tr><td><span class="param-name">delete_agent_task</span></td><td>Отменить запланированный звонок (необратимо)</td><td></td></tr>
-              <tr><td><span class="param-name">bulk_schedule_calls</span></td><td>Обзвон группы (по списку или стадии) с интервалом</td><td></td></tr>
+              <tr><td><span class="param-name">bulk_schedule_calls</span></td><td>Обзвон группы по фильтру с интервалом; пропускает дубли и «Не звонить»</td><td></td></tr>
+              <tr><td><span class="param-name">bulk_cancel_calls</span></td><td>Отменить запланированные звонки группе контактов по фильтру</td><td></td></tr>
               <tr><td><span class="param-name">trigger_immediate_call</span></td><td>Позвонить прямо сейчас, без сдвига в рабочие часы</td><td></td></tr>
               <tr><td><span class="param-name">get_agent_tasks</span></td><td>Список задач с фильтрами, проверка дублей</td><td></td></tr>
               <tr><td><span class="param-name">get_upcoming_schedule</span></td><td>Календарь ближайших звонков по всем контактам</td><td></td></tr>

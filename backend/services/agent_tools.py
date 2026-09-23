@@ -4,6 +4,7 @@ Two tool sets: AGENT_CHAT_TOOLS (user chat) and AGENT_POSTCALL_TOOLS (post-call 
 """
 
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from backend.db.session import safe_rollback
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, and_, exists
 
 from backend.core.logging import get_logger
 from backend.models.agent_contact import AgentContact
@@ -923,6 +924,239 @@ async def fn_schedule_max_message(args: dict, user_id: str, agent_config, db: Se
 
 
 # ============================================================================
+# ФИЛЬТР КОНТАКТОВ — общий для search_contacts и массовых действий (bulk_*)
+# ============================================================================
+
+# Строк контактов за один вызов search_contacts: больше — дорого по токенам
+# (строка ~60 токенов) и хуже для точности модели. Для работы со всей базой
+# агент листает offset'ом или действует по фильтру через bulk_*.
+CONTACT_LIST_DEFAULT = 30
+CONTACT_LIST_MAX = 200
+# Контактов за один вызов массового действия.
+BULK_ACTION_MAX = 1000
+
+CONTACT_SORT_KEYS = [
+    "newest", "oldest", "last_called_oldest", "last_called_newest", "attempts_most", "name",
+]
+
+CONTACT_FILTER_PROPERTIES = {
+    "query": {"type": "string", "description": "Подстрока имени, телефона или компании"},
+    "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Одна стадия воронки"},
+    "stages": {
+        "type": "array", "items": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS},
+        "description": "Несколько стадий воронки (любая из)",
+    },
+    "company": {"type": "string", "description": "Подстрока названия компании"},
+    "attempts_min": {"type": "integer", "description": "Попыток звонка не меньше N"},
+    "attempts_max": {"type": "integer", "description": "Попыток звонка не больше N (0 — ни одной)"},
+    "never_called": {"type": "boolean", "description": "true — ни разу не звонили; false — звонили хотя бы раз"},
+    "not_called_days": {
+        "type": "integer",
+        "description": "Последний звонок был N и более дней назад (тех, кому не звонили ни разу, НЕ включает — для них never_called)",
+    },
+    "called_within_days": {"type": "integer", "description": "Звонили за последние N дней"},
+    "created_after": {"type": "string", "description": "Добавлен в базу не раньше (ISO 8601, UTC)"},
+    "created_before": {"type": "string", "description": "Добавлен в базу раньше (ISO 8601, UTC)"},
+    "has_scheduled_call": {
+        "type": "boolean",
+        "description": "true — уже есть запланированный звонок; false — запланированного звонка нет",
+    },
+}
+
+# Фильтр для массовых действий: те же поля + явные id или «вся база».
+# Описания полей не дублируем (они у search_contacts) — схема уходит в каждый запрос.
+BULK_FILTER_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Каких контактов касается действие. Поля и их смысл — как у search_contacts. "
+        "Пустой фильтр не допускается; вся база — all_contacts=true (только по явной просьбе)."
+    ),
+    "properties": {
+        **{k: {kk: vv for kk, vv in v.items() if kk != "description"} for k, v in CONTACT_FILTER_PROPERTIES.items()},
+        "agent_contact_ids": {"type": "array", "items": {"type": "string"}},
+        "all_contacts": {"type": "boolean"},
+    },
+}
+
+BULK_COMMON_PROPERTIES = {
+    "dry_run": {
+        "type": "boolean",
+        "description": "true — ничего не менять, только посчитать, сколько контактов попадёт, и показать примеры",
+    },
+    "max_contacts": {
+        "type": "integer",
+        "description": f"Обработать не больше N контактов за вызов (по умолчанию и максимум {BULK_ACTION_MAX})",
+    },
+}
+
+
+def _naive_utc(value) -> Optional[datetime]:
+    """ISO-строка → naive UTC (даты в agent_contacts хранятся без таймзоны, в UTC)."""
+    dt = _parse_iso_utc(value)
+    return dt.replace(tzinfo=None) if dt else None
+
+
+def _as_int(value, default=None):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _stage_condition(stage: str):
+    """Условие по стадии. «active» включает и легаси-статусы вне воронки (напр. calling)."""
+    if stage == "active":
+        return or_(AgentContact.status == "active", AgentContact.status.notin_(AGENT_CONTACT_STAGE_KEYS))
+    return AgentContact.status == stage
+
+
+def _scheduled_call_exists():
+    return exists().where(and_(
+        Task.agent_contact_id == AgentContact.id,
+        Task.is_agent_task == True,
+        Task.status == TaskStatus.SCHEDULED,
+        Task.channel == "call",
+    ))
+
+
+def _contact_filter_query(db: Session, user_id: str, agent_config_id: str, f: dict):
+    """
+    Строит запрос AgentContact по фильтру f (поля CONTACT_FILTER_PROPERTIES +
+    agent_contact_ids). Всегда скоупится по user_id + agent_config_id.
+    Возвращает (query, error): error — строка для ответа модели, если фильтр неверный.
+    """
+    f = f or {}
+    q = db.query(AgentContact).filter(
+        AgentContact.user_id == user_id,
+        AgentContact.agent_config_id == agent_config_id,
+    )
+
+    ids = f.get("agent_contact_ids")
+    if ids:
+        if not isinstance(ids, list):
+            ids = [ids]
+        valid = []
+        for raw in ids:
+            try:
+                valid.append(uuid.UUID(str(raw)))
+            except (ValueError, TypeError):
+                continue
+        if not valid:
+            return None, "invalid_agent_contact_ids"
+        q = q.filter(AgentContact.id.in_(valid))
+
+    stages = []
+    if f.get("stage"):
+        stages.append(f["stage"])
+    if f.get("stages"):
+        stages.extend(f["stages"] if isinstance(f["stages"], list) else [f["stages"]])
+    if stages:
+        bad = [s for s in stages if not is_valid_stage(s)]
+        if bad:
+            return None, f"invalid_stage: {', '.join(map(str, bad))}"
+        q = q.filter(or_(*[_stage_condition(s) for s in stages]))
+
+    if f.get("company"):
+        q = q.filter(AgentContact.company.ilike(f"%{f['company']}%"))
+
+    if f.get("query"):
+        like = f"%{f['query']}%"
+        q = q.filter(or_(
+            AgentContact.name.ilike(like),
+            AgentContact.phone.ilike(like),
+            AgentContact.company.ilike(like),
+        ))
+
+    attempts_min = _as_int(f.get("attempts_min"))
+    if attempts_min is not None:
+        q = q.filter(AgentContact.attempts_count >= attempts_min)
+    attempts_max = _as_int(f.get("attempts_max"))
+    if attempts_max is not None:
+        q = q.filter(AgentContact.attempts_count <= attempts_max)
+
+    if f.get("never_called") is True:
+        q = q.filter(AgentContact.last_called_at.is_(None))
+    elif f.get("never_called") is False:
+        q = q.filter(AgentContact.last_called_at.isnot(None))
+
+    now = datetime.utcnow()
+    not_called_days = _as_int(f.get("not_called_days"))
+    if not_called_days is not None and not_called_days >= 0:
+        q = q.filter(AgentContact.last_called_at < now - timedelta(days=not_called_days))
+    called_within_days = _as_int(f.get("called_within_days"))
+    if called_within_days is not None and called_within_days >= 0:
+        q = q.filter(AgentContact.last_called_at >= now - timedelta(days=called_within_days))
+
+    for key, op in (("created_after", "ge"), ("created_before", "lt")):
+        if f.get(key):
+            dt = _naive_utc(f[key])
+            if not dt:
+                return None, f"invalid_{key}"
+            q = q.filter(AgentContact.created_at >= dt if op == "ge" else AgentContact.created_at < dt)
+
+    if f.get("has_scheduled_call") is True:
+        q = q.filter(_scheduled_call_exists())
+    elif f.get("has_scheduled_call") is False:
+        q = q.filter(~_scheduled_call_exists())
+
+    return q, None
+
+
+def _sort_contacts(q, sort: Optional[str]):
+    """Сортировка + id как тай-брейкер, чтобы постраничный вывод был стабильным."""
+    col = AgentContact
+    order = {
+        "oldest": [col.created_at.asc()],
+        "last_called_oldest": [col.last_called_at.asc().nullsfirst()],
+        "last_called_newest": [col.last_called_at.desc().nullslast()],
+        "attempts_most": [col.attempts_count.desc()],
+        "name": [col.name.asc().nullslast()],
+    }.get(sort or "newest", [col.created_at.desc()])
+    return q.order_by(*order, col.id.asc())
+
+
+def _compact_contact(c: AgentContact) -> dict:
+    """Короткая строка контакта для модели: пустые поля не передаём (экономия токенов)."""
+    row = {
+        "id": str(c.id),
+        "name": c.name,
+        "phone": c.phone,
+        "company": c.company,
+        "position": c.position,
+        "stage": c.status,
+        "attempts": c.attempts_count or None,
+        "last_called": c.last_called_at.isoformat(timespec="minutes") if c.last_called_at else None,
+    }
+    return {k: v for k, v in row.items() if v not in (None, "")}
+
+
+def _bulk_targets(args: dict, db: Session, user_id: str, agent_config_id: str, legacy_stage: bool = False):
+    """
+    Разбирает цель массового действия: filter / agent_contact_ids / stage.
+    stage верхнего уровня — легаси-фильтр только у bulk_schedule_calls (legacy_stage=True);
+    у bulk_move_contacts_stage это целевая стадия, а не фильтр.
+    Пустой фильтр запрещён — вся база только через all_contacts=true.
+    Возвращает (query, filter_dict, error).
+    """
+    f = dict(args.get("filter") or {})
+    if args.get("agent_contact_ids") and not f.get("agent_contact_ids"):
+        f["agent_contact_ids"] = args["agent_contact_ids"]
+    if legacy_stage and args.get("stage") and not (f.get("stage") or f.get("stages")):
+        f["stage"] = args["stage"]
+
+    criteria = {k: v for k, v in f.items() if k != "all_contacts" and v not in (None, "", [])}
+    if not criteria and f.get("all_contacts") is not True:
+        return None, f, "empty_filter: передай filter (или agent_contact_ids), либо filter.all_contacts=true для всей базы"
+
+    q, err = _contact_filter_query(db, user_id, agent_config_id, criteria)
+    return q, criteria, err
+
+
+def _bulk_limit(args: dict) -> int:
+    return max(1, min(_as_int(args.get("max_contacts"), BULK_ACTION_MAX), BULK_ACTION_MAX))
+
+
+# ============================================================================
 # TOOL DEFINITIONS FOR GPT-5 RESPONSES API
 # ============================================================================
 
@@ -979,10 +1213,16 @@ AGENT_CHAT_TOOLS = [
     {
         "type": "function",
         "name": "get_agent_contacts",
-        "description": "Получить список контактов агента.",
+        "description": (
+            "Свежий общий список контактов агента (новые сверху), постранично. То же, что "
+            "search_contacts без фильтров; для поиска, отбора и подсчёта используй search_contacts."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "limit": {"type": "integer", "description": f"Сколько контактов вернуть (по умолчанию 50, максимум {CONTACT_LIST_MAX})"},
+                "offset": {"type": "integer", "description": "Сколько пропустить — для следующей страницы бери next_offset из ответа"},
+            },
         },
     },
     {
@@ -1064,18 +1304,29 @@ AGENT_CHAT_TOOLS = [
         "type": "function",
         "name": "search_contacts",
         "description": (
-            "Найти контакты по подстроке имени/телефона/компании и/или по стадии воронки. "
-            "Используй вместо get_agent_contacts, когда пользователь ищет конкретных людей "
-            "('найди Иванова', 'контакты из компании X', 'покажи отказников'). "
-            "Все аргументы опциональны; без аргументов вернёт последние контакты."
+            "Найти, отобрать и посчитать контакты в базе агента. Фильтры: подстрока имени/телефона/"
+            "компании, стадии, число попыток, давность звонка, дата добавления, наличие запланированного "
+            "звонка. Ответ всегда содержит total — точное число подходящих контактов во всей базе. "
+            "Нужно только число («сколько…») → count_only=true, строки не придут. Нужен список → "
+            f"limit (по умолчанию {CONTACT_LIST_DEFAULT}, максимум {CONTACT_LIST_MAX}); если has_more=true, "
+            "следующая страница — offset=next_offset. Не листай всю базу ради действия: чтобы "
+            "обзвонить, сменить стадию или отменить звонки группе, передай тот же фильтр в "
+            "bulk_schedule_calls / bulk_move_contacts_stage / bulk_cancel_calls."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Подстрока для поиска по имени, телефону или компании"},
-                "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Фильтр по стадии воронки (опционально)"},
-                "company": {"type": "string", "description": "Фильтр по компании (опционально)"},
-                "limit": {"type": "integer", "description": "Максимум результатов (по умолчанию 30)"},
+                **CONTACT_FILTER_PROPERTIES,
+                "sort": {
+                    "type": "string", "enum": CONTACT_SORT_KEYS,
+                    "description": (
+                        "Порядок: newest (новые, по умолчанию), oldest, last_called_oldest (давно не звонили "
+                        "и никогда не звонили — первыми), last_called_newest, attempts_most, name"
+                    ),
+                },
+                "limit": {"type": "integer", "description": f"Сколько строк вернуть (по умолчанию {CONTACT_LIST_DEFAULT}, максимум {CONTACT_LIST_MAX})"},
+                "offset": {"type": "integer", "description": "Сколько пропустить — для следующей страницы бери next_offset"},
+                "count_only": {"type": "boolean", "description": "true — вернуть только total без списка"},
             },
         },
     },
@@ -1211,25 +1462,78 @@ AGENT_CHAT_TOOLS = [
         "type": "function",
         "name": "bulk_schedule_calls",
         "description": (
-            "Запланировать обзвон для группы контактов разом, расставив звонки с интервалом, начиная "
-            "с указанного времени. Группу задаёшь либо списком agent_contact_ids, либо стадией воронки stage "
-            "(например все 'new'). Используй для 'обзвони всех новых завтра с 10:00', 'поставь звонки этим контактам'. "
-            "Время начала передавай в UTC. Звонки автоматически сдвигаются в рабочие часы агента."
+            "Запланировать обзвон группы контактов с интервалом, начиная с start_at. Группу задаёшь "
+            "фильтром filter (те же поля, что у search_contacts) — сервер сам выберет контакты, "
+            "выгружать их список не нужно. Примеры: «обзвони всех новых завтра с 10:00» → "
+            "filter={stage:'new'}; «перезвони тем, кому не звонили неделю и было меньше 3 попыток» → "
+            "filter={not_called_days:7, attempts_max:2}. Контакты «Не звонить» (do_not_call) "
+            "не планируются никогда; тем, у кого уже есть запланированный звонок, новый не ставится "
+            "(skip_if_scheduled). Для большой группы сначала вызови с dry_run=true и назови владельцу "
+            "число. Время start_at в UTC; звонки сдвигаются в рабочие часы агента."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                "filter": BULK_FILTER_SCHEMA,
                 "agent_contact_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Список UUID контактов (либо это, либо stage)",
+                    "description": "Устаревший способ: список UUID контактов (лучше filter.agent_contact_ids)",
                 },
-                "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Запланировать всем контактам этой стадии (либо это, либо agent_contact_ids)"},
+                "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Устаревший способ: стадия (лучше filter.stage)"},
                 "start_at": {"type": "string", "description": "Время первого звонка ISO 8601 (UTC)"},
                 "interval_minutes": {"type": "integer", "description": "Интервал между звонками в минутах (по умолчанию 15)"},
                 "title": {"type": "string", "description": "Название задач (по умолчанию 'Звонок агента')"},
+                "sort": {"type": "string", "enum": CONTACT_SORT_KEYS, "description": "Очерёдность звонков (по умолчанию oldest — в порядке добавления)"},
+                "skip_if_scheduled": {"type": "boolean", "description": "Пропускать контакты с уже запланированным звонком (по умолчанию true)"},
+                **BULK_COMMON_PROPERTIES,
             },
             "required": ["start_at"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "bulk_move_contacts_stage",
+        "description": (
+            "Перевести группу контактов на стадию воронки одним вызовом, по фильтру filter (поля как у "
+            "search_contacts) или по списку filter.agent_contact_ids. Например: «всех, кому звонили 5+ раз "
+            "без результата, в отказ» → filter={stages:['new','active'], attempts_min:5}, stage='rejected'. "
+            "Контакты «Не звонить» затрагиваются, только если фильтр явно указывает стадию do_not_call. "
+            "При переводе в do_not_call их запланированные звонки отменяются. Перед изменением большой "
+            "группы вызови с dry_run=true и подтверди число с владельцем."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filter": BULK_FILTER_SCHEMA,
+                "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Новая стадия"},
+                "reason": {"type": "string", "description": "Краткая причина (для журнала)"},
+                **BULK_COMMON_PROPERTIES,
+            },
+            "required": ["filter", "stage"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "bulk_cancel_calls",
+        "description": (
+            "Отменить запланированные задачи (звонки и отложенные сообщения) у группы контактов по "
+            "фильтру filter. Например: «отмени все звонки отказникам» → filter={stage:'rejected'}; "
+            "«сними всё, что запланировано компании Ромашка» → filter={company:'Ромашка'}. "
+            "Задачи получают статус cancelled. Для одной задачи используй delete_agent_task. "
+            "Выполняй только по явной просьбе; для большой группы сначала dry_run=true."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filter": BULK_FILTER_SCHEMA,
+                "channel": {
+                    "type": "string", "enum": ["call", "telegram", "max", "all"],
+                    "description": "Какие задачи отменить: call — звонки (по умолчанию), telegram/max — сообщения, all — все",
+                },
+                **BULK_COMMON_PROPERTIES,
+            },
+            "required": ["filter"],
         },
     },
     {
@@ -1657,26 +1961,11 @@ async def fn_move_contact_stage(args: dict, user_id: str, agent_config_id: str, 
 
 
 async def fn_get_agent_contacts(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
-    q = db.query(AgentContact).filter(
-        AgentContact.user_id == user_id,
-        AgentContact.agent_config_id == agent_config_id,
+    """Свежий список контактов постранично — search_contacts без фильтров."""
+    return await fn_search_contacts(
+        {"limit": args.get("limit") or 50, "offset": args.get("offset"), "sort": "newest"},
+        user_id, agent_config_id, db,
     )
-    contacts = q.order_by(AgentContact.created_at.desc()).limit(50).all()
-    return {
-        "ok": True,
-        "count": len(contacts),
-        "contacts": [
-            {
-                "id": str(c.id),
-                "name": c.name,
-                "phone": c.phone,
-                "company": c.company,
-                "attempts_count": c.attempts_count,
-                "last_called_at": c.last_called_at.isoformat() if c.last_called_at else None,
-            }
-            for c in contacts
-        ],
-    }
 
 
 async def fn_get_contact_call_history(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -2030,52 +2319,38 @@ async def fn_send_sms(args: dict, user_id: str, agent_config: AgentConfig, db: S
 
 
 async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
-    """Поиск контактов по подстроке (имя/телефон/компания) и/или стадии воронки."""
-    q = db.query(AgentContact).filter(
-        AgentContact.user_id == user_id,
-        AgentContact.agent_config_id == agent_config_id,
-    )
+    """
+    Поиск и отбор контактов по фильтру с постраничным выводом.
+    total — точное число по всей базе, строки — не больше CONTACT_LIST_MAX за вызов.
+    """
+    filter_args = {k: args[k] for k in CONTACT_FILTER_PROPERTIES if args.get(k) not in (None, "", [])}
+    q, err = _contact_filter_query(db, user_id, agent_config_id, filter_args)
+    if err:
+        return {"ok": False, "error": err}
 
-    stage = args.get("stage")
-    if stage and is_valid_stage(stage):
-        q = q.filter(AgentContact.status == stage)
+    total = q.count()
+    if args.get("count_only"):
+        return {"ok": True, "total": total, "filter": filter_args}
 
-    company = args.get("company")
-    if company:
-        q = q.filter(AgentContact.company.ilike(f"%{company}%"))
+    limit = max(1, min(_as_int(args.get("limit"), CONTACT_LIST_DEFAULT), CONTACT_LIST_MAX))
+    offset = max(0, _as_int(args.get("offset"), 0))
+    contacts = _sort_contacts(q, args.get("sort")).offset(offset).limit(limit).all()
 
-    query = args.get("query")
-    if query:
-        like = f"%{query}%"
-        q = q.filter(or_(
-            AgentContact.name.ilike(like),
-            AgentContact.phone.ilike(like),
-            AgentContact.company.ilike(like),
-        ))
-
-    try:
-        limit = max(1, min(int(args.get("limit") or 30), 100))
-    except (ValueError, TypeError):
-        limit = 30
-
-    contacts = q.order_by(AgentContact.created_at.desc()).limit(limit).all()
-    return {
+    result = {
         "ok": True,
+        "total": total,
+        "offset": offset,
         "count": len(contacts),
-        "contacts": [
-            {
-                "id": str(c.id),
-                "name": c.name,
-                "phone": c.phone,
-                "company": c.company,
-                "position": c.position,
-                "stage": c.status,
-                "attempts_count": c.attempts_count or 0,
-                "last_called_at": c.last_called_at.isoformat() if c.last_called_at else None,
-            }
-            for c in contacts
-        ],
+        "has_more": offset + len(contacts) < total,
+        "contacts": [_compact_contact(c) for c in contacts],
     }
+    if result["has_more"]:
+        result["next_offset"] = offset + len(contacts)
+        result["hint"] = (
+            f"Показаны {offset + 1}–{offset + len(contacts)} из {total}. Для действия над всеми "
+            "подходящими контактами передай этот же фильтр в bulk_*, а не листай список."
+        )
+    return result
 
 
 async def fn_get_contact_details(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -2380,36 +2655,54 @@ async def fn_get_upcoming_schedule(args: dict, user_id: str, agent_config_id: st
     }
 
 
+def _bulk_preview(q, total: int, limit: int, sort: Optional[str]) -> dict:
+    """Ответ dry_run: сколько попадёт и несколько примеров."""
+    sample = _sort_contacts(q, sort).limit(5).all()
+    return {
+        "ok": True,
+        "dry_run": True,
+        "matched": total,
+        "will_process": min(total, limit),
+        "sample": [_compact_contact(c) for c in sample],
+    }
+
+
 async def fn_bulk_schedule_calls(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
-    """Запланировать звонки группе контактов с интервалом, начиная со start_at."""
+    """Запланировать звонки группе контактов (по фильтру) с интервалом, начиная со start_at."""
     start_dt = _parse_iso_utc(args.get("start_at"))
     if not start_dt:
         return {"ok": False, "error": "invalid_or_missing_start_at"}
 
-    try:
-        interval = max(1, min(int(args.get("interval_minutes") or 15), 1440))
-    except (ValueError, TypeError):
-        interval = 15
-
+    interval = max(1, min(_as_int(args.get("interval_minutes"), 15) or 15, 1440))
     title = args.get("title") or "Звонок агента"
 
-    # Резолвим целевые контакты: явный список или по стадии.
-    ids = args.get("agent_contact_ids")
-    stage = args.get("stage")
-    cq = db.query(AgentContact).filter(
-        AgentContact.user_id == user_id,
-        AgentContact.agent_config_id == agent_config_id,
-    )
-    if ids:
-        cq = cq.filter(AgentContact.id.in_(ids))
-    elif stage and is_valid_stage(stage):
-        cq = cq.filter(AgentContact.status == stage)
-    else:
-        return {"ok": False, "error": "provide_agent_contact_ids_or_valid_stage"}
+    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id, legacy_stage=True)
+    if err:
+        return {"ok": False, "error": err}
 
-    contacts = cq.order_by(AgentContact.created_at.asc()).all()
-    if not contacts:
-        return {"ok": False, "error": "no_contacts_matched"}
+    # «Не звонить» не планируем никогда, даже если попали в фильтр явно.
+    excluded_dnc = q.filter(AgentContact.status == "do_not_call").count()
+    q = q.filter(AgentContact.status != "do_not_call")
+
+    skipped_scheduled = 0
+    if args.get("skip_if_scheduled", True) is not False:
+        skipped_scheduled = q.filter(_scheduled_call_exists()).count()
+        q = q.filter(~_scheduled_call_exists())
+
+    total = q.count()
+    limit = _bulk_limit(args)
+    sort = args.get("sort") or "oldest"
+    if args.get("dry_run"):
+        preview = _bulk_preview(q, total, limit, sort)
+        preview.update({"excluded_do_not_call": excluded_dnc, "skipped_already_scheduled": skipped_scheduled})
+        return preview
+    if total == 0:
+        return {
+            "ok": False, "error": "no_contacts_matched",
+            "excluded_do_not_call": excluded_dnc, "skipped_already_scheduled": skipped_scheduled,
+        }
+
+    contacts = _sort_contacts(q, sort).limit(limit).all()
 
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
     task_kwargs = assistant_task_kwargs(agent_config)
@@ -2442,17 +2735,130 @@ async def fn_bulk_schedule_calls(args: dict, user_id: str, agent_config_id: str,
             **task_kwargs,
         )
         db.add(task)
-        db.flush()
-        scheduled.append({
+        scheduled.append((task, contact, slot))
+
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Bulk scheduled {len(scheduled)} calls for user {user_id} (filter={applied})")
+
+    # В ответе — только начало списка: на сотнях задач полный список раздувает контекст модели.
+    preview = [
+        {
             "task_id": str(task.id),
             "agent_contact_id": str(contact.id),
             "contact_name": contact.name or contact.phone,
             "scheduled_at": slot.isoformat(),
-        })
+        }
+        for task, contact, slot in scheduled[:20]
+    ]
+    slots = [slot for _, _, slot in scheduled]
+    return {
+        "ok": True,
+        "scheduled_count": len(scheduled),
+        "remaining_not_scheduled": max(0, total - len(scheduled)),
+        "excluded_do_not_call": excluded_dnc,
+        "skipped_already_scheduled": skipped_scheduled,
+        "first_call_at": min(slots).isoformat(),
+        "last_call_at": max(slots).isoformat(),
+        "tasks": preview,
+        "tasks_truncated": len(scheduled) > len(preview),
+    }
+
+
+async def fn_bulk_move_contacts_stage(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """Перевести группу контактов (по фильтру) на стадию воронки."""
+    stage = args.get("stage")
+    if not is_valid_stage(stage):
+        return {"ok": False, "error": f"invalid_stage: {stage}"}
+
+    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    # «Не звонить» трогаем только при явном указании этой стадии в фильтре.
+    filter_stages = set(applied.get("stages") or []) | ({applied["stage"]} if applied.get("stage") else set())
+    if "do_not_call" not in filter_stages:
+        q = q.filter(AgentContact.status != "do_not_call")
+    q = q.filter(AgentContact.status != stage)
+
+    total = q.count()
+    limit = _bulk_limit(args)
+    if args.get("dry_run"):
+        return _bulk_preview(q, total, limit, "oldest")
+    if total == 0:
+        return {"ok": True, "moved": 0, "note": "Нет контактов для перевода (возможно, уже на этой стадии)"}
+
+    ids = [row.id for row in _sort_contacts(q.with_entities(AgentContact.id, AgentContact.created_at), "oldest").limit(limit).all()]
+    from_rows = (
+        db.query(AgentContact.status, func.count(AgentContact.id))
+        .filter(AgentContact.id.in_(ids))
+        .group_by(AgentContact.status)
+        .all()
+    )
+    moved = db.query(AgentContact).filter(AgentContact.id.in_(ids)).update(
+        {"status": stage, "updated_at": datetime.utcnow()}, synchronize_session=False
+    )
+
+    cancelled = 0
+    if stage == "do_not_call":
+        cancelled = db.query(Task).filter(
+            Task.agent_contact_id.in_(ids),
+            Task.is_agent_task == True,
+            Task.status == TaskStatus.SCHEDULED,
+        ).update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
 
     db.commit()
-    logger.info(f"[AGENT-TOOLS] Bulk scheduled {len(scheduled)} calls for user {user_id}")
-    return {"ok": True, "scheduled_count": len(scheduled), "tasks": scheduled}
+    logger.info(
+        f"[AGENT-TOOLS] Bulk moved {moved} contacts -> {stage} for user {user_id} "
+        f"(filter={applied}, reason: {args.get('reason', '')})"
+    )
+    return {
+        "ok": True,
+        "moved": moved,
+        "stage": stage,
+        "from_stages": {(st or "new"): cnt for st, cnt in from_rows},
+        "remaining_not_moved": max(0, total - moved),
+        "cancelled_tasks": cancelled,
+    }
+
+
+async def fn_bulk_cancel_calls(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """Отменить запланированные задачи у группы контактов (по фильтру)."""
+    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    channel = args.get("channel") or "call"
+    tq = db.query(Task).filter(
+        Task.agent_contact_id.in_(q.with_entities(AgentContact.id)),
+        Task.is_agent_task == True,
+        Task.status == TaskStatus.SCHEDULED,
+    )
+    if channel != "all":
+        tq = tq.filter(Task.channel == channel)
+
+    limit = _bulk_limit(args)
+    contacts_total = q.filter(_scheduled_call_exists()).count() if channel == "call" else None
+    tasks_total = tq.count()
+    if args.get("dry_run"):
+        return {
+            "ok": True, "dry_run": True, "tasks_matched": tasks_total,
+            "contacts_with_scheduled_calls": contacts_total, "channel": channel,
+        }
+    if tasks_total == 0:
+        return {"ok": True, "cancelled_tasks": 0, "note": "Запланированных задач по фильтру нет"}
+
+    task_ids = [row.id for row in tq.with_entities(Task.id).order_by(Task.scheduled_time.asc()).limit(limit).all()]
+    cancelled = db.query(Task).filter(Task.id.in_(task_ids)).update(
+        {"status": TaskStatus.CANCELLED}, synchronize_session=False
+    )
+    db.commit()
+    logger.info(f"[AGENT-TOOLS] Bulk cancelled {cancelled} tasks ({channel}) for user {user_id} (filter={applied})")
+    return {
+        "ok": True,
+        "cancelled_tasks": cancelled,
+        "remaining_not_cancelled": max(0, tasks_total - cancelled),
+        "channel": channel,
+    }
 
 
 async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -2771,6 +3177,8 @@ _TOOL_MAP = {
     "update_agent_task": "fn_update_agent_task",
     "get_upcoming_schedule": "fn_get_upcoming_schedule",
     "bulk_schedule_calls": "fn_bulk_schedule_calls",
+    "bulk_move_contacts_stage": "fn_bulk_move_contacts_stage",
+    "bulk_cancel_calls": "fn_bulk_cancel_calls",
     "trigger_immediate_call": "fn_trigger_immediate_call",
     "snooze_contact": "fn_snooze_contact",
     "get_call_transcript": "fn_get_call_transcript",
@@ -2846,6 +3254,10 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_get_upcoming_schedule(tool_args, user_id, agent_config_id, db)
         elif tool_name == "bulk_schedule_calls":
             result = await fn_bulk_schedule_calls(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "bulk_move_contacts_stage":
+            result = await fn_bulk_move_contacts_stage(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "bulk_cancel_calls":
+            result = await fn_bulk_cancel_calls(tool_args, user_id, agent_config_id, db)
         elif tool_name == "trigger_immediate_call":
             result = await fn_trigger_immediate_call(tool_args, user_id, agent_config_id, db)
         elif tool_name == "snooze_contact":

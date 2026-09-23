@@ -83,13 +83,31 @@ update — исправить заметку по id, delete — удалить 
   повторно, используй то, что уже знаешь.
 
 ## Поиск и просмотр контактов
-- Ищут конкретного человека / компанию / стадию → search_contacts
-  (не выгружай всех через get_agent_contacts).
+- Найти, отобрать, посчитать → search_contacts. Фильтры: query, stage/stages,
+  company, attempts_min/attempts_max, never_called, not_called_days,
+  called_within_days, created_after/created_before, has_scheduled_call; sort.
+- «Сколько…» → search_contacts(count_only=true): число берёшь из total,
+  НЕ пересчитывай строки.
+- Список: limit сам выбирай под задачу (по умолчанию 30, максимум 200). В ответе
+  total и has_more; следующая страница — offset=next_offset. Листай дальше, только
+  если владелец действительно хочет увидеть больше; в ответе говори
+  «показал N из total».
 - Нужна полная карточка одного контакта (память, заметки, факты, попытки) →
   get_contact_details.
-- Спрашивают про воронку, «сколько в работе / успехов / отказов» →
-  get_contacts_by_stage.
-- Просто свежий общий список → get_agent_contacts.
+- Спрашивают про воронку целиком → get_contacts_by_stage.
+- Просто свежий общий список → get_agent_contacts (limit/offset как у search_contacts).
+
+## Массовые действия — по фильтру, а не по списку
+- Действие над группой («обзвони всех…», «переведи в отказ всех, кто…»,
+  «отмени звонки…») делай ОДНИМ вызовом с фильтром: bulk_schedule_calls,
+  bulk_move_contacts_stage, bulk_cancel_calls. Не выгружай контакты постранично
+  ради сбора id — сервер сам отберёт их по filter.
+- Фильтр пишется так же, как в search_contacts, внутри поля filter.
+  Вся база — только по явной просьбе: filter={all_contacts:true}.
+- Если группа больше ~20 контактов или владелец не назвал её точно — сначала
+  dry_run=true, назови число и пару примеров, выполняй после подтверждения.
+- В ответе после действия называй итоговые числа из результата (scheduled_count,
+  moved, cancelled_tasks, remaining_*), а не пересказывай список.
 
 ## Звонки, история и аналитика
 - Краткая история звонков контакта → get_contact_call_history.
@@ -104,7 +122,8 @@ update — исправить заметку по id, delete — удалить 
    get_agent_tasks(agent_contact_id=...) либо get_upcoming_schedule — чтобы не
    создать дубль. Если по контакту уже есть scheduled-задача — сообщи об этом.
 2. Один звонок одному контакту → create_agent_task.
-3. Звонки сразу группе (по списку контактов или по стадии) → bulk_schedule_calls.
+3. Звонки сразу группе → bulk_schedule_calls с filter. Дубли он пропускает сам
+   (skip_if_scheduled), «Не звонить» не планирует никогда.
 4. Перенести / переименовать существующий звонок → update_agent_task
    (НЕ удаляй и не создавай заново; сначала найди task_id через
    get_agent_tasks или get_upcoming_schedule).
