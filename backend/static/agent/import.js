@@ -126,14 +126,17 @@ function renderImportCostLine(d){
 
 function renderImportPreview(d){
   const fmtN = n => (n||0).toLocaleString('ru');
+  // Сервер отдаёт только начало списков ошибок/дублей и точные счётчики.
+  const errorsCount = d.errors_count ?? (d.errors || []).length;
+  const duplicatesCount = d.duplicates_count ?? (d.duplicates || []).length;
   const summary = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;margin-bottom:14px">
       <div style="background:var(--bg);border-radius:8px;padding:10px"><b style="font-size:18px;color:var(--green,#16a34a)">${fmtN(d.valid_rows)}</b><div style="color:var(--muted);font-size:11.5px">контактов будет создано</div></div>
       <div style="background:var(--bg);border-radius:8px;padding:10px"><b style="font-size:18px">${fmtN(d.total_rows)}</b><div style="color:var(--muted);font-size:11.5px">строк распознано</div></div>
     </div>
     <div style="font-size:12.5px;line-height:1.8;margin-bottom:12px">
-      ${d.errors && d.errors.length ? `<div style="color:var(--red,#dc2626)"><i class="fas fa-circle-exclamation"></i> Ошибок: <b>${d.errors.length}</b></div>` : ''}
-      ${d.duplicates && d.duplicates.length ? `<div style="color:var(--amber,#d97706)"><i class="fas fa-clone"></i> Дубликатов (будут пропущены): <b>${d.duplicates.length}</b></div>` : ''}
+      ${errorsCount ? `<div style="color:var(--red,#dc2626)"><i class="fas fa-circle-exclamation"></i> Ошибок: <b>${fmtN(errorsCount)}</b></div>` : ''}
+      ${duplicatesCount ? `<div style="color:var(--amber,#d97706)"><i class="fas fa-clone"></i> Дубликатов (будут пропущены): <b>${fmtN(duplicatesCount)}</b></div>` : ''}
       ${d.shifted_to_working_hours ? `<div style="color:var(--blue)"><i class="far fa-clock"></i> Задач сдвинуто на след. рабочий день: <b>${d.shifted_to_working_hours}</b> (рабочие часы по МСК)</div>` : ''}
       <div id="import-cost-line"></div>
     </div>
@@ -150,7 +153,7 @@ function renderImportPreview(d){
   }
 
   // errors download button
-  document.getElementById('import-errors-btn').style.display = (d.errors && d.errors.length) ? '' : 'none';
+  document.getElementById('import-errors-btn').style.display = errorsCount ? '' : 'none';
 
   // auto-tasks toggle (по умолчанию включён — поведение не меняется)
   const toggle = document.getElementById('import-tasks-toggle');
@@ -200,12 +203,13 @@ function updateImportProceedBtn(){
 
 async function executeImport(){
   if(!importState.token) return;
+  const fmtN = n => (n||0).toLocaleString('ru');
   const total = (importState.preview && importState.preview.valid_rows) || 0;
   const createTasks = document.getElementById('import-tasks-checkbox').checked;
   importGotoStep(3);
   document.getElementById('import-progress-block').style.display = '';
   document.getElementById('import-result-block').style.display = 'none';
-  document.getElementById('import-progress-text').textContent = `Импортируем ${total} контактов…`;
+  setImportProgress(0, total);
   try{
     const r = await apiFetch(API + '/contacts/import/execute', { method:'POST', body:JSON.stringify({ preview_token: importState.token, agent_id: currentAgentId || undefined, create_tasks: createTasks }) });
     if(!r || (r.status !== 200)){
@@ -213,22 +217,67 @@ async function executeImport(){
       document.getElementById('import-progress-text').textContent = errText(err.detail);
       return;
     }
-    const data = await r.json();
-    const wait = Math.min(60, Math.max(5, data.estimated_seconds || 10)) * 1000;
-    // Импорт идёт в фоне — ждём оценочное время, затем показываем результат и обновляем списки.
-    setTimeout(() => {
-      document.getElementById('import-progress-block').style.display = 'none';
-      document.getElementById('import-result-block').style.display = '';
-      document.getElementById('import-result-text').textContent = createTasks
-        ? `Готово! Создаётся ${data.total} контактов и задач.`
-        : `Готово! Создаётся ${data.total} контактов (авто-задачи не проставлялись).`;
-      document.getElementById('import-close-btn').style.display = '';
-      document.getElementById('import-cancel-btn').style.display = 'none';
-      loadStats(); loadTasks();
-    }, wait);
+    await r.json();
+    pollImportStatus(importState.token, createTasks);
   }catch(e){
     document.getElementById('import-progress-text').textContent = 'Ошибка сети';
   }
+}
+
+// Прогресс-бар: processed/total из /contacts/import/status (сервер пишет его после каждой пачки в 500 строк).
+function setImportProgress(processed, total){
+  const fmtN = n => (n||0).toLocaleString('ru');
+  const pct = total ? Math.min(100, Math.round(processed * 100 / total)) : 0;
+  const fill = document.getElementById('import-progress-fill');
+  if(fill) fill.style.width = pct + '%';
+  document.getElementById('import-progress-text').textContent =
+    processed ? `Загружено ${fmtN(processed)} из ${fmtN(total)} (${pct}%)` : `Импортируем ${fmtN(total)} контактов…`;
+}
+
+// Опрос раз в секунду до done/failed. Сетевые сбои терпим (до ~30 подряд) — импорт идёт на сервере.
+function pollImportStatus(token, createTasks){
+  const fmtN = n => (n||0).toLocaleString('ru');
+  let netErrors = 0;
+  const finish = (ok, text) => {
+    document.getElementById('import-progress-block').style.display = 'none';
+    const res = document.getElementById('import-result-block');
+    res.style.display = '';
+    const icon = res.querySelector('i');
+    if(icon){
+      icon.className = ok ? 'fas fa-circle-check' : 'fas fa-triangle-exclamation';
+      icon.style.color = ok ? 'var(--green,#16a34a)' : 'var(--amber,#d97706)';
+    }
+    document.getElementById('import-result-text').textContent = text;
+    document.getElementById('import-close-btn').style.display = '';
+    document.getElementById('import-cancel-btn').style.display = 'none';
+    loadStats(); loadTasks();
+  };
+  const tick = async () => {
+    // Модалку закрыли — импорт продолжается на сервере, просто перестаём опрашивать.
+    if(importState.token !== token) return;
+    try{
+      const r = await apiFetch(API + '/contacts/import/status/' + encodeURIComponent(token));
+      if(!r || r.status !== 200) throw new Error('status ' + (r && r.status));
+      const j = await r.json();
+      netErrors = 0;
+      setImportProgress(j.processed || 0, j.total || 0);
+      if(j.status === 'done'){
+        const dup = j.skipped_duplicates ? ` Пропущено дублей: ${fmtN(j.skipped_duplicates)}.` : '';
+        finish(true, createTasks
+          ? `Готово! Создано ${fmtN(j.created_contacts)} контактов и ${fmtN(j.created_tasks)} задач.${dup}`
+          : `Готово! Создано ${fmtN(j.created_contacts)} контактов` + (j.created_tasks ? `, задач из файла: ${fmtN(j.created_tasks)}.` : ' (авто-задачи не проставлялись).') + dup);
+        return;
+      }
+      if(j.status === 'failed'){
+        finish(false, errText(j.error) + (j.created_contacts ? ` Загружено: ${fmtN(j.created_contacts)}.` : ''));
+        return;
+      }
+    }catch(e){
+      if(++netErrors > 30){ finish(false, 'Не удалось получить статус импорта. Он продолжается на сервере — обновите страницу через минуту.'); return; }
+    }
+    setTimeout(tick, 1000);
+  };
+  setTimeout(tick, 700);
 }
 
 function finishImport(){

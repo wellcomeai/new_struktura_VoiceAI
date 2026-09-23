@@ -2,6 +2,7 @@
 Voicyfy Agent API v2.0 — CRUD, chat (with tools), contacts, calls, stats.
 """
 
+import asyncio
 import json
 import uuid
 import secrets
@@ -3014,16 +3015,20 @@ async def import_contacts_preview(
     """Загрузка файла, парсинг и валидация БЕЗ записи в БД."""
     from backend.services.contact_import_service import (
         parse_file, assign_schedule, save_preview,
-        MAX_IMPORT_ROWS, CREDITS_PER_CONTACT,
+        MAX_IMPORT_ROWS, MAX_IMPORT_FILE_BYTES, CREDITS_PER_CONTACT, PREVIEW_LIST_LIMIT,
     )
 
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="agent_not_found")
 
-    content = await file.read()
+    content = await file.read(MAX_IMPORT_FILE_BYTES + 1)
+    if len(content) > MAX_IMPORT_FILE_BYTES:
+        raise HTTPException(status_code=400, detail="file_too_large")
     try:
-        parsed = parse_file(file.filename or "", content)
+        # Разбор xlsx и валидация телефонов на 10 000 строк — секунды CPU:
+        # в потоке, чтобы не останавливать event loop (прод — один процесс).
+        parsed = await asyncio.to_thread(parse_file, file.filename or "", content)
     except ValueError:
         raise HTTPException(status_code=400, detail="unsupported_format")
     except Exception as e:
@@ -3038,11 +3043,11 @@ async def import_contacts_preview(
     errors = list(parsed["errors"])
 
     # Дубликаты: в пределах файла + уже существующие в базе этого агента
-    existing_phones = {
+    existing_phones = await asyncio.to_thread(lambda: {
         row[0] for row in db.query(AgentContact.phone).filter(
             AgentContact.agent_config_id == agent.id
         ).all()
-    }
+    })
 
     duplicates: List[dict] = []
     unique_rows: List[dict] = []
@@ -3056,7 +3061,8 @@ async def import_contacts_preview(
         unique_rows.append(r)
 
     # Распределение времени + проверка рабочих часов
-    shifted = assign_schedule(
+    shifted = await asyncio.to_thread(
+        assign_schedule,
         unique_rows,
         agent.working_hours_start,
         agent.working_hours_end,
@@ -3098,12 +3104,15 @@ async def import_contacts_preview(
         f"valid={valid_rows}, errors={len(errors)}, duplicates={len(duplicates)}, shifted={shifted}"
     )
 
+    # Полные списки ошибок/дублей остаются в превью (xlsx ошибок), в ответ — начало и счётчики.
     return {
         "preview_token": token,
         "total_rows": total_rows,
         "valid_rows": valid_rows,
-        "errors": errors,
-        "duplicates": duplicates,
+        "errors": errors[:PREVIEW_LIST_LIMIT],
+        "errors_count": len(errors),
+        "duplicates": duplicates[:PREVIEW_LIST_LIMIT],
+        "duplicates_count": len(duplicates),
         "shifted_to_working_hours": shifted,
         "credits_required_estimate": credits_required,
         "credits_available": credits_available,
@@ -3128,29 +3137,38 @@ def _row_has_explicit_task(r: dict) -> bool:
     return bool(sd) and str(sd).strip().lower() not in ("", "none", "null")
 
 
-async def _run_contacts_import(
+def _run_contacts_import(
     preview_token: str,
     agent_id: str,
     user_id: str,
     create_tasks: bool = True,
 ):
     """
-    Фоновый импорт: создаёт AgentContact + Task пачками по 50.
-    Открывает собственную сессию БД — безопасно для BackgroundTasks.
+    Фоновый импорт: создаёт AgentContact + Task пачками по IMPORT_CHUNK_SIZE.
+
+    Синхронная функция — BackgroundTasks выполняет её в пуле потоков, поэтому
+    запись 10 000 строк не останавливает event loop. id контактов генерируются
+    на клиенте (без flush на каждую строку). После каждой пачки — коммит и
+    обновление прогресса (save_import_job), его читает /contacts/import/status.
 
     create_tasks=False — авто-задачи оркестратора не создаются; задача
     ставится только для строк с явно заданными «Задача»/«Когда звонить».
     """
-    from backend.services.contact_import_service import load_preview, delete_preview
+    from backend.services.contact_import_service import (
+        load_preview, delete_preview, save_import_job, IMPORT_CHUNK_SIZE,
+    )
 
+    job = {
+        "status": "running", "user_id": str(user_id), "agent_id": str(agent_id),
+        "create_tasks": create_tasks, "total": 0, "processed": 0,
+        "created_contacts": 0, "created_tasks": 0, "skipped_duplicates": 0,
+    }
     db = SessionLocal()
     try:
         data = load_preview(preview_token)
-        if not data:
-            logger.error(f"[AGENT-IMPORT] Preview {preview_token} expired/not found")
-            return
-        if data.get("user_id") != str(user_id):
-            logger.error(f"[AGENT-IMPORT] Preview ownership mismatch for {preview_token}")
+        if not data or data.get("user_id") != str(user_id):
+            logger.error(f"[AGENT-IMPORT] Preview {preview_token} expired/not found/foreign")
+            save_import_job(preview_token, {**job, "status": "failed", "error": "preview_expired"})
             return
 
         agent = db.query(AgentConfig).filter(
@@ -3159,9 +3177,12 @@ async def _run_contacts_import(
         ).first()
         if not agent:
             logger.error(f"[AGENT-IMPORT] Agent {agent_id} not found for import")
+            save_import_job(preview_token, {**job, "status": "failed", "error": "agent_not_found"})
             return
 
         rows = data.get("rows", [])
+        job["total"] = len(rows)
+        save_import_job(preview_token, job)
         task_kwargs = assistant_task_kwargs(agent)
 
         # Повторный дедуп против БД (на случай изменений между preview и execute)
@@ -3171,66 +3192,66 @@ async def _run_contacts_import(
             ).all()
         }
 
-        created_contacts = 0
-        created_tasks = 0
-        batch = 0
+        for start in range(0, len(rows), IMPORT_CHUNK_SIZE):
+            chunk = rows[start:start + IMPORT_CHUNK_SIZE]
+            objects = []
+            for r in chunk:
+                phone = r["phone"]
+                if phone in existing_phones:
+                    job["skipped_duplicates"] += 1
+                    continue
+                existing_phones.add(phone)
 
-        for r in rows:
-            phone = r["phone"]
-            if phone in existing_phones:
-                continue
-            existing_phones.add(phone)
-
-            name = r.get("name")
-            notes = r.get("notes")
-            contact = AgentContact(
-                agent_config_id=agent.id,
-                user_id=user_id,
-                name=name,
-                phone=phone,
-                company=r.get("company"),
-                position=r.get("position"),
-                notes=notes,
-                status="new",
-                memory={},
-            )
-            db.add(contact)
-            db.flush()
-            created_contacts += 1
-
-            # Авто-задачи выключены → создаём задачу только если она явно задана в файле.
-            if create_tasks or _row_has_explicit_task(r):
-                # scheduled_time_utc — ISO-строка с UTC-маркером
-                try:
-                    scheduled_time = datetime.fromisoformat(r["scheduled_time_utc"])
-                except (ValueError, KeyError, TypeError):
-                    scheduled_time = now_utc() + timedelta(hours=1)
-
-                task = Task(
-                    is_agent_task=True,
-                    agent_contact_id=contact.id,
+                name = r.get("name")
+                notes = r.get("notes")
+                contact = AgentContact(
+                    id=uuid.uuid4(),
+                    agent_config_id=agent.id,
                     user_id=user_id,
-                    contact_id=None,
-                    status=TaskStatus.SCHEDULED,
-                    scheduled_time=scheduled_time,
-                    title=r.get("task_title") or f"Первый звонок: {name or phone}",
-                    description=r.get("task_description") or notes or "",
-                    **task_kwargs,
+                    name=name,
+                    phone=phone,
+                    company=r.get("company"),
+                    position=r.get("position"),
+                    notes=notes,
+                    status="new",
+                    memory={},
                 )
-                db.add(task)
-                created_tasks += 1
+                objects.append(contact)
+                job["created_contacts"] += 1
 
-            batch += 1
-            if batch >= 50:
-                db.commit()
-                batch = 0
+                # Авто-задачи выключены → создаём задачу только если она явно задана в файле.
+                if create_tasks or _row_has_explicit_task(r):
+                    # scheduled_time_utc — ISO-строка с UTC-маркером
+                    try:
+                        scheduled_time = datetime.fromisoformat(r["scheduled_time_utc"])
+                    except (ValueError, KeyError, TypeError):
+                        scheduled_time = now_utc() + timedelta(hours=1)
 
-        db.commit()
+                    objects.append(Task(
+                        is_agent_task=True,
+                        agent_contact_id=contact.id,
+                        user_id=user_id,
+                        contact_id=None,
+                        status=TaskStatus.SCHEDULED,
+                        scheduled_time=scheduled_time,
+                        title=r.get("task_title") or f"Первый звонок: {name or phone}",
+                        description=r.get("task_description") or notes or "",
+                        **task_kwargs,
+                    ))
+                    job["created_tasks"] += 1
+
+            db.add_all(objects)
+            db.commit()
+            job["processed"] = min(start + len(chunk), len(rows))
+            save_import_job(preview_token, job)
+
         delete_preview(preview_token)
+        job["status"] = "done"
+        save_import_job(preview_token, job)
 
         logger.info(
             f"[AGENT-IMPORT] ✅ Import done for user {user_id}: "
-            f"{created_contacts} contacts, {created_tasks} tasks"
+            f"{job['created_contacts']} contacts, {job['created_tasks']} tasks"
         )
 
         # Telegram-уведомление владельцу (если настроен личный бот)
@@ -3241,18 +3262,21 @@ async def _run_contacts_import(
                 text = (
                     f"🤖 <b>Voicyfy Agent</b>\n\n"
                     f"Импорт контактов завершён.\n"
-                    f"Создано контактов: <b>{created_contacts}</b>\n"
-                    f"Запланировано звонков: <b>{created_tasks}</b>"
+                    f"Создано контактов: <b>{job['created_contacts']}</b>\n"
+                    f"Запланировано звонков: <b>{job['created_tasks']}</b>"
                 )
-                await TelegramNotificationService.send_message(
+                # Мы в потоке пула — у него нет своего event loop.
+                asyncio.run(TelegramNotificationService.send_message(
                     user.telegram_bot_token, user.telegram_chat_id, text
-                )
+                ))
             except Exception as te:
                 logger.warning(f"[AGENT-IMPORT] Telegram notify failed: {te}")
 
     except Exception as e:
         db.rollback()
         logger.error(f"[AGENT-IMPORT] Import failed for user {user_id}: {e}", exc_info=True)
+        # Уже закоммиченные пачки остаются в базе — показываем, сколько успело загрузиться.
+        save_import_job(preview_token, {**job, "status": "failed", "error": "import_failed"})
     finally:
         db.close()
 
@@ -3265,7 +3289,14 @@ def import_contacts_execute(
     db: Session = Depends(get_db),
 ):
     """Подтверждение импорта — запускает создание контактов в фоне."""
-    from backend.services.contact_import_service import load_preview, CREDITS_PER_CONTACT
+    from backend.services.contact_import_service import (
+        load_preview, load_import_job, save_import_job, CREDITS_PER_CONTACT,
+    )
+
+    # Повторное нажатие / повтор запроса: импорт по этому превью уже идёт или прошёл.
+    job = load_import_job(body.preview_token)
+    if job and job.get("user_id") == str(current_user.id) and job.get("status") in ("queued", "running", "done"):
+        return {"status": job["status"], "total": job.get("total", 0), "preview_token": body.preview_token}
 
     data = load_preview(body.preview_token)
     if not data:
@@ -3294,6 +3325,11 @@ def import_contacts_execute(
                 "available": current_user.credits_balance or 0,
             })
 
+    save_import_job(body.preview_token, {
+        "status": "queued", "user_id": str(current_user.id), "agent_id": str(agent.id),
+        "create_tasks": body.create_tasks, "total": len(rows), "processed": 0,
+        "created_contacts": 0, "created_tasks": 0, "skipped_duplicates": 0,
+    })
     background_tasks.add_task(
         _run_contacts_import,
         body.preview_token,
@@ -3307,7 +3343,26 @@ def import_contacts_execute(
         f"[AGENT-IMPORT] Execute started for user {current_user.id}: "
         f"{len(rows)} rows, create_tasks={body.create_tasks}"
     )
-    return {"status": "started", "estimated_seconds": estimated, "total": len(rows)}
+    return {
+        "status": "started", "estimated_seconds": estimated, "total": len(rows),
+        "preview_token": body.preview_token,
+    }
+
+
+@router.get("/contacts/import/status/{preview_token}")
+def import_contacts_status(
+    preview_token: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Прогресс фонового импорта: status (queued/running/done/failed), total, processed, created_*."""
+    from backend.services.contact_import_service import load_import_job
+
+    job = load_import_job(preview_token)
+    if not job:
+        raise HTTPException(status_code=404, detail="import_not_found")
+    if job.get("user_id") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return {k: v for k, v in job.items() if k not in ("user_id",)}
 
 
 @router.get("/contacts/import/errors/{preview_token}")

@@ -290,6 +290,19 @@ SEO-маршруты (`/robots.txt`, `/sitemap.xml`, `/llms.txt`) — `backend/a
   отдельным запросом `GET /contacts?status=` по 100 карточек с кнопкой «Ещё» в колонке.
   Фильтр `status=active` на бэке включает и легаси-статусы вне воронки (напр. `calling`).
 
+## Импорт контактов агента: до 10 000 строк (ветка 1909-pamatb)
+
+`MAX_IMPORT_ROWS = 10000`, файл до 10 МБ (`backend/services/contact_import_service.py`).
+Превью (`/contacts/import/preview`) разбирает файл через `asyncio.to_thread` и отдаёт только
+первые 200 ошибок/дублей плюс `errors_count`/`duplicates_count` (полный список — в xlsx ошибок).
+Запись (`_run_contacts_import` в `backend/api/agent.py`) — синхронная функция: BackgroundTasks
+гоняет её в пуле потоков, event loop не блокируется. Пачки по `IMPORT_CHUNK_SIZE`=500 с
+`add_all` + коммитом, id контактов генерируются на клиенте (без flush на строку). Прогресс —
+JSON `job-<token>.json` рядом с превью (`save_import_job`/`load_import_job`, запись атомарная),
+читается `GET /contacts/import/status/{token}`; фронт (`pollImportStatus` в `agent/import.js`)
+опрашивает раз в секунду и рисует прогресс-бар. Повторный execute по тому же токену не
+запускает второй импорт. Хранилище в файле рассчитано на один процесс (как сейчас на проде).
+
 ## Контакты агента обзвона: фильтры и массовые действия для ИИ (ветка 1909-pamatb)
 
 Инструменты оркестратора в `backend/services/agent_tools.py` работают через общий фильтр

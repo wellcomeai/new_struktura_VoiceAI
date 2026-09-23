@@ -40,7 +40,13 @@ logger = get_logger(__name__)
 # КОНСТАНТЫ
 # ============================================================================
 
-MAX_IMPORT_ROWS = 1000
+MAX_IMPORT_ROWS = 10000
+# Файл больше — почти наверняка не таблица контактов (10 000 строк xlsx ≈ 0.5–1 МБ).
+MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024
+# Строк на одну транзакцию при записи в БД; после каждой пачки обновляется прогресс.
+IMPORT_CHUNK_SIZE = 500
+# Сколько ошибок/дублей отдавать в ответе превью (полный список — в xlsx ошибок).
+PREVIEW_LIST_LIMIT = 200
 # Консервативная оценка стоимости одного контакта (PreCall + PostCall) в кредитах.
 CREDITS_PER_CONTACT = 30
 
@@ -438,6 +444,35 @@ def load_preview(token: str) -> Optional[Dict[str, Any]]:
             pass
         return None
     return data
+
+
+def _job_path(token: str) -> str:
+    safe = re.sub(r"[^a-zA-Z0-9\-]", "", token)
+    return os.path.join(_PREVIEW_DIR, f"job-{safe}.json")
+
+
+def save_import_job(token: str, data: Dict[str, Any]):
+    """
+    Состояние фонового импорта (status, total, processed, created_*), читается
+    поллингом /contacts/import/status. Пишется атомарно: tmp + os.replace, чтобы
+    читатель не поймал полузаписанный файл. Прод — один процесс, файла достаточно.
+    """
+    _ensure_preview_dir()
+    data = dict(data)
+    data["updated_at"] = time.time()
+    path = _job_path(token)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, default=str)
+    os.replace(tmp, path)
+
+
+def load_import_job(token: str) -> Optional[Dict[str, Any]]:
+    try:
+        with open(_job_path(token), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def delete_preview(token: str):
