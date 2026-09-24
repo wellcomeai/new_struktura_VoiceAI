@@ -2191,6 +2191,7 @@ class ChatOrchestrator:
                     tool_args = {}
 
                 debug_log.append({"ts": self._now_ts(), "type": "tool_call", "data": {"tool": tool_name, "args": tool_args}})
+                logger.info(f"[AGENT-CHAT] Tool: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:300]})")
                 logger.info(f"[AGENT-CHAT] (v3) Executing tool: {tool_name}")
                 try:
                     result_str = await execute_tool(tool_name, tool_args, context, db)
@@ -2493,6 +2494,7 @@ class ChatOrchestrator:
                         tool_args = {}
 
                     debug_log.append({"ts": self._now_ts(), "type": "tool_call", "data": {"tool": tool_name, "args": tool_args}})
+                    logger.info(f"[AGENT-CHAT] Tool: {tool_name}({json.dumps(tool_args, ensure_ascii=False)[:300]})")
                     yield {"type": "tool_call", "tool": tool_name, "args": tool_args}
                     logger.info(f"[AGENT-CHAT] (stream) Executing tool: {tool_name}")
 

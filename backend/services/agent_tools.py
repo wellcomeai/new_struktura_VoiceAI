@@ -947,21 +947,53 @@ CONTACT_FILTER_PROPERTIES = {
         "description": "Несколько стадий воронки (любая из)",
     },
     "company": {"type": "string", "description": "Подстрока названия компании"},
-    "attempts_min": {"type": "integer", "description": "Попыток звонка не меньше N"},
-    "attempts_max": {"type": "integer", "description": "Попыток звонка не больше N (0 — ни одной)"},
-    "never_called": {"type": "boolean", "description": "true — ни разу не звонили; false — звонили хотя бы раз"},
+    "attempts_min": {"type": "integer", "description": "Попыток звонка не меньше N (N ≥ 1)"},
+    "attempts_max": {"type": "integer", "description": "Попыток звонка не больше N (N ≥ 1; ни одной попытки — never_called=true)"},
+    "never_called": {"type": "boolean", "description": "true — только те, кому ни разу не звонили"},
+    "called_at_least_once": {"type": "boolean", "description": "true — только те, кому звонили хотя бы раз"},
     "not_called_days": {
         "type": "integer",
-        "description": "Последний звонок был N и более дней назад (тех, кому не звонили ни разу, НЕ включает — для них never_called)",
+        "description": "Последний звонок был N и более дней назад, N ≥ 1 (тех, кому не звонили ни разу, НЕ включает — для них never_called)",
     },
-    "called_within_days": {"type": "integer", "description": "Звонили за последние N дней"},
+    "called_within_days": {"type": "integer", "description": "Звонили за последние N дней, N ≥ 1"},
     "created_after": {"type": "string", "description": "Добавлен в базу не раньше (ISO 8601, UTC)"},
     "created_before": {"type": "string", "description": "Добавлен в базу раньше (ISO 8601, UTC)"},
-    "has_scheduled_call": {
-        "type": "boolean",
-        "description": "true — уже есть запланированный звонок; false — запланированного звонка нет",
-    },
+    "has_scheduled_call": {"type": "boolean", "description": "true — только те, у кого уже есть запланированный звонок"},
+    "no_scheduled_call": {"type": "boolean", "description": "true — только те, у кого запланированного звонка нет"},
 }
+
+# Значения query, которые модели передают в смысле «все» — это не поиск.
+_QUERY_WILDCARDS = {"*", "%", "all", "any", "все", "всё", "всех", "любой", "любые"}
+
+
+def _normalize_contact_filter(f: dict) -> dict:
+    """
+    Убирает из фильтра «пустые» значения, которые модели подставляют по умолчанию
+    для необязательных полей: 0 в днях/попытках, false в флагах, "*" в query.
+    Иначе called_within_days=0 или never_called=false молча превращали запрос
+    в «0 контактов». Флаги работают только со значением true.
+    """
+    out = {}
+    for key, value in (f or {}).items():
+        if value is None or value == "" or value == []:
+            continue
+        if key == "query":
+            value = str(value).strip()
+            if not value or value.lower() in _QUERY_WILDCARDS:
+                continue
+        elif key in ("attempts_min", "attempts_max", "not_called_days", "called_within_days"):
+            n = _as_int(value)
+            if n is None or n <= 0:
+                continue
+            value = n
+        elif key in ("never_called", "called_at_least_once", "has_scheduled_call", "no_scheduled_call", "all_contacts"):
+            if value is not True and str(value).lower() != "true":
+                # Легаси-смысл has_scheduled_call=false → no_scheduled_call сюда не
+                # переносим: модели ставят false «по умолчанию», а не по просьбе.
+                continue
+            value = True
+        out[key] = value
+    return out
 
 # Фильтр для массовых действий: те же поля + явные id или «вся база».
 # Описания полей не дублируем (они у search_contacts) — схема уходит в каждый запрос.
@@ -1076,15 +1108,15 @@ def _contact_filter_query(db: Session, user_id: str, agent_config_id: str, f: di
 
     if f.get("never_called") is True:
         q = q.filter(AgentContact.last_called_at.is_(None))
-    elif f.get("never_called") is False:
+    if f.get("called_at_least_once") is True:
         q = q.filter(AgentContact.last_called_at.isnot(None))
 
     now = datetime.utcnow()
     not_called_days = _as_int(f.get("not_called_days"))
-    if not_called_days is not None and not_called_days >= 0:
+    if not_called_days is not None and not_called_days > 0:
         q = q.filter(AgentContact.last_called_at < now - timedelta(days=not_called_days))
     called_within_days = _as_int(f.get("called_within_days"))
-    if called_within_days is not None and called_within_days >= 0:
+    if called_within_days is not None and called_within_days > 0:
         q = q.filter(AgentContact.last_called_at >= now - timedelta(days=called_within_days))
 
     for key, op in (("created_after", "ge"), ("created_before", "lt")):
@@ -1096,7 +1128,7 @@ def _contact_filter_query(db: Session, user_id: str, agent_config_id: str, f: di
 
     if f.get("has_scheduled_call") is True:
         q = q.filter(_scheduled_call_exists())
-    elif f.get("has_scheduled_call") is False:
+    if f.get("no_scheduled_call") is True:
         q = q.filter(~_scheduled_call_exists())
 
     return q, None
@@ -1144,7 +1176,8 @@ def _bulk_targets(args: dict, db: Session, user_id: str, agent_config_id: str, l
     if legacy_stage and args.get("stage") and not (f.get("stage") or f.get("stages")):
         f["stage"] = args["stage"]
 
-    criteria = {k: v for k, v in f.items() if k != "all_contacts" and v not in (None, "", [])}
+    f = _normalize_contact_filter(f)
+    criteria = {k: v for k, v in f.items() if k != "all_contacts"}
     if not criteria and f.get("all_contacts") is not True:
         return None, f, "empty_filter: передай filter (или agent_contact_ids), либо filter.all_contacts=true для всей базы"
 
@@ -2323,14 +2356,30 @@ async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db:
     Поиск и отбор контактов по фильтру с постраничным выводом.
     total — точное число по всей базе, строки — не больше CONTACT_LIST_MAX за вызов.
     """
-    filter_args = {k: args[k] for k in CONTACT_FILTER_PROPERTIES if args.get(k) not in (None, "", [])}
+    filter_args = _normalize_contact_filter({k: args[k] for k in CONTACT_FILTER_PROPERTIES if k in args})
     q, err = _contact_filter_query(db, user_id, agent_config_id, filter_args)
     if err:
         return {"ok": False, "error": err}
 
     total = q.count()
+
+    # Фильтр ничего не нашёл — даём модели понять, что дело в фильтре, а не в пустой базе.
+    diagnostics = {}
+    if total == 0 and filter_args:
+        base_q, _ = _contact_filter_query(db, user_id, agent_config_id, {})
+        total_in_base = base_q.count()
+        if total_in_base:
+            diagnostics = {
+                "total_in_base": total_in_base,
+                "hint": (
+                    f"По фильтру {json.dumps(filter_args, ensure_ascii=False)} никого нет, но всего в "
+                    f"базе {total_in_base} контактов. Не говори, что база пуста; если фильтр "
+                    "владелец не просил — повтори вызов без него."
+                ),
+            }
+
     if args.get("count_only"):
-        return {"ok": True, "total": total, "filter": filter_args}
+        return {"ok": True, "total": total, "filter": filter_args, **diagnostics}
 
     limit = max(1, min(_as_int(args.get("limit"), CONTACT_LIST_DEFAULT), CONTACT_LIST_MAX))
     offset = max(0, _as_int(args.get("offset"), 0))
@@ -2343,6 +2392,8 @@ async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db:
         "count": len(contacts),
         "has_more": offset + len(contacts) < total,
         "contacts": [_compact_contact(c) for c in contacts],
+        **({"filter": filter_args} if filter_args else {}),
+        **diagnostics,
     }
     if result["has_more"]:
         result["next_offset"] = offset + len(contacts)

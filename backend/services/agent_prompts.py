@@ -84,8 +84,14 @@ update — исправить заметку по id, delete — удалить 
 
 ## Поиск и просмотр контактов
 - Найти, отобрать, посчитать → search_contacts. Фильтры: query, stage/stages,
-  company, attempts_min/attempts_max, never_called, not_called_days,
-  called_within_days, created_after/created_before, has_scheduled_call; sort.
+  company, attempts_min/attempts_max, never_called, called_at_least_once,
+  not_called_days, called_within_days, created_after/created_before,
+  has_scheduled_call, no_scheduled_call; sort.
+- Передавай ТОЛЬКО те фильтры, о которых просил владелец. Не заполняй остальные
+  поля нулями, false или пустыми строками. В query — только конкретное имя,
+  телефон или компанию, а не слова вроде «клиенты» или «все».
+- Если пришло total=0, но есть total_in_base — база не пуста, дело в фильтре:
+  не говори «контактов нет», а повтори запрос без лишнего фильтра.
 - «Сколько…» → search_contacts(count_only=true): число берёшь из total,
   НЕ пересчитывай строки.
 - Список: limit сам выбирай под задачу (по умолчанию 30, максимум 200). В ответе

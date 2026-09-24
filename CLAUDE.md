@@ -307,8 +307,13 @@ JSON `job-<token>.json` рядом с превью (`save_import_job`/`load_impo
 
 Инструменты оркестратора в `backend/services/agent_tools.py` работают через общий фильтр
 `_contact_filter_query` (`CONTACT_FILTER_PROPERTIES`: query, stage/stages, company,
-attempts_min/max, never_called, not_called_days, called_within_days, created_after/before,
-has_scheduled_call; всегда скоуп user_id + agent_config_id; stage `active` включает легаси-статусы).
+attempts_min/max, never_called, called_at_least_once, not_called_days, called_within_days,
+created_after/before, has_scheduled_call, no_scheduled_call; всегда скоуп user_id + agent_config_id;
+stage `active` включает легаси-статусы). Модели заполняют необязательные поля «по умолчанию»,
+поэтому `_normalize_contact_filter` выкидывает 0 в днях/попытках, `false` во флагах (флаги
+работают только при `true`) и `*`/«все» в query. Если фильтр дал 0, а база не пуста,
+`search_contacts` добавляет `total_in_base` и `hint`, чтобы модель не ответила «база пуста».
+Аргументы тулз чата пишутся в лог: `[AGENT-CHAT] Tool: имя(args)`.
 - `search_contacts` — постранично: `limit` (по умолчанию 30, максимум `CONTACT_LIST_MAX`=200),
   `offset`, `sort`; в ответе точный `total`, `has_more`, `next_offset`; `count_only` — только число.
   Строки компактные (`_compact_contact`, пустые поля не передаются) — ~55 токенов на контакт.
