@@ -344,6 +344,21 @@ Voximplant). Источник — `conversations.client_info["record_url"]`, к�
 колонка «Запись звонка». Колонка добавляется на старте (`ensure_agent_call_record_url_column`)
 и миграцией `add_agent_call_record_url`. Заполняется только для новых звонков.
 
+## Уведомления агента в истории Telegram-чата (ветка 2509-agent)
+
+`send_telegram_notification`, вызванный из фонового разбора (`PostCallOrchestrator._analyze`
+v2/v3: звонки, входящие SMS/TG/MAX, отложенные отправки), дописывает отправленный текст в
+историю Telegram-чатов владельца (`agent_telegram_chat_histories.history`, реплика
+`assistant`, `kind: "notification"`) — только в чаты, куда отправка прошла
+(`send_to_all_chats` → `sent_chat_ids`). Первая строка служебная:
+`[Уведомление, отправленное мной автоматически; контакт Имя (+7…), AGENT_CONTACT_ID: …, AGENT_CALL_ID: …]`,
+поэтому на «а что по этому клиенту?» чат-оркестратор знает, о ком речь. Контекст передаётся
+через `context["notification_history_context"]` (`_notification_history_context`); в
+интерактивном чате его нет и запись не делается. Запись — `append_notification_to_chat_histories`
+(своя сессия, `FOR UPDATE`, через `asyncio.to_thread`, хранится 20 последних записей), а
+`ChatOrchestrator._persist_telegram_history` перечитывает `history` перед записью, чтобы не
+затереть уведомление, пришедшее во время ответа. Веб-чат (`agent_configs.chat_history`) не трогается.
+
 ## Key API Prefixes
 
 | Prefix | Description |

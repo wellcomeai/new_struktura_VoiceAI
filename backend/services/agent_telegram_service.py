@@ -63,6 +63,69 @@ def _mark_sub_notice_sent(history_row, db: Session) -> None:
     flag_modified(history_row, "history")
     db.commit()
 
+# Сколько последних записей держим в истории Telegram-чата (как в ChatOrchestrator).
+TELEGRAM_HISTORY_KEEP = 20
+
+
+def append_notification_to_chat_histories(agent_config_id, chat_ids: List[str], content: str) -> int:
+    """
+    Дописывает отправленное агентом уведомление в историю Telegram-чатов владельца
+    (agent_telegram_chat_histories) как реплику assistant, чтобы на вопрос «а что по
+    этому клиенту?» чат-оркестратор понимал, о ком речь.
+
+    Синхронная (вызывать через asyncio.to_thread), своя сессия и FOR UPDATE —
+    параллельный ответ чата не затрёт запись (см. _persist_telegram_history).
+    Возвращает число обновлённых чатов.
+    """
+    from backend.db.session import SessionLocal
+
+    if not chat_ids or not content:
+        return 0
+    db = SessionLocal()
+    updated = 0
+    try:
+        for chat_id in chat_ids:
+            chat_id = str(chat_id)
+            row = (
+                db.query(AgentTelegramChatHistory)
+                .filter(
+                    AgentTelegramChatHistory.agent_config_id == agent_config_id,
+                    AgentTelegramChatHistory.chat_id == chat_id,
+                )
+                .with_for_update()
+                .first()
+            )
+            if not row:
+                # Положительный chat_id в Telegram — личный чат; тип нужен для стриминга ответов.
+                row = AgentTelegramChatHistory(
+                    agent_config_id=agent_config_id,
+                    chat_id=chat_id,
+                    chat_type=None if chat_id.startswith("-") else "private",
+                    history=[],
+                )
+                db.add(row)
+            history = list(row.history or [])
+            history.append({
+                "role": "assistant",
+                "content": content,
+                "ts": datetime.utcnow().isoformat(),
+                "kind": "notification",
+            })
+            row.history = history[-TELEGRAM_HISTORY_KEEP:]
+            flag_modified(row, "history")
+            db.commit()
+            updated += 1
+    except Exception as e:
+        logger.warning(f"[AGENT-TG] failed to store notification in chat history: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+    return updated
+
+
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 REQUEST_TIMEOUT = 20.0
 TELEGRAM_MAX_LEN = 4096
@@ -552,9 +615,10 @@ class AgentTelegramService:
             return_exceptions=True,
         )
 
-        sent = sum(1 for r in results if r is True)
+        sent_chat_ids = [cid for cid, r in zip(chat_ids, results) if r is True]
+        sent = len(sent_chat_ids)
         total = len(chat_ids)
-        return {"sent": sent, "failed": total - sent, "total": total}
+        return {"sent": sent, "failed": total - sent, "total": total, "sent_chat_ids": sent_chat_ids}
 
 
 async def process_telegram_message(

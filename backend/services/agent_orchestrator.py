@@ -611,6 +611,19 @@ class PreCallOrchestrator:
 # POST-CALL ORCHESTRATOR
 # ============================================================================
 
+def _notification_history_context(agent_call, agent_contact) -> Dict[str, Any]:
+    """
+    Данные о контакте/звонке для записи уведомления send_telegram_notification в
+    историю Telegram-чата владельца (см. fn_send_telegram_notification).
+    """
+    return {
+        "contact_name": getattr(agent_contact, "name", None),
+        "contact_phone": getattr(agent_contact, "phone", None),
+        "agent_contact_id": str(agent_contact.id) if agent_contact is not None else None,
+        "agent_call_id": str(agent_call.id) if agent_call is not None else None,
+    }
+
+
 class PostCallOrchestrator:
     """Analyzes call results using GPT-5 with AGENT_POSTCALL_TOOLS."""
 
@@ -1320,6 +1333,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             "user_id": str(agent_call.user_id),
             "user": user,
             "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
+            # Уведомление из фонового разбора попадает в историю TG-чата владельца.
+            "notification_history_context": _notification_history_context(agent_call, agent_contact),
         }
 
         messages: List[Dict[str, Any]] = [
@@ -1563,6 +1578,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "user_id": str(agent_call.user_id),
                 "user": user,
                 "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
+                "notification_history_context": _notification_history_context(agent_call, agent_contact),
             }
 
             post_call_decision = None
@@ -1778,6 +1794,12 @@ class ChatOrchestrator:
 
     def _persist_telegram_history(self, telegram_history_row, message: str, final_text: str, db):
         """Дописать пару user/assistant в telegram_history_row.history, обрезать до 20, commit."""
+        # Перечитываем историю из БД: пока модель отвечала, фоновый PostCall мог
+        # дописать туда уведомление (append_notification_to_chat_histories).
+        try:
+            db.refresh(telegram_history_row, attribute_names=["history"])
+        except Exception as e:
+            logger.warning(f"[AGENT-TG] history refresh failed: {e}")
         history = list(telegram_history_row.history or [])
         history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
         history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})

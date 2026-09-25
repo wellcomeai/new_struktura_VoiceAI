@@ -3,6 +3,7 @@ Agent Tools — tool definitions and implementations for GPT-5 Responses API.
 Two tool sets: AGENT_CHAT_TOOLS (user chat) and AGENT_POSTCALL_TOOLS (post-call analysis).
 """
 
+import asyncio
 import json
 import uuid
 import re
@@ -2254,13 +2255,26 @@ def _find_recording_url(text: str) -> Optional[str]:
     return None
 
 
-async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, db: Session) -> dict:
+async def fn_send_telegram_notification(
+    args: dict,
+    agent_config: AgentConfig,
+    db: Session,
+    history_context: Optional[dict] = None,
+) -> dict:
     """
     v2.2: Шлёт во все chat_id из agent_config.telegram_chat_ids.
     Использует бота агента (agent_configs.telegram_bot_token), а не юзера.
+
+    history_context (фоновые запуски: PostCall, входящие SMS/TG/MAX, отложенные
+    отправки) — {contact_name, contact_phone, agent_contact_id, agent_call_id}.
+    Если передан, отправленное уведомление дописывается в историю Telegram-чатов
+    владельца вместе со служебной строкой о контакте, чтобы чат-оркестратор
+    понимал, о ком речь. В интерактивном чате не передаётся: там уведомление
+    и так в контексте текущего ответа.
     """
     from backend.services.agent_telegram_service import (
         AgentTelegramService,
+        append_notification_to_chat_histories,
         markdown_to_telegram_html,
     )
 
@@ -2282,6 +2296,18 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
     result = await AgentTelegramService.send_to_all_chats(
         agent_config, text, preview_url=_find_recording_url(message)
     )
+
+    if history_context and result.get("sent_chat_ids"):
+        hc = history_context
+        who = " ".join(x for x in [hc.get("contact_name"), f"({hc['contact_phone']})" if hc.get("contact_phone") else None] if x)
+        meta = [f"контакт {who}" if who else None,
+                f"AGENT_CONTACT_ID: {hc['agent_contact_id']}" if hc.get("agent_contact_id") else None,
+                f"AGENT_CALL_ID: {hc['agent_call_id']}" if hc.get("agent_call_id") else None]
+        meta_line = ", ".join(x for x in meta if x)
+        stored = f"[Уведомление, отправленное мной автоматически" + (f"; {meta_line}" if meta_line else "") + f"]\n{message}"
+        await asyncio.to_thread(
+            append_notification_to_chat_histories, agent_config.id, result["sent_chat_ids"], stored
+        )
 
     logger.info(
         f"[AGENT-TOOLS] Telegram notification: sent={result['sent']} "
@@ -3307,7 +3333,10 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, agent_config_id, db)
         elif tool_name == "send_telegram_notification":
-            result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
+            result = await fn_send_telegram_notification(
+                tool_args, context.get("agent_config"), db,
+                history_context=context.get("notification_history_context"),
+            )
         elif tool_name == "send_sms":
             agent_config = context.get("agent_config")
             if agent_config is None and agent_config_id:
