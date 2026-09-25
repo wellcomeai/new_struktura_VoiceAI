@@ -73,6 +73,25 @@ PINECONE_WARN_AT = 80
 PINECONE_DANGER_AT = 95
 PINECONE_INDEX_NAME = "voicufi"
 
+# Тарифы, которые не оплачиваются (бесплатный, реферальный триал).
+FREE_PLAN_CODES = ("free", "referral_trial")
+
+
+def _is_paid_subscription(user: User, now: datetime) -> bool:
+    """Оплаченная действующая подписка: не триал, не бесплатный тариф, не истекла."""
+    end = user.subscription_end_date
+    if end is None:
+        return False
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    return (
+        end > now
+        and not user.is_trial
+        and user.subscription_plan_id is not None
+        and (user.subscription_plan or "") not in FREE_PLAN_CODES
+        and not user.is_admin
+    )
+
 
 def _grouped_counts(db: Session, model, user_ids=None, extra_filter=None) -> Dict[str, int]:
     """{user_id: count} одним GROUP BY (вместо запроса на каждого пользователя)."""
@@ -336,7 +355,15 @@ def get_all_users(
         if subscription_status:
             now = datetime.now(timezone.utc)
             if subscription_status == "active":
-                query = query.filter(User.subscription_end_date > now)
+                # Только оплаченные действующие подписки (без триалов,
+                # бесплатных тарифов и админов) — как _is_paid_subscription.
+                query = query.filter(
+                    User.subscription_end_date > now,
+                    User.is_trial.isnot(True),
+                    User.subscription_plan_id.isnot(None),
+                    sql_func.coalesce(User.subscription_plan, "").notin_(FREE_PLAN_CODES),
+                    User.is_admin.isnot(True),
+                )
             elif subscription_status == "expired":
                 query = query.filter(
                     (User.subscription_end_date < now) | 
@@ -349,7 +376,10 @@ def get_all_users(
         total_count = query.count()
                 
         # Apply pagination
-        users = query.order_by(User.created_at.desc()).offset(skip).limit(limit).all()
+        # Для оплаченных — сначала те, у кого подписка кончается раньше
+        order = User.subscription_end_date.asc() if subscription_status == "active" else User.created_at.desc()
+        users = query.order_by(order).offset(skip).limit(limit).all()
+        now_utc = datetime.now(timezone.utc)
         
         # Prepare result with subscription info
         # Счётчики всех типов ассистентов и баз знаний — групповыми запросами
@@ -379,6 +409,7 @@ def get_all_users(
                 "subscription_end_date": user.subscription_end_date,
                 "subscription_active": subscription_status_info["active"],
                 "days_left": subscription_status_info.get("days_left", 0),
+                "is_paid": _is_paid_subscription(user, now_utc),
                 # Все типы ассистентов (+ агенты обзвона) и базы знаний
                 "assistant_count": counts["assistants_total"],
                 "counts": counts,

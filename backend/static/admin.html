@@ -508,6 +508,8 @@
       color: var(--text-dark);
     }
     
+    .table tr.row-paid td { background-color: #f0fdf4; }
+    .table tr.row-paid td:first-child { box-shadow: inset 3px 0 0 var(--green); }
     .table tr:hover {
       background-color: var(--bg-light);
     }
@@ -1114,7 +1116,7 @@
           
           <select id="subscription-filter" class="filter-select">
             <option value="">Все подписки</option>
-            <option value="active">Активные</option>
+            <option value="active">Оплаченные (активные)</option>
             <option value="expired">Истекшие</option>
             <option value="trial">Пробные</option>
           </select>
@@ -1128,9 +1130,8 @@
                   <th>Пользователь</th>
                   <th>Email</th>
                   <th>Подписка</th>
-                  <th>Дней осталось</th>
+                  <th>Подписка до</th>
                   <th>Ассистенты</th>
-                  <th>Базы знаний</th>
                   <th>Дата регистрации</th>
                   <th>Действия</th>
                 </tr>
@@ -1956,17 +1957,6 @@
             </table>
           </div>
 
-          <div class="card-header" style="margin-top: 2rem;">
-            <h2 class="card-title">Базы знаний</h2>
-          </div>
-          <div class="table-container">
-            <table class="table">
-              <thead>
-                <tr><th>Название</th><th>Чья</th><th>Namespace</th><th>Символов</th><th>Обновлена</th></tr>
-              </thead>
-              <tbody id="user-kbs"></tbody>
-            </table>
-          </div>
           
           <div class="card-header" style="margin-top: 2rem;">
             <h2 class="card-title">История подписок</h2>
@@ -2573,7 +2563,7 @@
           if (!users || users.length === 0) {
             usersList.innerHTML = `
               <tr>
-                <td colspan="8" style="text-align: center; padding: 2rem;">
+                <td colspan="7" style="text-align: center; padding: 2rem;">
                   Пользователи не найдены
                 </td>
               </tr>
@@ -2585,9 +2575,20 @@
             let statusClass = 'status-expired';
             let statusText = 'Истекла';
             
-            if (user.subscription_active) {
-              statusClass = user.is_trial ? 'status-trial' : 'status-active';
-              statusText = user.is_trial ? 'Пробный период' : 'Активна';
+            if (user.is_paid) {
+              statusClass = 'status-active';
+              statusText = 'Оплачена';
+            } else if (user.subscription_active) {
+              // Триал, бесплатный тариф или админ — активна, но не оплачена
+              statusClass = user.is_trial ? 'status-trial' : 'status-expired';
+              statusText = user.is_trial ? 'Пробный период' : (user.is_admin ? 'Админ' : 'Бесплатная');
+            }
+
+            // Дата окончания подписки + сколько дней осталось
+            let endCell = '—';
+            if (user.subscription_end_date) {
+              const left = user.subscription_active && user.days_left != null ? ` <span style="color:#64748b">(${user.days_left} дн.)</span>` : '';
+              endCell = `${this.formatDate(user.subscription_end_date)}${left}`;
             }
             
             let displayName = 'Пользователь';
@@ -2606,17 +2607,15 @@
             assistantsBadges = assistantsBadges
               ? `<b style="margin-right:.35rem">${total}</b>${assistantsBadges}`
               : '0';
-            const kbCount = user.kb_count || 0;
-            const kbCell = kbCount ? `<span class="assistant-badge badge-kb">${kbCount}</span>` : '0';
 
             const row = document.createElement('tr');
+            if (user.is_paid) row.classList.add('row-paid');
             row.innerHTML = `
               <td>${displayName}</td>
               <td>${user.email}</td>
               <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-              <td>${user.days_left || 0}</td>
+              <td>${endCell}</td>
               <td>${assistantsBadges}</td>
-              <td>${kbCell}</td>
               <td>${this.formatDate(user.created_at)}</td>
               <td>
                 <button class="table-action view-user" data-id="${user.id}" title="Просмотр">
@@ -2801,11 +2800,6 @@
               </div>
 
               <div class="section-item">
-                <div class="item-label">Базы знаний</div>
-                <div class="item-value">${(userData.knowledge_bases || []).length}</div>
-              </div>
-
-              <div class="section-item">
                 <div class="item-label">Лимит ассистентов</div>
                 <div class="item-value">${subscription.max_assistants || 1}</div>
               </div>
@@ -2875,20 +2869,6 @@
                 <td>${a.kb_namespace ? '<code>' + this.escapeHtml(a.kb_namespace) + '</code>' : '—'}</td>
                 <td>${this.formatDate(a.created_at)}</td>
               </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;padding:1rem;">Агентов нет</td></tr>`;
-          }
-
-          // Базы знаний
-          const userKbs = document.getElementById('user-kbs');
-          if (userKbs) {
-            const kbs = userData.knowledge_bases || [];
-            userKbs.innerHTML = kbs.length ? kbs.map(kb => `
-              <tr>
-                <td>${this.escapeHtml(kb.name || '—')}</td>
-                <td>${kb.source === 'agent' ? '<span class="assistant-badge badge-agent">Агент</span>' : '<span class="assistant-badge badge-kb">Пользователь</span>'}</td>
-                <td><code>${this.escapeHtml(kb.namespace)}</code></td>
-                <td>${(kb.char_count || 0).toLocaleString('ru-RU')}</td>
-                <td>${this.formatDate(kb.updated_at)}</td>
-              </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;padding:1rem;">Баз знаний нет</td></tr>`;
           }
 
           const subscriptionLogs = document.getElementById('subscription-logs');
