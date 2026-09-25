@@ -12,6 +12,7 @@ v2.2 Telegram bot integration
 """
 
 import asyncio
+import html
 import re
 import secrets
 from datetime import datetime
@@ -365,13 +366,26 @@ class AgentTelegramService:
         return result is True or bool(result)
 
     @staticmethod
-    async def _send_chunk(token: str, chat_id: str, text: str, parse_mode: Optional[str]) -> bool:
-        """Отправляет один кусок. При сбое HTML-парсинга — повтор без parse_mode (plain)."""
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": True,
-        }
+    async def _send_chunk(
+        token: str,
+        chat_id: str,
+        text: str,
+        parse_mode: Optional[str],
+        preview_url: Optional[str] = None,
+    ) -> bool:
+        """
+        Отправляет один кусок. При сбое HTML-парсинга — повтор без parse_mode (plain).
+
+        Предпросмотр ссылок выключен, кроме preview_url (запись звонка): если она
+        есть в этом куске, Telegram строит предпросмотр только по ней — для mp3
+        это встроенный плеер, как в уведомлениях со страницы диалогов.
+        """
+        def _preview_opts(body: str) -> dict:
+            if preview_url and preview_url in html.unescape(body):
+                return {"link_preview_options": {"url": preview_url}}
+            return {"disable_web_page_preview": True}
+
+        payload = {"chat_id": chat_id, "text": text, **_preview_opts(text)}
         if parse_mode:
             payload["parse_mode"] = parse_mode
         result = await AgentTelegramService._call(token, "sendMessage", payload)
@@ -383,13 +397,19 @@ class AgentTelegramService:
             result = await AgentTelegramService._call(token, "sendMessage", {
                 "chat_id": chat_id,
                 "text": plain,
-                "disable_web_page_preview": True,
+                **_preview_opts(plain),
             })
             return result is not None
         return False
 
     @staticmethod
-    async def send_message(token: str, chat_id: str, text: str, parse_mode: str = "HTML") -> bool:
+    async def send_message(
+        token: str,
+        chat_id: str,
+        text: str,
+        parse_mode: str = "HTML",
+        preview_url: Optional[str] = None,
+    ) -> bool:
         """
         sendMessage. Безопасная обёртка — не бросает наружу, только логирует.
         Режет длинные сообщения на части (лимит Telegram 4096) и при ошибке
@@ -402,7 +422,7 @@ class AgentTelegramService:
         chunks = _split_for_telegram(text)
         ok_any = False
         for chunk in chunks:
-            ok = await AgentTelegramService._send_chunk(token, chat_id, chunk, parse_mode)
+            ok = await AgentTelegramService._send_chunk(token, chat_id, chunk, parse_mode, preview_url)
             ok_any = ok_any or ok
         return ok_any
 
@@ -513,9 +533,10 @@ class AgentTelegramService:
         )
 
     @staticmethod
-    async def send_to_all_chats(agent_config: AgentConfig, text: str) -> dict:
+    async def send_to_all_chats(agent_config: AgentConfig, text: str, preview_url: Optional[str] = None) -> dict:
         """
         Шлёт text во все chat_id из agent_config.telegram_chat_ids параллельно.
+        preview_url — единственная ссылка с предпросмотром (запись звонка → плеер).
         Возвращает {"sent": int, "failed": int, "total": int}.
         """
         if not agent_config.telegram_enabled or not agent_config.has_telegram_bot():
@@ -527,7 +548,7 @@ class AgentTelegramService:
 
         token = agent_config.telegram_bot_token
         results = await asyncio.gather(
-            *[AgentTelegramService.send_message(token, cid, text) for cid in chat_ids],
+            *[AgentTelegramService.send_message(token, cid, text, preview_url=preview_url) for cid in chat_ids],
             return_exceptions=True,
         )
 

@@ -5,6 +5,7 @@ Two tool sets: AGENT_CHAT_TOOLS (user chat) and AGENT_POSTCALL_TOOLS (post-call 
 
 import json
 import uuid
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -2236,6 +2237,23 @@ async def fn_get_agent_stats(args: dict, user_id: str, agent_config_id: str, db:
     }
 
 
+_URL_RE = re.compile(r"https?://[^\s<>\"'\]\[()]+", re.IGNORECASE)
+_AUDIO_EXT_RE = re.compile(r"\.(mp3|wav|ogg|oga|m4a)$", re.IGNORECASE)
+
+
+def _find_recording_url(text: str) -> Optional[str]:
+    """
+    Первая ссылка на аудиозапись звонка в тексте уведомления: папка /recordings/
+    в R2 или файл .mp3/.wav/.ogg/.m4a. По ней Telegram построит плеер.
+    """
+    for m in _URL_RE.finditer(text or ""):
+        url = m.group(0).rstrip(".,;:!?»*_`")
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        if "/recordings/" in path or _AUDIO_EXT_RE.search(path):
+            return url
+    return None
+
+
 async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, db: Session) -> dict:
     """
     v2.2: Шлёт во все chat_id из agent_config.telegram_chat_ids.
@@ -2260,7 +2278,10 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
     # Тело уведомления может быть в Markdown → конвертируем в безопасный Telegram-HTML
     body_html = markdown_to_telegram_html(message)
     text = f"🤖 <b>Voicyfy Agent</b>\n\n{body_html}"
-    result = await AgentTelegramService.send_to_all_chats(agent_config, text)
+    # Ссылка на запись звонка (если агент её приложил) — с предпросмотром-плеером.
+    result = await AgentTelegramService.send_to_all_chats(
+        agent_config, text, preview_url=_find_recording_url(message)
+    )
 
     logger.info(
         f"[AGENT-TOOLS] Telegram notification: sent={result['sent']} "

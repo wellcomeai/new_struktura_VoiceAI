@@ -335,7 +335,10 @@ Voximplant). Источник — `conversations.client_info["record_url"]`, к�
 `poll_and_run` и коммитит её **до** `_analyze` (иначе rollback при ошибке анализа её
 потеряет). Оркестратор видит строку `ЗАПИСЬ ЗВОНКА (аудио): <url>` в блоке текущего звонка
 и сам решает, прикладывать ли её в `send_telegram_notification` (по промпту владельца —
-автодописывания нет). В чате ссылку отдают `get_contact_call_history` и
+автодописывания нет). Если ссылка на запись есть в тексте уведомления
+(`_find_recording_url`: `/recordings/` или .mp3/.wav/.ogg/.m4a), бот агента включает
+предпросмотр только для неё (`link_preview_options.url` в `AgentTelegramService._send_chunk`,
+параметр `preview_url`) — в Telegram появляется плеер; остальные ссылки без превью. В чате ссылку отдают `get_contact_call_history` и
 `get_call_transcript` (`record_url`). UI: плеер + «Скачать запись» в `renderCallExpanded`
 (`agent/calls.js`, общий для модалки звонков, истории и карточки контакта), в xlsx-экспорте —
 колонка «Запись звонка». Колонка добавляется на старте (`ensure_agent_call_record_url_column`)
