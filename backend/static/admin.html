@@ -458,6 +458,32 @@
       background-color: var(--cyan-light);
       color: var(--cyan-dark);
     }
+
+    .badge-fish { background-color: #dbeafe; color: #1d4ed8; }
+    .badge-cascade { background-color: var(--orange-light); color: var(--orange-dark); }
+    .badge-yandex { background-color: var(--red-light); color: var(--red-dark); }
+    .badge-cartesia { background-color: #f1f5f9; color: #475569; }
+    .badge-agent { background-color: var(--purple-light); color: var(--purple-dark); }
+    .badge-kb { background-color: #fef9c3; color: #a16207; }
+
+    /* Заполненность индекса Pinecone (namespaces из лимита тарифа) */
+    .pc-widget {
+      display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+      background: #fff; border: 1px solid #e5e7eb; border-left: 4px solid var(--green);
+      border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .pc-widget.pc-warn { border-left-color: var(--orange); }
+    .pc-widget.pc-danger { border-left-color: var(--red); background: #fff7f7; }
+    .pc-widget.pc-off { border-left-color: #94a3b8; }
+    .pc-widget .pc-title { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+    .pc-widget .pc-value { font-size: 1.1rem; font-weight: 700; white-space: nowrap; }
+    .pc-bar { flex: 1; min-width: 140px; height: 8px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+    .pc-bar > div { height: 100%; background: var(--green); border-radius: 999px; transition: width .3s; }
+    .pc-warn .pc-bar > div { background: var(--orange); }
+    .pc-danger .pc-bar > div { background: var(--red); }
+    .pc-widget .pc-meta { font-size: 0.8rem; color: #64748b; }
+    .pc-widget .pc-refresh { background: none; border: none; color: #64748b; cursor: pointer; padding: 0.25rem; }
     
     /* Таблица пользователей */
     .table-container {
@@ -1072,6 +1098,14 @@
       
       <!-- Таб со списком пользователей -->
       <div class="tab-content active" id="users-tab">
+        <div class="pc-widget pc-off" id="pinecone-widget" data-pc-root>
+          <span class="pc-title"><i class="fas fa-database"></i> Pinecone</span>
+          <span class="pc-value" data-pc="value">—</span>
+          <div class="pc-bar"><div data-pc="bar" style="width:0%"></div></div>
+          <span class="pc-meta" data-pc="meta">загрузка…</span>
+          <button class="pc-refresh" data-pc="refresh" title="Обновить"><i class="fas fa-rotate"></i></button>
+        </div>
+
         <div class="filters">
           <div class="search-box">
             <i class="fas fa-search search-icon"></i>
@@ -1096,6 +1130,7 @@
                   <th>Подписка</th>
                   <th>Дней осталось</th>
                   <th>Ассистенты</th>
+                  <th>Базы знаний</th>
                   <th>Дата регистрации</th>
                   <th>Действия</th>
                 </tr>
@@ -1276,6 +1311,85 @@
               </div>
               <div class="stat-value" id="grok-assistants">0</div>
               <div class="stat-label">Grok</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon"><i class="fas fa-fish"></i></div>
+              <div class="stat-value" id="fish-assistants">0</div>
+              <div class="stat-label">Fish</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange"><i class="fas fa-layer-group"></i></div>
+              <div class="stat-value" id="cascade-assistants">0</div>
+              <div class="stat-label">Каскад</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon orange"><i class="fas fa-microphone-lines"></i></div>
+              <div class="stat-value" id="yandex-assistants">0</div>
+              <div class="stat-label">Яндекс</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon cyan"><i class="fas fa-wave-square"></i></div>
+              <div class="stat-value" id="cartesia-assistants">0</div>
+              <div class="stat-label">Cartesia</div>
+            </div>
+
+            <div class="stat-card">
+              <div class="stat-icon purple"><i class="fas fa-user-astronaut"></i></div>
+              <div class="stat-value" id="agents-total">0</div>
+              <div class="stat-label">Агенты обзвона</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Базы знаний / Pinecone -->
+        <div class="stats-section">
+          <h3 class="stats-section-title"><i class="fas fa-database"></i> Базы знаний / Pinecone</h3>
+          <div class="pc-widget pc-off" data-pc-root>
+            <span class="pc-title">Namespaces в индексе</span>
+            <span class="pc-value" data-pc="value">—</span>
+            <div class="pc-bar"><div data-pc="bar" style="width:0%"></div></div>
+            <span class="pc-meta" data-pc="meta">загрузка…</span>
+            <button class="pc-refresh" data-pc="refresh" title="Обновить"><i class="fas fa-rotate"></i></button>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon"><i class="fas fa-book"></i></div>
+              <div class="stat-value" id="kb-total">0</div>
+              <div class="stat-label">Баз знаний в БД</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon green"><i class="fas fa-user"></i></div>
+              <div class="stat-value" id="kb-user">0</div>
+              <div class="stat-label">Пользовательских</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon purple"><i class="fas fa-user-astronaut"></i></div>
+              <div class="stat-value" id="kb-agent">0</div>
+              <div class="stat-label">Баз агентов</div>
+            </div>
+          </div>
+          <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+            <div class="card">
+              <h4 style="margin:0 0 .5rem">Мусорные namespaces (никому не принадлежат)</h4>
+              <div class="table-container">
+                <table class="table">
+                  <thead><tr><th>Namespace</th><th>Векторов</th></tr></thead>
+                  <tbody id="pc-orphans-list"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <h4 style="margin:0 0 .5rem">Базы из БД без векторов (пересохранить)</h4>
+              <div class="table-container">
+                <table class="table">
+                  <thead><tr><th>Namespace</th></tr></thead>
+                  <tbody id="pc-broken-list"></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -1829,6 +1943,30 @@
               </tbody>
             </table>
           </div>
+
+          <div class="card-header" style="margin-top: 2rem;">
+            <h2 class="card-title">Агенты обзвона</h2>
+          </div>
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr><th>Название</th><th>Статус</th><th>Голос</th><th>База знаний</th><th>Дата создания</th></tr>
+              </thead>
+              <tbody id="user-agents"></tbody>
+            </table>
+          </div>
+
+          <div class="card-header" style="margin-top: 2rem;">
+            <h2 class="card-title">Базы знаний</h2>
+          </div>
+          <div class="table-container">
+            <table class="table">
+              <thead>
+                <tr><th>Название</th><th>Чья</th><th>Namespace</th><th>Символов</th><th>Обновлена</th></tr>
+              </thead>
+              <tbody id="user-kbs"></tbody>
+            </table>
+          </div>
           
           <div class="card-header" style="margin-top: 2rem;">
             <h2 class="card-title">История подписок</h2>
@@ -2250,6 +2388,10 @@
           return this.get('/admin/stats');
         },
 
+        getPineconeUsage(refresh = false) {
+          return this.get('/admin/pinecone-usage' + (refresh ? '?refresh=true' : ''));
+        },
+
         getAgentUsage({ search = '', filter = '', sort = 'spend_7d', skip = 0, limit = 100 } = {}) {
           let endpoint = `/admin/agent-usage?skip=${skip}&limit=${limit}&sort=${sort}`;
           if (search) endpoint += `&search=${encodeURIComponent(search)}`;
@@ -2356,6 +2498,74 @@
           }
         },
         
+        // Типы ассистентов: ключ API → подпись и класс бейджа
+        ASSISTANT_KINDS: [
+          ['fish', 'Fish', 'badge-fish'],
+          ['openai', 'OpenAI', 'badge-openai'],
+          ['gemini', 'Gemini', 'badge-gemini'],
+          ['cascade', 'Каскад', 'badge-cascade'],
+          ['grok', 'Grok', 'badge-grok'],
+          ['yandex', 'Яндекс', 'badge-yandex'],
+          ['cartesia', 'Cartesia', 'badge-cartesia'],
+        ],
+
+        assistantBadges(counts) {
+          counts = counts || {};
+          let html = '';
+          this.ASSISTANT_KINDS.forEach(([key, label, cls]) => {
+            if (counts[key] > 0) html += `<span class="assistant-badge ${cls}">${label} ${counts[key]}</span>`;
+          });
+          if (counts.agents > 0) html += `<span class="assistant-badge badge-agent">Агент ${counts.agents}</span>`;
+          return html;
+        },
+
+        escapeHtml(v) {
+          return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        },
+
+        // Виджет заполненности Pinecone: на вкладке «Пользователи» и в «Статистике»
+        renderPineconeUsage(data) {
+          document.querySelectorAll('[data-pc-root]').forEach(root => {
+            const set = (k, v) => { const el = root.querySelector(`[data-pc="${k}"]`); if (el) el.innerHTML = v; };
+            root.classList.remove('pc-ok', 'pc-warn', 'pc-danger', 'pc-off');
+            if (!data || !data.available) {
+              root.classList.add('pc-off');
+              set('value', '—');
+              set('meta', 'Pinecone недоступен' + (data && data.error ? ': ' + this.escapeHtml(data.error) : ''));
+              const bar = root.querySelector('[data-pc="bar"]'); if (bar) bar.style.width = '0%';
+              return;
+            }
+            root.classList.add('pc-' + (data.level || 'ok'));
+            set('value', `${data.used} / ${data.limit}`);
+            const bar = root.querySelector('[data-pc="bar"]');
+            if (bar) bar.style.width = Math.min(100, data.percent || 0) + '%';
+            const parts = [
+              `свободно ${data.free}`,
+              `баз в БД ${data.referenced_in_db}`,
+              `мусорных ${data.orphans_count}`,
+            ];
+            if (data.broken_count) parts.push(`без векторов ${data.broken_count}`);
+            parts.push(`проверено ${this.formatDate(data.checked_at)}${data.cached ? ' (кэш)' : ''}`);
+            set('meta', parts.join(' · '));
+          });
+
+          // Детали на вкладке «Статистика»
+          const orphans = document.getElementById('pc-orphans-list');
+          if (orphans) {
+            const list = (data && data.orphans) || [];
+            orphans.innerHTML = list.length
+              ? list.map(o => `<tr><td><code>${this.escapeHtml(o.namespace)}</code></td><td>${o.vectors}</td></tr>`).join('')
+              : '<tr><td colspan="2" style="text-align:center;padding:1rem;">Мусорных namespaces нет</td></tr>';
+          }
+          const broken = document.getElementById('pc-broken-list');
+          if (broken) {
+            const list = (data && data.broken) || [];
+            broken.innerHTML = list.length
+              ? list.map(n => `<tr><td><code>${this.escapeHtml(n)}</code></td></tr>`).join('')
+              : '<tr><td style="text-align:center;padding:1rem;">Все базы из БД есть в Pinecone</td></tr>';
+          }
+        },
+
         // ✅ v2.0: Отрисовка с типами ассистентов
         renderUsersList(users) {
           usersList.innerHTML = '';
@@ -2363,7 +2573,7 @@
           if (!users || users.length === 0) {
             usersList.innerHTML = `
               <tr>
-                <td colspan="7" style="text-align: center; padding: 2rem;">
+                <td colspan="8" style="text-align: center; padding: 2rem;">
                   Пользователи не найдены
                 </td>
               </tr>
@@ -2387,21 +2597,18 @@
               displayName = user.company_name;
             }
             
-            // ✅ v2.0: Формируем бейджи по типам ассистентов
-            let assistantsBadges = '';
-            if (user.openai_assistants > 0) {
-              assistantsBadges += `<span class="assistant-badge badge-openai">O:${user.openai_assistants}</span>`;
-            }
-            if (user.gemini_assistants > 0) {
-              assistantsBadges += `<span class="assistant-badge badge-gemini">G:${user.gemini_assistants}</span>`;
-            }
-            if (user.grok_assistants > 0) {
-              assistantsBadges += `<span class="assistant-badge badge-grok">X:${user.grok_assistants}</span>`;
-            }
-            if (!assistantsBadges) {
-              assistantsBadges = '0';
-            }
-            
+            // Бейджи по всем типам ассистентов (нулевые не показываем) + агенты
+            const counts = user.counts || {
+              openai: user.openai_assistants, gemini: user.gemini_assistants, grok: user.grok_assistants
+            };
+            let assistantsBadges = this.assistantBadges(counts);
+            const total = user.assistant_count || 0;
+            assistantsBadges = assistantsBadges
+              ? `<b style="margin-right:.35rem">${total}</b>${assistantsBadges}`
+              : '0';
+            const kbCount = user.kb_count || 0;
+            const kbCell = kbCount ? `<span class="assistant-badge badge-kb">${kbCount}</span>` : '0';
+
             const row = document.createElement('tr');
             row.innerHTML = `
               <td>${displayName}</td>
@@ -2409,6 +2616,7 @@
               <td><span class="status-badge ${statusClass}">${statusText}</span></td>
               <td>${user.days_left || 0}</td>
               <td>${assistantsBadges}</td>
+              <td>${kbCell}</td>
               <td>${this.formatDate(user.created_at)}</td>
               <td>
                 <button class="table-action view-user" data-id="${user.id}" title="Просмотр">
@@ -2581,26 +2789,22 @@
               </div>
               
               <div class="section-item">
-                <div class="item-label">OpenAI</div>
-                <div class="item-value">
-                  <span class="assistant-badge badge-openai">${assistants.openai_count || 0}</span>
-                </div>
+                <div class="item-label">По типам</div>
+                <div class="item-value">${this.assistantBadges(Object.assign({}, assistants.by_kind || {
+                  openai: assistants.openai_count, gemini: assistants.gemini_count, grok: assistants.grok_count
+                }, { agents: (userData.agents || []).length })) || '—'}</div>
               </div>
-              
+
               <div class="section-item">
-                <div class="item-label">Gemini</div>
-                <div class="item-value">
-                  <span class="assistant-badge badge-gemini">${assistants.gemini_count || 0}</span>
-                </div>
+                <div class="item-label">Агенты обзвона</div>
+                <div class="item-value">${(userData.agents || []).length}</div>
               </div>
-              
+
               <div class="section-item">
-                <div class="item-label">Grok</div>
-                <div class="item-value">
-                  <span class="assistant-badge badge-grok">${assistants.grok_count || 0}</span>
-                </div>
+                <div class="item-label">Базы знаний</div>
+                <div class="item-value">${(userData.knowledge_bases || []).length}</div>
               </div>
-              
+
               <div class="section-item">
                 <div class="item-label">Лимит ассистентов</div>
                 <div class="item-value">${subscription.max_assistants || 1}</div>
@@ -2634,24 +2838,14 @@
           
           if (assistants.list && assistants.list.length > 0) {
             assistants.list.forEach(assistant => {
-              let typeBadge = '';
-              switch (assistant.type) {
-                case 'openai':
-                  typeBadge = '<span class="assistant-badge badge-openai">OpenAI</span>';
-                  break;
-                case 'gemini':
-                  typeBadge = '<span class="assistant-badge badge-gemini">Gemini</span>';
-                  break;
-                case 'grok':
-                  typeBadge = '<span class="assistant-badge badge-grok">Grok</span>';
-                  break;
-                default:
-                  typeBadge = assistant.type || 'Unknown';
-              }
-              
+              const kind = this.ASSISTANT_KINDS.find(k => k[0] === assistant.type);
+              const typeBadge = kind
+                ? `<span class="assistant-badge ${kind[2]}">${kind[1]}</span>`
+                : this.escapeHtml(assistant.type_label || assistant.type || 'Unknown');
+
               const row = document.createElement('tr');
               row.innerHTML = `
-                <td>${assistant.name}</td>
+                <td>${this.escapeHtml(assistant.name)}</td>
                 <td>${typeBadge}</td>
                 <td>${assistant.voice || '-'}</td>
                 <td>${this.formatDate(assistant.created_at)}</td>
@@ -2669,6 +2863,34 @@
             `;
           }
           
+          // Агенты обзвона
+          const userAgents = document.getElementById('user-agents');
+          if (userAgents) {
+            const agents = userData.agents || [];
+            userAgents.innerHTML = agents.length ? agents.map(a => `
+              <tr>
+                <td>${this.escapeHtml(a.name)}</td>
+                <td>${a.is_active ? '<span class="status-badge status-active">Активен</span>' : '<span class="status-badge status-expired">Выключен</span>'}</td>
+                <td>${this.escapeHtml(a.assistant_type || '—')}</td>
+                <td>${a.kb_namespace ? '<code>' + this.escapeHtml(a.kb_namespace) + '</code>' : '—'}</td>
+                <td>${this.formatDate(a.created_at)}</td>
+              </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;padding:1rem;">Агентов нет</td></tr>`;
+          }
+
+          // Базы знаний
+          const userKbs = document.getElementById('user-kbs');
+          if (userKbs) {
+            const kbs = userData.knowledge_bases || [];
+            userKbs.innerHTML = kbs.length ? kbs.map(kb => `
+              <tr>
+                <td>${this.escapeHtml(kb.name || '—')}</td>
+                <td>${kb.source === 'agent' ? '<span class="assistant-badge badge-agent">Агент</span>' : '<span class="assistant-badge badge-kb">Пользователь</span>'}</td>
+                <td><code>${this.escapeHtml(kb.namespace)}</code></td>
+                <td>${(kb.char_count || 0).toLocaleString('ru-RU')}</td>
+                <td>${this.formatDate(kb.updated_at)}</td>
+              </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;padding:1rem;">Баз знаний нет</td></tr>`;
+          }
+
           const subscriptionLogs = document.getElementById('subscription-logs');
           subscriptionLogs.innerHTML = '';
           
@@ -2724,6 +2946,19 @@
           openaiAssistantsElement.textContent = stats.assistants.openai || 0;
           geminiAssistantsElement.textContent = stats.assistants.gemini || 0;
           grokAssistantsElement.textContent = stats.assistants.grok || 0;
+          const byKind = stats.assistants.by_kind || {};
+          const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v || 0; };
+          if (stats.assistants.by_kind) setText('grok-assistants', byKind.grok);
+          setText('fish-assistants', byKind.fish);
+          setText('cascade-assistants', byKind.cascade);
+          setText('yandex-assistants', byKind.yandex);
+          setText('cartesia-assistants', byKind.cartesia);
+          setText('agents-total', stats.assistants.agents);
+          if (stats.knowledge_bases) {
+            setText('kb-total', stats.knowledge_bases.total);
+            setText('kb-user', stats.knowledge_bases.user);
+            setText('kb-agent', stats.knowledge_bases.agent);
+          }
           
           // Доходы
           if (stats.revenue) {
@@ -3184,6 +3419,19 @@
         }
       }
       
+      async function loadPineconeUsage(refresh = false) {
+        try {
+          const data = await api.getPineconeUsage(refresh);
+          ui.renderPineconeUsage(data);
+        } catch (error) {
+          ui.renderPineconeUsage({ available: false, error: error.message });
+        }
+      }
+
+      document.querySelectorAll('[data-pc="refresh"]').forEach(btn => {
+        btn.addEventListener('click', () => loadPineconeUsage(true));
+      });
+
       async function loadStats() {
         try {
           ui.setLoading(true);
@@ -3541,6 +3789,7 @@
         if (await checkAuth()) {
           loadUsers();
           loadStats();
+          loadPineconeUsage();
         }
       }
       

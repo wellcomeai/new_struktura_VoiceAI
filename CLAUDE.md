@@ -369,6 +369,21 @@ v2/v3: звонки, входящие SMS/TG/MAX, отложенные отпр�
 В лог пишутся все scores (`[PINECONE] ... scores=[...] below_threshold=N`) — по ним подбирать порог.
 Поиск оркестратора агента (`fn_search_knowledge_base`) этих лимитов не использует.
 
+## Админка: все типы ассистентов, базы знаний, заполненность Pinecone (ветка 2509-agent)
+
+`backend/api/admin.py`: `ASSISTANT_KINDS` — все типы (Fish, OpenAI, Gemini, Каскад, Grok,
+Яндекс, Cartesia; Каскад и Grok делятся по `grok_assistant_configs.assistant_type`).
+`_count_assets_by_user(db, user_ids)` считает типы + агентов + базы знаний (`pinecone_configs` и
+`agent_configs.kb_namespace`) одним `GROUP BY` на таблицу (раньше — 3 запроса на каждого
+пользователя). `/admin/users` отдаёт `counts`, `kb_count`; `/admin/users/{id}` — `by_kind`,
+`agents`, `knowledge_bases`; `/admin/stats` — `assistants.by_kind`, `agents`, `knowledge_bases`.
+`GET /admin/pinecone-usage` — живой `describe_index_stats` (кэш 5 мин, `?refresh=true`): занято
+из `PINECONE_NAMESPACE_LIMIT`=100, `level` ok/warn/danger по порогам 80/95, мусорные namespaces
+(нет ссылок в БД — `_referenced_namespaces`, как в скрипте чистки) и базы без векторов; при
+недоступном Pinecone — `available: false`. Фронт (`admin.html`): виджет `[data-pc-root]` на
+вкладке «Пользователи» и в «Статистике» (`ui.renderPineconeUsage`), бейджи типов
+(`ui.assistantBadges`), колонка «Базы знаний», таблицы агентов и баз в карточке пользователя.
+
 ## Key API Prefixes
 
 | Prefix | Description |

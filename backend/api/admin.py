@@ -27,6 +27,10 @@ from backend.models.credit_transaction import CreditTransaction, CreditTransacti
 from backend.models.agent_config import AgentConfig
 from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
+from backend.models.fish_assistant import FishAssistantConfig
+from backend.models.yandex_assistant import YandexAssistantConfig
+from backend.models.cartesia_assistant import CartesiaAssistantConfig
+from backend.models.pinecone_config import PineconeConfig
 from backend.services.user_service import UserService
 from backend.services.subscription_service import SubscriptionService
 
@@ -44,6 +48,124 @@ logger = get_logger(__name__)
 
 # Create router
 router = APIRouter()
+
+
+# ============================================================================
+# ПОДСЧЁТ АССИСТЕНТОВ И БАЗ ЗНАНИЙ ПО ПОЛЬЗОВАТЕЛЯМ
+# ============================================================================
+# Все типы голосовых ассистентов. Каскад живёт в grok_assistant_configs
+# (assistant_type="cascade"), поэтому Grok и Каскад разделяем по колонке.
+# key → (модель, подпись в админке, фильтр или None)
+ASSISTANT_KINDS = [
+    ("fish", FishAssistantConfig, "Fish", None),
+    ("openai", AssistantConfig, "OpenAI", None),
+    ("gemini", GeminiAssistantConfig, "Gemini", None),
+    ("cascade", GrokAssistantConfig, "Каскад", GrokAssistantConfig.assistant_type == "cascade"),
+    ("grok", GrokAssistantConfig, "Grok", GrokAssistantConfig.assistant_type != "cascade"),
+    ("yandex", YandexAssistantConfig, "Яндекс", None),
+    ("cartesia", CartesiaAssistantConfig, "Cartesia", None),
+]
+
+# Лимит namespaces serverless-индекса Pinecone на текущем тарифе и пороги
+# цвета индикатора в админке (жёлтый / красный).
+PINECONE_NAMESPACE_LIMIT = 100
+PINECONE_WARN_AT = 80
+PINECONE_DANGER_AT = 95
+PINECONE_INDEX_NAME = "voicufi"
+
+
+def _grouped_counts(db: Session, model, user_ids=None, extra_filter=None) -> Dict[str, int]:
+    """{user_id: count} одним GROUP BY (вместо запроса на каждого пользователя)."""
+    q = db.query(model.user_id, sql_func.count(model.id))
+    if extra_filter is not None:
+        q = q.filter(extra_filter)
+    if user_ids is not None:
+        if not user_ids:
+            return {}
+        q = q.filter(model.user_id.in_(user_ids))
+    return {str(uid): cnt for uid, cnt in q.group_by(model.user_id).all() if uid}
+
+
+def _count_assets_by_user(db: Session, user_ids=None) -> Dict[str, Dict[str, int]]:
+    """
+    Счётчики по пользователям: ассистенты каждого типа, агенты обзвона,
+    базы знаний (пользовательские pinecone_configs + базы агентов kb_namespace).
+    user_ids=None — по всем пользователям. Возвращает {user_id: {...}}.
+    """
+    per_kind = {key: _grouped_counts(db, model, user_ids, flt) for key, model, _l, flt in ASSISTANT_KINDS}
+    agents = _grouped_counts(db, AgentConfig, user_ids)
+    user_kbs = _grouped_counts(db, PineconeConfig, user_ids)
+    agent_kbs = _grouped_counts(db, AgentConfig, user_ids, AgentConfig.kb_namespace.isnot(None))
+
+    uids = set(agents) | set(user_kbs) | set(agent_kbs)
+    for counts in per_kind.values():
+        uids |= set(counts)
+
+    result: Dict[str, Dict[str, int]] = {}
+    for uid in uids:
+        row = {key: per_kind[key].get(uid, 0) for key, *_ in ASSISTANT_KINDS}
+        row["assistants_total"] = sum(row.values())
+        row["agents"] = agents.get(uid, 0)
+        row["kb_user"] = user_kbs.get(uid, 0)
+        row["kb_agent"] = agent_kbs.get(uid, 0)
+        row["kb_total"] = row["kb_user"] + row["kb_agent"]
+        result[uid] = row
+    return result
+
+
+def _empty_counts() -> Dict[str, int]:
+    row = {key: 0 for key, *_ in ASSISTANT_KINDS}
+    row.update(assistants_total=0, agents=0, kb_user=0, kb_agent=0, kb_total=0)
+    return row
+
+
+_NS_RX = r'namespace:\s*([A-Za-z0-9_-]+)'
+
+
+def _referenced_namespaces(db: Session) -> set:
+    """
+    Namespaces, на которые кто-то ссылается: pinecone_configs, базы агентов и
+    строки «namespace: …» в промптах ассистентов всех провайдеров (так их
+    находит search_pinecone.extract_namespace_from_prompt).
+    """
+    import re
+    used = {ns for (ns,) in db.query(PineconeConfig.namespace).all() if ns}
+    used |= {ns for (ns,) in db.query(AgentConfig.kb_namespace).filter(AgentConfig.kb_namespace.isnot(None)).all() if ns}
+    seen_models = set()
+    for _key, model, _label, _flt in ASSISTANT_KINDS:
+        if model in seen_models:
+            continue
+        seen_models.add(model)
+        rows = db.query(model.system_prompt).filter(model.system_prompt.ilike("%namespace:%")).all()
+        for (prompt,) in rows:
+            used |= set(re.findall(_NS_RX, prompt or "", re.IGNORECASE))
+    return used
+
+
+# Кэш живой статистики Pinecone: describe_index_stats — сетевой вызов,
+# админка дёргает его при каждом открытии вкладки.
+_PINECONE_USAGE_CACHE: Dict[str, Any] = {"at": None, "data": None}
+_PINECONE_USAGE_TTL = timedelta(minutes=5)
+
+
+def _pinecone_namespaces() -> Dict[str, int]:
+    """{namespace: vector_count} из describe_index_stats. Синхронно (sync-роут → threadpool)."""
+    import os
+    import pinecone
+
+    api_key = os.environ.get("PINECONE_API_KEY")
+    if not api_key:
+        raise RuntimeError("PINECONE_API_KEY не задан")
+    index = pinecone.Pinecone(api_key=api_key).Index(PINECONE_INDEX_NAME)
+    stats = index.describe_index_stats()
+    namespaces = stats.namespaces if hasattr(stats, "namespaces") else stats.get("namespaces", {})
+    result = {}
+    for name, summary in (namespaces or {}).items():
+        count = getattr(summary, "vector_count", None)
+        if count is None and isinstance(summary, dict):
+            count = summary.get("vector_count", 0)
+        result[name] = int(count or 0)
+    return result
 
 
 # ============================================================================
@@ -230,23 +352,13 @@ def get_all_users(
         users = query.order_by(User.created_at.desc()).offset(skip).limit(limit).all()
         
         # Prepare result with subscription info
+        # Счётчики всех типов ассистентов и баз знаний — групповыми запросами
+        # на всю страницу, а не по 3+ запроса на каждого пользователя.
+        assets = _count_assets_by_user(db, [u.id for u in users])
         result = []
         for user in users:
-            # ✅ v2.0: Подсчёт всех типов ассистентов
-            openai_count = db.query(AssistantConfig).filter(
-                AssistantConfig.user_id == user.id
-            ).count()
-            
-            gemini_count = db.query(GeminiAssistantConfig).filter(
-                GeminiAssistantConfig.user_id == user.id
-            ).count()
-            
-            grok_count = db.query(GrokAssistantConfig).filter(
-                GrokAssistantConfig.user_id == user.id
-            ).count()
-            
-            total_assistants = openai_count + gemini_count + grok_count
-            
+            counts = assets.get(str(user.id)) or _empty_counts()
+
             # Check subscription status
             subscription_status_info = UserService.check_subscription_status(db, str(user.id))
             
@@ -267,11 +379,14 @@ def get_all_users(
                 "subscription_end_date": user.subscription_end_date,
                 "subscription_active": subscription_status_info["active"],
                 "days_left": subscription_status_info.get("days_left", 0),
-                # ✅ v2.0: Детализация по типам ассистентов
-                "assistant_count": total_assistants,
-                "openai_assistants": openai_count,
-                "gemini_assistants": gemini_count,
-                "grok_assistants": grok_count
+                # Все типы ассистентов (+ агенты обзвона) и базы знаний
+                "assistant_count": counts["assistants_total"],
+                "counts": counts,
+                "kb_count": counts["kb_total"],
+                # legacy-поля (старый фронт)
+                "openai_assistants": counts["openai"],
+                "gemini_assistants": counts["gemini"],
+                "grok_assistants": counts["grok"] + counts["cascade"],
             }
             
             result.append(user_data)
@@ -304,64 +419,63 @@ def get_user_details(
         # Get subscription details
         subscription_status = UserService.check_subscription_status(db, user_id)
         
-        # ✅ v2.0: Получаем ВСЕ типы ассистентов
-        
-        # OpenAI ассистенты
-        openai_assistants = db.query(AssistantConfig).filter(
-            AssistantConfig.user_id == user.id
-        ).all()
-        
-        openai_data = []
-        for assistant in openai_assistants:
-            openai_data.append({
-                "id": str(assistant.id),
-                "name": assistant.name,
-                "description": assistant.description,
-                "type": "openai",
-                "voice": assistant.voice,
-                "created_at": assistant.created_at,
-                "total_conversations": assistant.total_conversations
-            })
-        
-        # Gemini ассистенты
-        gemini_assistants = db.query(GeminiAssistantConfig).filter(
-            GeminiAssistantConfig.user_id == user.id
-        ).all()
-        
-        gemini_data = []
-        for assistant in gemini_assistants:
-            gemini_data.append({
-                "id": str(assistant.id),
-                "name": assistant.name,
-                "description": assistant.description,
-                "type": "gemini",
-                "voice": assistant.voice,
-                "created_at": assistant.created_at,
-                "total_conversations": assistant.total_conversations
-            })
-        
-        # Grok ассистенты
-        grok_assistants = db.query(GrokAssistantConfig).filter(
-            GrokAssistantConfig.user_id == user.id
-        ).all()
-        
-        grok_data = []
-        for assistant in grok_assistants:
-            grok_data.append({
-                "id": str(assistant.id),
-                "name": assistant.name,
-                "description": assistant.description,
-                "type": "grok",
-                "voice": assistant.voice,
-                "created_at": assistant.created_at,
-                "total_conversations": assistant.total_conversations
-            })
-        
-        # Объединяем все ассистенты
-        all_assistants = openai_data + gemini_data + grok_data
+        # Все типы ассистентов (включая Fish, Каскад, Яндекс, Cartesia)
+        all_assistants = []
+        by_kind: Dict[str, int] = {}
+        for kind, model, label, flt in ASSISTANT_KINDS:
+            q = db.query(model).filter(model.user_id == user.id)
+            if flt is not None:
+                q = q.filter(flt)
+            items = q.all()
+            by_kind[kind] = len(items)
+            for assistant in items:
+                all_assistants.append({
+                    "id": str(assistant.id),
+                    "name": assistant.name,
+                    "description": getattr(assistant, "description", None),
+                    "type": kind,
+                    "type_label": label,
+                    "voice": getattr(assistant, "voice", None),
+                    "created_at": assistant.created_at,
+                    "total_conversations": getattr(assistant, "total_conversations", None),
+                })
         # Сортируем по дате создания (новые первыми)
         all_assistants.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
-        
+        openai_data = [a for a in all_assistants if a["type"] == "openai"]
+        gemini_data = [a for a in all_assistants if a["type"] == "gemini"]
+        grok_data = [a for a in all_assistants if a["type"] in ("grok", "cascade")]
+
+        # Агенты обзвона
+        agents = db.query(AgentConfig).filter(AgentConfig.user_id == user.id).order_by(AgentConfig.created_at.desc()).all()
+        agents_data = [{
+            "id": str(a.id),
+            "name": a.name,
+            "is_active": a.is_active,
+            "assistant_type": a.assistant_type,
+            "kb_namespace": a.kb_namespace,
+            "created_at": a.created_at,
+        } for a in agents]
+
+        # Базы знаний: пользовательские + базы агентов
+        knowledge_bases = []
+        for kb in db.query(PineconeConfig).filter(PineconeConfig.user_id == user.id).order_by(PineconeConfig.updated_at.desc()).all():
+            knowledge_bases.append({
+                "source": "user",
+                "name": kb.name,
+                "namespace": kb.namespace,
+                "char_count": kb.char_count or 0,
+                "updated_at": kb.updated_at,
+            })
+        for a in agents:
+            if a.kb_namespace:
+                knowledge_bases.append({
+                    "source": "agent",
+                    "name": a.kb_name or f"База агента «{a.name}»",
+                    "namespace": a.kb_namespace,
+                    "char_count": a.kb_char_count or 0,
+                    "updated_at": a.kb_updated_at,
+                })
+
         # Subscription logs
         from backend.models.subscription import SubscriptionLog
         logs = db.query(SubscriptionLog).filter(
@@ -405,11 +519,14 @@ def get_user_details(
             },
             "assistants": {
                 "count": len(all_assistants),
+                "by_kind": by_kind,
                 "openai_count": len(openai_data),
                 "gemini_count": len(gemini_data),
                 "grok_count": len(grok_data),
                 "list": all_assistants
             },
+            "agents": agents_data,
+            "knowledge_bases": knowledge_bases,
             "subscription_logs": subscription_logs
         }
     except HTTPException:
@@ -642,39 +759,22 @@ def get_admin_statistics(
             })
         
         # ========== АССИСТЕНТЫ (все типы) ==========
-        openai_assistants = db.query(AssistantConfig).count()
-        gemini_assistants = db.query(GeminiAssistantConfig).count()
-        grok_assistants = db.query(GrokAssistantConfig).count()
-        total_assistants = openai_assistants + gemini_assistants + grok_assistants
+        assets_by_user = _count_assets_by_user(db)
+        kind_totals = {key: 0 for key, *_ in ASSISTANT_KINDS}
+        agents_total = kb_user_total = kb_agent_total = 0
+        for row in assets_by_user.values():
+            for key in kind_totals:
+                kind_totals[key] += row[key]
+            agents_total += row["agents"]
+            kb_user_total += row["kb_user"]
+            kb_agent_total += row["kb_agent"]
+        openai_assistants = kind_totals["openai"]
+        gemini_assistants = kind_totals["gemini"]
+        grok_assistants = kind_totals["grok"] + kind_totals["cascade"]
+        total_assistants = sum(kind_totals.values())
         
-        # Статистика ассистентов по пользователям
-        # OpenAI
-        openai_stats = db.query(
-            AssistantConfig.user_id,
-            sql_func.count(AssistantConfig.id).label("count")
-        ).group_by(AssistantConfig.user_id).all()
-        
-        # Gemini
-        gemini_stats = db.query(
-            GeminiAssistantConfig.user_id,
-            sql_func.count(GeminiAssistantConfig.id).label("count")
-        ).group_by(GeminiAssistantConfig.user_id).all()
-        
-        # Grok
-        grok_stats = db.query(
-            GrokAssistantConfig.user_id,
-            sql_func.count(GrokAssistantConfig.id).label("count")
-        ).group_by(GrokAssistantConfig.user_id).all()
-        
-        # Максимум ассистентов у одного пользователя
-        user_assistant_counts = {}
-        for stat in openai_stats:
-            user_assistant_counts[str(stat[0])] = user_assistant_counts.get(str(stat[0]), 0) + stat[1]
-        for stat in gemini_stats:
-            user_assistant_counts[str(stat[0])] = user_assistant_counts.get(str(stat[0]), 0) + stat[1]
-        for stat in grok_stats:
-            user_assistant_counts[str(stat[0])] = user_assistant_counts.get(str(stat[0]), 0) + stat[1]
-        
+        user_assistant_counts = {uid: row["assistants_total"] for uid, row in assets_by_user.items()}
+
         max_assistants = max(user_assistant_counts.values()) if user_assistant_counts else 0
         avg_assistants = total_assistants / total_users if total_users > 0 else 0
         
@@ -772,8 +872,16 @@ def get_admin_statistics(
                 "openai": openai_assistants,
                 "gemini": gemini_assistants,
                 "grok": grok_assistants,
+                "by_kind": kind_totals,
+                "agents": agents_total,
                 "max_per_user": max_assistants,
                 "avg_per_user": round(avg_assistants, 2)
+            },
+            # Базы знаний в БД (живая заполненность Pinecone — /pinecone-usage)
+            "knowledge_bases": {
+                "total": kb_user_total + kb_agent_total,
+                "user": kb_user_total,
+                "agent": kb_agent_total,
             },
             # ✅ v2.1: Статистика доходов
             "revenue": {
@@ -996,6 +1104,65 @@ def _build_orchestrator_stats(db: Session, now: datetime) -> Dict[str, Any]:
             for r in top_rows
         ],
     }
+
+
+@router.get("/pinecone-usage", response_model=Dict[str, Any])
+def get_pinecone_usage(
+    refresh: bool = Query(False, description="Игнорировать кэш (5 минут)"),
+    current_user: User = Depends(check_admin_access),
+    db: Session = Depends(get_db),
+):
+    """
+    Заполненность индекса Pinecone: сколько namespaces занято из лимита тарифа,
+    сколько из них никому не принадлежат (мусор) и сколько баз из БД остались
+    без векторов. Отдельно от /stats, чтобы медленный Pinecone не ломал статистику.
+    Sync-роут: FastAPI гоняет его в пуле потоков, event loop не блокируется.
+    """
+    now = datetime.now(timezone.utc)
+    cached = _PINECONE_USAGE_CACHE
+    if not refresh and cached["data"] and cached["at"] and now - cached["at"] < _PINECONE_USAGE_TTL:
+        return {**cached["data"], "cached": True}
+
+    base = {
+        "limit": PINECONE_NAMESPACE_LIMIT,
+        "warn_at": PINECONE_WARN_AT,
+        "danger_at": PINECONE_DANGER_AT,
+        "index": PINECONE_INDEX_NAME,
+        "checked_at": now,
+    }
+    try:
+        referenced = _referenced_namespaces(db)
+    except Exception as e:
+        logger.error(f"[ADMIN] pinecone-usage: DB references failed: {e}")
+        referenced = set()
+
+    try:
+        ns_map = _pinecone_namespaces()
+    except Exception as e:
+        logger.warning(f"[ADMIN] pinecone-usage: Pinecone unavailable: {e}")
+        return {**base, "available": False, "error": str(e), "referenced_in_db": len(referenced), "cached": False}
+
+    used = len(ns_map)
+    orphans = sorted((n for n in ns_map if n and n not in referenced), key=lambda n: -ns_map[n])
+    broken = sorted(n for n in referenced if n not in ns_map)
+    level = "danger" if used >= PINECONE_DANGER_AT else "warn" if used >= PINECONE_WARN_AT else "ok"
+    data = {
+        **base,
+        "available": True,
+        "used": used,
+        "free": max(PINECONE_NAMESPACE_LIMIT - used, 0),
+        "percent": round(used * 100 / PINECONE_NAMESPACE_LIMIT, 1) if PINECONE_NAMESPACE_LIMIT else 0,
+        "level": level,
+        "total_vectors": sum(ns_map.values()),
+        "referenced_in_db": len(referenced),
+        "orphans_count": len(orphans),
+        "orphans": [{"namespace": n, "vectors": ns_map[n]} for n in orphans[:50]],
+        "broken_count": len(broken),
+        "broken": broken[:50],
+        "top": [{"namespace": n, "vectors": c} for n, c in sorted(ns_map.items(), key=lambda kv: -kv[1])[:10]],
+    }
+    _PINECONE_USAGE_CACHE.update(at=now, data=data)
+    return {**data, "cached": False}
 
 
 @router.get("/agent-usage", response_model=Dict[str, Any])
