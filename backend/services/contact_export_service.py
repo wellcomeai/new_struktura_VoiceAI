@@ -75,8 +75,9 @@ CONTACT_WIDTHS = [20, 16, 20, 16, 36, 12, 9, 18, 22, 44, 44, 20, 40, 18]
 CALL_HEADERS = [
     "Контакт", "Телефон", "Дата (МСК)", "Канал", "Направление",
     "Статус", "Решение агента", "Длительность (сек)", "Транскрипт",
+    "Запись звонка",
 ]
-CALL_WIDTHS = [20, 16, 18, 10, 12, 12, 18, 14, 80]
+CALL_WIDTHS = [20, 16, 18, 10, 12, 12, 18, 14, 80, 40]
 
 
 def _fmt_dt(dt: Optional[datetime]) -> str:
@@ -244,6 +245,7 @@ def generate_contacts_export_xlsx(db: Session, agent_config_id) -> bytes:
             _cell(_DECISION_LABELS.get(decision, decision) if decision else ""),
             int(call.duration_seconds or 0),
             _cell(call.transcript),
+            _cell(call.record_url or ""),
         ])
     _style_header(ws2, CALL_WIDTHS)
     for row in ws2.iter_rows(min_row=2, min_col=9, max_col=9):

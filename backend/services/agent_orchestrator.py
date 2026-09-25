@@ -646,6 +646,19 @@ class PostCallOrchestrator:
         return convs
 
     @staticmethod
+    def _extract_record_url(convs) -> Optional[str]:
+        """
+        Ссылка на аудиозапись из найденных conversations (client_info["record_url"],
+        пишется вебхуком /api/voximplant/log). При нескольких записях — самая свежая.
+        """
+        for conv in reversed(convs or []):
+            info = conv.client_info if isinstance(conv.client_info, dict) else None
+            url = (info or {}).get("record_url")
+            if url:
+                return url
+        return None
+
+    @staticmethod
     def _claim_for_finalization(db, agent_call_id: str, allowed_statuses: List[str]) -> bool:
         """
         Атомарно «забирает» звонок под финализацию: переводит его в статус
@@ -710,6 +723,7 @@ class PostCallOrchestrator:
             duration_seconds = 0
 
             call_time = agent_call.started_at or agent_call.created_at
+            convs = []
 
             for attempt in range(retries):
                 # Поллер живёт до 5 минут на каждый звонок; пачка исходящих звонков
@@ -777,6 +791,12 @@ class PostCallOrchestrator:
                 logger.info(f"[AGENT-POSTCALL] Call {agent_call_id} already finalized elsewhere, skipping reserve poller")
                 return
             db.refresh(agent_call)
+            # Ссылку на запись фиксируем отдельным коммитом до анализа: при ошибке
+            # внутри _analyze делается rollback, и незакоммиченное поле потерялось бы.
+            record_url = PostCallOrchestrator._extract_record_url(convs)
+            if record_url:
+                agent_call.record_url = record_url
+                db.commit()
             release_db_connection(db)  # дальше долгие await LLM в _analyze
 
             orchestrator = PostCallOrchestrator()
@@ -881,6 +901,12 @@ class PostCallOrchestrator:
                 logger.info(f"[AGENT-POSTCALL] (webhook) call {agent_call_id} already owned/finalized, skip")
                 return
             db.refresh(agent_call)
+
+            # Ссылка на запись — отдельным коммитом до анализа (см. poll_and_run).
+            record_url = PostCallOrchestrator._extract_record_url(convs)
+            if record_url:
+                agent_call.record_url = record_url
+                db.commit()
 
             task = None
             if agent_call.source_task_id:
@@ -1073,6 +1099,11 @@ class PostCallOrchestrator:
    зафиксируй одной заметкой в update_agent_memory. Если ничего общего нет —
    не трогай память агента."""
 
+        # Ссылка на аудиозапись текущего звонка. Прикладывать её в уведомления
+        # или нет — решает оркестратор по инструкциям владельца.
+        record_url = getattr(agent_call, "record_url", None)
+        record_line = f"\nЗАПИСЬ ЗВОНКА (аудио): {record_url}" if record_url else ""
+
         return f"""{direction_line}
 КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
@@ -1083,7 +1114,7 @@ class PostCallOrchestrator:
 {transcript}
 
 {status_label}: {call_status}
-ДЛИТЕЛЬНОСТЬ: {duration_seconds}s
+ДЛИТЕЛЬНОСТЬ: {duration_seconds}s{record_line}
 AGENT_CONTACT_ID: {str(agent_contact.id)}
 
 {action_block}"""

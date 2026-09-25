@@ -177,7 +177,9 @@ SEND_TELEGRAM_NOTIFICATION_TOOL = {
         "Используй при важных событиях: клиент готов купить / просит счёт, жалуется, "
         "просит живого человека, задал вопрос без ответа в материалах. "
         "Укажи в тексте: контакт (имя, телефон), суть события, что уже сделано. "
-        "Не отправляй повторно одно и то же событие."
+        "Не отправляй повторно одно и то же событие. "
+        "Если у звонка есть аудиозапись (строка «ЗАПИСЬ ЗВОНКА» или поле record_url), "
+        "ссылку можно вставить в текст — по ней владелец послушает разговор."
     ),
     "parameters": {
         "type": "object",
@@ -1261,7 +1263,7 @@ AGENT_CHAT_TOOLS = [
     {
         "type": "function",
         "name": "get_contact_call_history",
-        "description": "Получить историю звонков конкретного контакта агента.",
+        "description": "Получить историю звонков конкретного контакта агента (начало транскрипта и ссылка на аудиозапись record_url, если есть).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1610,7 +1612,8 @@ AGENT_CHAT_TOOLS = [
         "name": "get_call_transcript",
         "description": (
             "Получить ПОЛНЫЙ транскрипт конкретного звонка по его UUID (get_contact_call_history отдаёт только "
-            "первые 500 символов). Используй когда пользователь просит 'покажи весь разговор', 'что именно сказал клиент'. "
+            "первые 500 символов) и ссылку на аудиозапись (record_url, если звонок записан). Используй когда "
+            "пользователь просит 'покажи весь разговор', 'что именно сказал клиент', 'пришли запись звонка'. "
             "Сначала найди agent_call_id через get_contact_call_history."
         ),
         "parameters": {
@@ -2030,6 +2033,7 @@ async def fn_get_contact_call_history(args: dict, user_id: str, agent_config_id:
                 "post_call_decision": c.post_call_decision,
                 "duration_seconds": c.duration_seconds,
                 "transcript": (c.transcript[:500] if c.transcript else None),
+                "record_url": c.record_url,
                 "started_at": c.started_at.isoformat() if c.started_at else None,
                 "completed_at": c.completed_at.isoformat() if c.completed_at else None,
             }
@@ -3020,6 +3024,7 @@ async def fn_get_call_transcript(args: dict, user_id: str, agent_config_id: str,
             "started_at": call.started_at.isoformat() if call.started_at else None,
             "completed_at": call.completed_at.isoformat() if call.completed_at else None,
             "transcript": call.transcript or "(транскрипт недоступен)",
+            "record_url": call.record_url,
         },
     }
 

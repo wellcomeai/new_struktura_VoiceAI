@@ -65,6 +65,9 @@ class AgentCall(Base):
 
     transcript = Column(Text, nullable=True)
     duration_seconds = Column(Integer, default=0, nullable=False)
+    # Ссылка на аудиозапись звонка (R2 или временный URL Voximplant) —
+    # копируется из conversations.client_info["record_url"] при финализации.
+    record_url = Column(Text, nullable=True)
 
     status = Column(String(50), default="scheduled", nullable=False)
     post_call_decision = Column(String(50), nullable=True)
@@ -143,6 +146,7 @@ class AgentCall(Base):
             "call_strategy": self.call_strategy,
             "transcript": self.transcript,
             "duration_seconds": self.duration_seconds,
+            "record_url": self.record_url,
             "status": self.status,
             "direction": self.direction or "outbound",
             "post_call_decision": self.post_call_decision,

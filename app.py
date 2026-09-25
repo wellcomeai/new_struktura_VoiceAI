@@ -1682,6 +1682,36 @@ def ensure_agent_memory_column():
         logger.error(f"❌ ensure_agent_memory_column error: {e}")
 
 
+def ensure_agent_call_record_url_column():
+    """
+    Идемпотентно добавляет agent_calls.record_url (ссылка на запись звонка агента).
+
+    Дублирует alembic-миграцию add_agent_call_record_url.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_calls'):
+            return
+        existing = {c['name'] for c in inspector.get_columns('agent_calls')}
+        if 'record_url' in existing:
+            return
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text(
+                    "ALTER TABLE agent_calls ADD COLUMN IF NOT EXISTS record_url TEXT"
+                ))
+                trans.commit()
+                logger.info("✅ Added column agent_calls.record_url")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add agent_calls.record_url: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_call_record_url_column error: {e}")
+
+
 def ensure_agent_public_access_columns():
     """
     Идемпотентно добавляет колонки публичного HTTP-канала в agent_configs.
@@ -2320,6 +2350,9 @@ async def startup_event():
 
                 # 🆕 Шаг 18: Память агента (agent_configs.memory JSONB)
                 ensure_agent_memory_column()
+
+                # 🆕 Шаг 18б: Ссылка на запись звонка агента (agent_calls.record_url)
+                ensure_agent_call_record_url_column()
 
                 # 🆕 Шаг 18а: Обязательный онбординг (users.onboarding_completed_at,
                 #             test_number_leases.is_onboarding)

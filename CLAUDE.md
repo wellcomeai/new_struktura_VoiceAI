@@ -326,6 +326,21 @@ stage `active` включает легаси-статусы). Модели за�
   отменяет запланированные задачи), `bulk_cancel_calls` (статус cancelled, `channel`).
   Пустой фильтр запрещён. Ответы короткие: числа + первые 20 задач.
 
+## Запись звонка агента обзвона (ветка 2509-agent)
+
+`agent_calls.record_url` (Text) — ссылка на аудиозапись (R2, при сбое — временный URL
+Voximplant). Источник — `conversations.client_info["record_url"]`, который пишет
+`POST /api/voximplant/log` до запуска разбора звонка. `PostCallOrchestrator._extract_record_url`
+берёт самую свежую ссылку из найденных conversations в `finalize_from_webhook` и
+`poll_and_run` и коммитит её **до** `_analyze` (иначе rollback при ошибке анализа её
+потеряет). Оркестратор видит строку `ЗАПИСЬ ЗВОНКА (аудио): <url>` в блоке текущего звонка
+и сам решает, прикладывать ли её в `send_telegram_notification` (по промпту владельца —
+автодописывания нет). В чате ссылку отдают `get_contact_call_history` и
+`get_call_transcript` (`record_url`). UI: плеер + «Скачать запись» в `renderCallExpanded`
+(`agent/calls.js`, общий для модалки звонков, истории и карточки контакта), в xlsx-экспорте —
+колонка «Запись звонка». Колонка добавляется на старте (`ensure_agent_call_record_url_column`)
+и миграцией `add_agent_call_record_url`. Заполняется только для новых звонков.
+
 ## Key API Prefixes
 
 | Prefix | Description |

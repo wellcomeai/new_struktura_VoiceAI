@@ -164,6 +164,16 @@ function renderCallExpanded(call, uid){
   const details = preBlock + transcriptBlock + postBlock;
   const hasDetails = !!details.trim();
 
+  // Аудиозапись звонка (agent_calls.record_url) — видна без раскрытия карточки.
+  const recUrl = safeRecordUrl(call.record_url);
+  const recordBlock = recUrl ? `
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap" onclick="event.stopPropagation()">
+      <audio controls preload="none" src="${recUrl}" style="height:34px;flex:1;min-width:220px;max-width:100%"></audio>
+      <a href="${recUrl}" target="_blank" rel="noopener" download style="font-size:12px;color:var(--blue);font-weight:600;text-decoration:none;white-space:nowrap">
+        <i class="fas fa-download"></i> Скачать запись
+      </a>
+    </div>` : '';
+
   return `
     <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
       <div onclick="${hasDetails ? `toggleCallCard('${uid}')` : ''}" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;${hasDetails ? 'cursor:pointer' : ''}">
@@ -174,6 +184,7 @@ function renderCallExpanded(call, uid){
         ${decisionBadgeHtml}
         ${hasDetails ? `<span style="margin-left:auto;font-size:11px;color:var(--blue);font-weight:600"><i class="fas fa-chevron-down" id="${uid}-chevron" style="transition:transform .2s"></i> Размышления</span>` : ''}
       </div>
+      ${recordBlock}
       ${hasDetails ? `<div id="${uid}-details" style="display:none">${details}</div>` : ''}
     </div>`;
 }
@@ -188,3 +199,9 @@ function toggleCallCard(uid){
 }
 
 
+
+// Ссылка на запись для атрибутов src/href: только http(s), кавычки экранированы.
+function safeRecordUrl(url){
+  if(!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return '';
+  return url.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
