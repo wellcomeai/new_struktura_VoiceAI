@@ -359,6 +359,16 @@ v2/v3: звонки, входящие SMS/TG/MAX, отложенные отпр�
 `ChatOrchestrator._persist_telegram_history` перечитывает `history` перед записью, чтобы не
 затереть уведомление, пришедшее во время ответа. Веб-чат (`agent_configs.chat_history`) не трогается.
 
+## Поиск в базе знаний в живом звонке (ветка 2509-agent)
+
+`backend/functions/search_pinecone.py`: Pinecone отдаёт `top_k` ближайших (1–10, по умолчанию 3),
+затем ответ ужимается — `MAX_RESULT_CHARS`=3500 на все фрагменты, `MAX_FRAGMENT_CHARS`=1200 на
+один (раньше общий лимит 1000 — первый фрагмент съедал весь бюджет и модель получала один кусок),
+огрызки короче `MIN_FRAGMENT_CHARS`=200 не кладутся. Фрагменты со score ниже `MIN_SCORE`=0.25
+отбрасываются; если ничего не осталось — `found: false` + `message` (не придумывать ответ).
+В лог пишутся все scores (`[PINECONE] ... scores=[...] below_threshold=N`) — по ним подбирать порог.
+Поиск оркестратора агента (`fn_search_knowledge_base`) этих лимитов не использует.
+
 ## Key API Prefixes
 
 | Prefix | Description |
