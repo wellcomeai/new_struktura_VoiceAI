@@ -211,11 +211,14 @@ NON_PAYABLE_PLANS = {
         "description": "Расширенный пробный период для приглашённых пользователей",
         "is_trial_default": True,
     },
+    # Должно совпадать с сидом в app.py (seed credits data) и AGENT_PLAN_PRICE
+    # в backend/api/credits.py: _sync_plan_row «чинит» строку БД по этой сетке,
+    # и расхождение перезаписывало цену/лимит при назначении тарифа из админки.
     "agent": {
-        "name": "Агент (legacy)",
-        "price": 4990.0,
-        "max_assistants": 10,
-        "description": "Старый тариф автономного агента, оставлен для совместимости",
+        "name": "Voicyfy Agent",
+        "price": 5490.0,
+        "max_assistants": 3,
+        "description": "AI-оркестратор автономных звонков",
         "is_trial_default": False,
     },
 }
