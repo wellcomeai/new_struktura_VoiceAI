@@ -52,21 +52,25 @@ const POSTCALL_TOOL_LABELS = {
   max_send_message: { label: 'Написал клиенту в MAX', icon: 'fa-comment-dots', color: '#6D28D9' },
   max_get_thread: { label: 'Прочитал MAX-переписку', icon: 'fa-comments', color: '#7C3AED' },
   schedule_max_message: { label: 'Запланировал сообщение в MAX', icon: 'fa-calendar-plus', color: '#6D28D9' },
+  schedule_reply_check: { label: 'Поставил проверку ответа', icon: 'fa-hourglass-half', color: '#B45309' },
 };
 
 function renderCallExpanded(call, uid){
   const isSms = call.channel === 'sms';
   const isTg = call.channel === 'telegram';
   const isMax = call.channel === 'max';
-  const isMsg = isSms || isTg || isMax; // текстовое событие (не звонок)
+  const isReplyCheck = call.channel === 'reply_check'; // проверка ответа: клиент промолчал
+  const isMsg = isSms || isTg || isMax || isReplyCheck; // не звонок
   // Запланированная отправка сообщения (schedule_telegram_message/schedule_max_message):
   // инициатива агента, «транскрипт» — инструкция, а не текст клиента.
   const _dir = (call.postcall_log || {}).call_direction;
   const isTgOut = (isTg && _dir === 'telegram_outbound') || (isMax && _dir === 'max_outbound');
   const dur = (!isMsg && call.duration_seconds) ? Math.floor(call.duration_seconds)+'с' : '—';
-  const decisionBadgeHtml = decisionBadge(call.post_call_decision);
+  const decisionBadgeHtml = isReplyCheck ? '' : decisionBadge(call.post_call_decision);
   let statusHtml;
-  if(isTgOut){
+  if(isReplyCheck){
+    statusHtml = '<span class="status-badge badge-no-answer">Клиент молчит</span>';
+  } else if(isTgOut){
     statusHtml = (call.postcall_log || {}).message_sent
       ? '<span class="status-badge badge-answered">Отправлено</span>'
       : '<span class="status-badge badge-no-answer">Без отправки</span>';
@@ -84,6 +88,8 @@ function renderCallExpanded(call, uid){
     ? '<span class="status-badge" style="background:#E0F2FE;color:#0369A1"><i class="fas fa-paper-plane"></i> Telegram</span>'
     : isMax
     ? '<span class="status-badge" style="background:#F5F3FF;color:#6D28D9"><i class="fas fa-comment-dots"></i> MAX</span>'
+    : isReplyCheck
+    ? '<span class="status-badge" style="background:#FEF3C7;color:#B45309"><i class="fas fa-hourglass-half"></i> Проверка ответа</span>'
     : directionBadge(call.direction);
 
   const pre = call.precall_log || {};
@@ -126,7 +132,10 @@ function renderCallExpanded(call, uid){
       detail = (tc.args || {}).query || '';
     } else if(tc.tool === 'telegram_send_message'){
       detail = (tc.args || {}).text || '';
-    } else if(tc.tool === 'schedule_telegram_message'){
+    } else if(tc.tool === 'schedule_reply_check'){
+      const a = tc.args || {};
+      detail = `${a.instruction || a.title || ''} — на ${a.scheduled_at ? fmtDate(a.scheduled_at) : (a.delay_minutes ? 'через ' + a.delay_minutes + ' мин' : '?')}`;
+    } else if(tc.tool === 'schedule_telegram_message' || tc.tool === 'schedule_max_message'){
       const a = tc.args || {};
       detail = `${a.instruction || a.title || ''} — на ${a.scheduled_at ? fmtDate(a.scheduled_at) : (a.delay_minutes ? 'через ' + a.delay_minutes + ' мин' : '?')}`;
     }
@@ -154,7 +163,7 @@ function renderCallExpanded(call, uid){
 
   const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
     <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
-      <i class="fas ${isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : isMax ? 'fa-comment-dots' : 'fa-quote-left'}"></i> ${isSms ? 'Текст входящего SMS' : isTgOut ? 'Инструкция запланированного сообщения' : isTg ? 'Текст входящего сообщения Telegram' : isMax ? 'Текст входящего сообщения MAX' : 'Транскрипт звонка'}
+      <i class="fas ${isReplyCheck ? 'fa-hourglass-half' : isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : isMax ? 'fa-comment-dots' : 'fa-quote-left'}"></i> ${isReplyCheck ? 'Заметка к проверке ответа' : isSms ? 'Текст входящего SMS' : isTgOut ? 'Инструкция запланированного сообщения' : isTg ? 'Текст входящего сообщения Telegram' : isMax ? 'Текст входящего сообщения MAX' : 'Транскрипт звонка'}
     </div>
     <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:0 0 10px;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
       ${esc(call.transcript)}

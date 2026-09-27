@@ -54,6 +54,7 @@ _CHANNEL_LABELS = {
     "sms": "SMS",
     "telegram": "Telegram",
     "max": "MAX",
+    "reply_check": "Проверка ответа",
 }
 
 _DIRECTION_LABELS = {

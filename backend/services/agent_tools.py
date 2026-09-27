@@ -23,6 +23,7 @@ from backend.models.user import User
 from backend.models.agent_connector import AgentConnector
 from backend.services import composio_service
 from backend.services import agent_memory
+from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL
 from backend.services import telegram_user_service
 from backend.services import max_user_service
 from backend.services.telegram_notification import TelegramNotificationService
@@ -357,22 +358,25 @@ async def _augment_with_connectors(base_tools: list, agent_config, db: Session) 
 async def build_chat_tools(agent_config, db: Session) -> list:
     """
     Tools для чата/Telegram оркестратора (Chat Completions формат): базовый
-    AGENT_CHAT_TOOLS + коннекторы Composio + личный Telegram (если подключён).
+    AGENT_CHAT_TOOLS + коннекторы Composio + личный Telegram/MAX (если подключены)
+    + проверка ответа (schedule_reply_check, только v3).
     """
     tools = await _augment_with_connectors(
         to_chat_completions_tools(AGENT_CHAT_TOOLS), agent_config, db
     )
     tools = _augment_with_telegram_account(tools, agent_config, db)
-    return _augment_with_max_account(tools, agent_config, db)
+    tools = _augment_with_max_account(tools, agent_config, db)
+    return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL])
 
 
 async def build_postcall_tools(agent_config, db: Session) -> list:
-    """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы + личный Telegram + личный MAX."""
+    """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы + личный Telegram + личный MAX + проверка ответа."""
     tools = await _augment_with_connectors(
         to_chat_completions_tools(AGENT_POSTCALL_TOOLS), agent_config, db
     )
     tools = _augment_with_telegram_account(tools, agent_config, db)
-    return _augment_with_max_account(tools, agent_config, db)
+    tools = _augment_with_max_account(tools, agent_config, db)
+    return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL])
 
 
 async def fn_execute_connector(tool_name: str, args: dict, agent_config_id: str, db: Session) -> dict:
@@ -748,6 +752,109 @@ MAX_USER_TOOLS = [
     MAX_GET_THREAD_TOOL,
     SCHEDULE_MAX_MESSAGE_TOOL,
 ]
+
+
+# ============================================================================
+# REPLY CHECK — «проверь, ответил ли клиент» (Task.channel="reply_check").
+# Только v3 (OpenRouter): домешивается в build_chat_tools / build_postcall_tools.
+# Исполняет TaskScheduler.execute_agent_reply_check (см. services/agent_reply_check.py).
+# ============================================================================
+
+SCHEDULE_REPLY_CHECK_TOOL = {
+    "type": "function",
+    "name": "schedule_reply_check",
+    "description": (
+        "Поставить ПРОВЕРКУ ОТВЕТА клиента: в назначенное время система посмотрит, "
+        "выходил ли клиент на связь после постановки задачи (написал в Telegram/MAX, "
+        "прислал SMS, позвонил или взял трубку). Ответил — проверка закроется сама, "
+        "ничего делать не нужно. Промолчал — тебя разбудят, и ты сам решишь по своим "
+        "правилам, что делать дальше (позвонить, написать в другой канал, напомнить, "
+        "сменить стадию, сообщить владельцу или ничего). Ставь после того, как написал "
+        "или отправил что-то клиенту и ждёшь реакции. Время — delay_minutes (через "
+        "N минут/часов) или scheduled_at (абсолютное). Рабочие часы не применяются."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
+            "delay_minutes": {
+                "type": "integer",
+                "description": (
+                    "Через сколько минут проверить. Сервер сам вычислит точное время — "
+                    "ВСЕГДА используй этот параметр для «через N минут/часов/дней»."
+                ),
+            },
+            "scheduled_at": {
+                "type": "string",
+                "description": "Абсолютное время проверки ISO 8601 UTC (например 2026-07-09T12:00:00Z)",
+            },
+            "title": {"type": "string", "description": "Короткое название (видно владельцу в календаре)"},
+            "instruction": {
+                "type": "string",
+                "description": (
+                    "Какого ответа ждём и что планировали сделать, если клиент промолчит — "
+                    "подсказка тебе на момент проверки (например: «ждём ответ на КП, если "
+                    "молчит — позвонить»)."
+                ),
+            },
+        },
+        "required": ["agent_contact_id", "instruction"],
+    },
+}
+
+
+async def fn_schedule_reply_check(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """
+    Поставить проверку ответа: создаёт Task(channel="reply_check"). Момент
+    «после которого ждём ответ» — created_at задачи; инструкция хранится в
+    description и попадёт в прогон оркестратора, если клиент промолчит.
+    """
+    instruction = (args.get("instruction") or "").strip()
+    if not instruction:
+        return {"ok": False, "error": "Пустая инструкция — опиши, какого ответа ждём и что делать при молчании"}
+    if args.get("delay_minutes") is None and not args.get("scheduled_at"):
+        return {"ok": False, "error": "Укажи время проверки: delay_minutes или scheduled_at"}
+
+    # У контакта держим одну ожидающую проверку: новая (ждём реакцию на
+    # последнее касание) заменяет прежние, иначе агент проснётся несколько раз
+    # по одному и тому же молчанию.
+    replaced = 0
+    agent_contact_id = args.get("agent_contact_id")
+    if agent_contact_id:
+        try:
+            replaced = db.query(Task).filter(
+                Task.agent_contact_id == agent_contact_id,
+                Task.user_id == user_id,
+                Task.is_agent_task == True,
+                Task.channel == REPLY_CHECK_CHANNEL,
+                Task.status == TaskStatus.SCHEDULED,
+            ).update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
+        except Exception as e:
+            logger.warning(f"[AGENT-TOOLS] replace reply checks failed: {e}")
+            safe_rollback(db)
+            replaced = 0
+
+    task_args = {
+        "agent_contact_id": agent_contact_id,
+        "scheduled_at": args.get("scheduled_at"),
+        "delay_minutes": args.get("delay_minutes"),
+        "title": args.get("title"),
+        "notes": instruction,
+    }
+    result = await fn_create_agent_task(
+        task_args, user_id, agent_config_id, db, channel=REPLY_CHECK_CHANNEL
+    )
+    if not result.get("ok"):
+        safe_rollback(db)  # контакт не найден — прежние проверки не трогаем
+        return result
+    if replaced:
+        result["replaced_previous_checks"] = replaced
+    if result.get("ok"):
+        result["note"] = (
+            "Проверка поставлена. Если клиент ответит раньше — она закроется сама; "
+            "если промолчит — тебя разбудят в назначенное время."
+        )
+    return result
 
 
 def _augment_with_max_account(base_tools: list, agent_config, db: Session) -> list:
@@ -1561,8 +1668,11 @@ AGENT_CHAT_TOOLS = [
             "properties": {
                 "filter": BULK_FILTER_SCHEMA,
                 "channel": {
-                    "type": "string", "enum": ["call", "telegram", "max", "all"],
-                    "description": "Какие задачи отменить: call — звонки (по умолчанию), telegram/max — сообщения, all — все",
+                    "type": "string", "enum": ["call", "telegram", "max", "reply_check", "all"],
+                    "description": (
+                        "Какие задачи отменить: call — звонки (по умолчанию), telegram/max — сообщения, "
+                        "reply_check — проверки ответа, all — все"
+                    ),
                 },
                 **BULK_COMMON_PROPERTIES,
             },
@@ -1761,6 +1871,7 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     is_telegram = channel == "telegram"
     is_max = channel == "max"
     is_messenger = is_telegram or is_max  # отложенное сообщение, не звонок
+    is_reply_check = channel == REPLY_CHECK_CHANNEL  # проверка ответа, не звонок
     agent_contact_id = args["agent_contact_id"]
 
     # Изоляция агентов: задачу можно ставить только своему контакту.
@@ -1811,8 +1922,9 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
 
     # Унифицированная проверка рабочих часов агента (МСК) — переносим звонок
     # на ближайший рабочий день, если время выпадает на нерабочие часы.
-    # Сообщения мессенджеров (Telegram/MAX) рабочими часами не ограничены.
-    if agent_config is not None and not is_messenger:
+    # Сообщения мессенджеров (Telegram/MAX) и проверка ответа рабочими часами
+    # не ограничены (звонок по итогам проверки сам сдвинется в рабочие часы).
+    if agent_config is not None and not is_messenger and not is_reply_check:
         adjusted, _shifted = adjust_to_working_hours(
             scheduled_at,
             agent_config.working_hours_start,
@@ -1852,6 +1964,7 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
         status=TaskStatus.SCHEDULED,
         scheduled_time=scheduled_at,
         title=args.get("title") or (
+            "Проверка ответа" if is_reply_check else
             "Сообщение в MAX" if is_max else
             "Сообщение в Telegram" if is_telegram else
             "Звонок агента"
@@ -2623,13 +2736,13 @@ async def fn_update_agent_task(args: dict, user_id: str, agent_config_id: str, d
         if not new_dt:
             return {"ok": False, "error": "invalid_scheduled_at"}
         # Привести к рабочим часам агента (как при создании задачи).
-        # Telegram-задачи рабочими часами не ограничены.
+        # Сообщения и проверки ответа рабочими часами не ограничены.
         agent_config = None
         if task.agent_contact_id:
             contact = db.query(AgentContact).filter(AgentContact.id == task.agent_contact_id).first()
             if contact and contact.agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == contact.agent_config_id).first()
-        if agent_config is not None and (task.channel or "call") != "telegram":
+        if agent_config is not None and (task.channel or "call") == "call":
             new_dt, _shifted = adjust_to_working_hours(
                 new_dt, agent_config.working_hours_start, agent_config.working_hours_end
             )
@@ -3241,6 +3354,7 @@ _TOOL_MAP = {
     "max_send_message": "fn_max_send_message",
     "max_get_thread": "fn_max_get_thread",
     "schedule_max_message": "fn_schedule_max_message",
+    "schedule_reply_check": "fn_schedule_reply_check",
 }
 
 
@@ -3353,6 +3467,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             if agent_config is None and agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
             result = await fn_schedule_max_message(tool_args, user_id, agent_config, db)
+        elif tool_name == "schedule_reply_check":
+            result = await fn_schedule_reply_check(tool_args, user_id, agent_config_id, db)
         elif composio_service.is_composio_tool(tool_name):
             result = await fn_execute_connector(tool_name, tool_args, agent_config_id, db)
         else:

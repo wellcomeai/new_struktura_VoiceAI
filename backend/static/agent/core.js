@@ -113,15 +113,18 @@ function errText(detail){
   }
   return 'Ошибка: '+(detail||'не удалось выполнить запрос');
 }
-function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил' })[d] || d || '—'; }
+function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил', REPLIED:'Клиент ответил' })[d] || d || '—'; }
 function decisionBadge(d){ const cls={ FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer' }; return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`; }
-// Канал агентской задачи: call (звонок, дефолт) / telegram (отложенное сообщение).
+// Канал агентской задачи: call (звонок, дефолт) / telegram, max (отложенное сообщение) /
+// reply_check (проверка ответа клиента).
 // Для звонков бейдж не рисуем — это основной тип, шум не нужен.
 function taskChannelBadge(channel){
   if(channel === 'telegram')
     return '<span class="status-badge" style="background:#E0F2FE;color:#0369A1;font-size:10px;padding:2px 7px"><i class="fas fa-paper-plane"></i> Telegram</span>';
   if(channel === 'max')
     return '<span class="status-badge" style="background:#F5F3FF;color:#6D28D9;font-size:10px;padding:2px 7px"><i class="fas fa-comment-dots"></i> MAX</span>';
+  if(channel === 'reply_check')
+    return '<span class="status-badge" style="background:#FEF3C7;color:#B45309;font-size:10px;padding:2px 7px"><i class="fas fa-hourglass-half"></i> Проверка ответа</span>';
   return '';
 }
 // ── Цена моделей оркестратора ───────────────────────────────────────────────

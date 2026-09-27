@@ -37,6 +37,7 @@ from backend.services.agent_tools import (
     build_chat_tools,
     build_postcall_tools,
 )
+from backend.services.agent_reply_check import cancel_pending_reply_checks
 from backend.services.agent_prompts import build_orchestrator_prompt, build_time_block, build_agent_memory_block
 from backend.services.openrouter_client import get_openrouter_client
 from backend.core.pipeline_stages import stage_from_decision
@@ -937,8 +938,21 @@ class PostCallOrchestrator:
         is_max = (call_direction or "").lower() == "max_inbound"
         is_max_out = (call_direction or "").lower() == "max_outbound"
         is_inbound = (call_direction or "outbound").lower() == "inbound"
+        is_reply_check = (call_direction or "").lower() == "reply_check"
 
-        if is_max_out:
+        if is_reply_check:
+            direction_line = (
+                "СОБЫТИЕ: ПРОВЕРКА ОТВЕТА — наступило время проверки, которую ты "
+                "поставил раньше (schedule_reply_check). Система проверила все каналы: "
+                "с момента постановки проверки клиент НЕ выходил на связь — не писал в "
+                "Telegram/MAX, не присылал SMS, не звонил и не брал трубку. Это не "
+                "звонок и не входящее сообщение: инициатива за тобой."
+            )
+            callback_rule = ""
+            transcript_label = "ЗАМЕТКА К ПРОВЕРКЕ (какого ответа ждали и что планировали при молчании)"
+            status_label = "СТАТУС"
+            analyze_line = ""
+        elif is_max_out:
             direction_line = (
                 "СОБЫТИЕ: ЗАПЛАНИРОВАННАЯ ОТПРАВКА СООБЩЕНИЯ В MAX (личный "
                 "аккаунт владельца) — наступило время написать клиенту. Это не "
@@ -1034,10 +1048,30 @@ class PostCallOrchestrator:
                 "   - Отложенное сообщение в Telegram → schedule_telegram_message\n"
                 "     (если доступен): когда договорились списаться, нужно прислать\n"
                 "     детали/напоминание текстом или звонок явно неуместен. Передавай\n"
-                "     инструкцию «что написать», а не готовый текст."
+                "     инструкцию «что написать», а не готовый текст.\n"
+                "   - Написал клиенту и ждёшь реакции → можно поставить (если доступен)\n"
+                "     schedule_reply_check: ответит — проверка закроется сама,\n"
+                "     промолчит — тебя разбудят решить, что делать."
             )
 
-        if is_tg_out or is_max_out:
+        if is_reply_check:
+            action_block = """Клиент молчит. Реши сам, что делать дальше, — по своим инструкциям
+(системный промпт владельца и блок «ПАМЯТЬ АГЕНТА» обязательны), памяти о
+контакте и хронологии выше. Заметка к проверке — твой прошлый план, не приказ:
+если по свежему контексту он устарел, действуй по ситуации.
+Варианты (выбери подходящий или ничего):
+- позвонить → create_agent_task (сдвинется в рабочие часы сам);
+- написать сейчас → telegram_send_message / max_send_message / send_sms
+  (что доступно; можно выбрать другой канал, чем в прошлый раз);
+- написать позже → schedule_telegram_message / schedule_max_message;
+- подождать ещё → снова schedule_reply_check на более поздний срок;
+- сменить стадию → move_contact_stage (только при реальном основании, например
+  долгое молчание после нескольких касаний по правилам владельца);
+- сообщить владельцу → send_telegram_notification.
+Не дави на клиента: учти, сколько касаний уже было подряд без ответа.
+ОБЯЗАТЕЛЬНО вызови update_contact_memory — зафиксируй, что клиент молчит и что
+ты решил сделать (или почему ничего не делаешь)."""
+        elif is_tg_out or is_max_out:
             _send_tool = "max_send_message" if is_max_out else "telegram_send_message"
             _sched_tool = "schedule_max_message" if is_max_out else "schedule_telegram_message"
             _channel = "MAX" if is_max_out else "Telegram"
@@ -1053,7 +1087,8 @@ class PostCallOrchestrator:
    почему не стал) и текущее состояние договорённости.
 4. Смени стадию через move_contact_stage ТОЛЬКО если есть реальное основание.
 5. Если нужен следующий шаг — запланируй его: звонок через create_agent_task
-   или ещё одно отложенное сообщение через {_sched_tool}.
+   или ещё одно отложенное сообщение через {_sched_tool}. Если отправил и ждёшь
+   реакции — можно поставить schedule_reply_check: при молчании тебя разбудят.
 6. Если владельцу важно узнать результат — send_telegram_notification."""
         else:
             action_block = f"""{analyze_line}
@@ -1208,6 +1243,36 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             call_direction="telegram_outbound",
         )
 
+    async def run_for_reply_check(self, agent_call, agent_contact, agent_config, user, task, db):
+        """
+        Исполнить проверку ответа (Task.channel="reply_check", тулза
+        schedule_reply_check), когда планировщик уже убедился, что клиент
+        молчит (agent_reply_check.client_reply_since вернул None). Один
+        проактивный прогон PostCall-логики: что делать дальше, агент решает сам
+        по своему промпту. Только v3 (OpenRouter).
+        """
+        from backend.core.timezone_utils import utc_to_msk
+        since = task.created_at
+        if since is not None and since.tzinfo is not None:
+            since = since.replace(tzinfo=None)
+        since_line = (
+            f"Проверка поставлена: {utc_to_msk(since).strftime('%d.%m.%Y %H:%M')} МСК — "
+            f"с этого момента ответа нет.\n"
+        ) if since else ""
+        note = (task.description or "").strip() or (task.title or "").strip()
+        await self._analyze_v3_openrouter(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=task,
+            transcript=since_line + note,
+            call_status="no_reply",
+            duration_seconds=0,
+            db=db,
+            call_direction="reply_check",
+        )
+
     async def _analyze(
         self,
         agent_call: AgentCall,
@@ -1271,7 +1336,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         # блок стратегии не добавляем.
         if (call_direction or "").lower() not in (
             "sms_inbound", "telegram_inbound", "telegram_outbound",
-            "max_inbound", "max_outbound",
+            "max_inbound", "max_outbound", "reply_check",
         ):
             post_call_input += f"""
 
@@ -1300,6 +1365,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         # не попытка дозвона — счётчик попыток и авто-маппинг стадии не применяем,
         # в UI отмечаем факт отправки (message_sent).
         is_tg_out = (call_direction or "").lower() in ("telegram_outbound", "max_outbound")
+        # Проверка ответа — тоже не попытка дозвона (как и запланированная
+        # отправка): счётчик попыток и авто-маппинг стадии не применяем.
+        is_reply_check = (call_direction or "").lower() == "reply_check"
+        is_proactive = is_tg_out or is_reply_check
 
         try:
             client = get_openrouter_client()
@@ -1359,7 +1428,10 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
 
                     # schedule_telegram_message / schedule_max_message — тоже
                     # follow-up задача (channel=telegram / channel=max)
-                    if tool_name in ("create_agent_task", "schedule_telegram_message", "schedule_max_message"):
+                    if tool_name in (
+                        "create_agent_task", "schedule_telegram_message",
+                        "schedule_max_message", "schedule_reply_check",
+                    ):
                         try:
                             result_data = json.loads(result_str)
                             if result_data.get("ok") and result_data.get("task_id"):
@@ -1368,7 +1440,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                         except Exception:
                             pass
 
-                    if tool_name in ("telegram_send_message", "max_send_message"):
+                    if tool_name in ("telegram_send_message", "max_send_message", "send_sms"):
                         try:
                             if json.loads(result_str).get("ok"):
                                 message_sent = True
@@ -1389,7 +1461,11 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                     })
 
             # Determine final decision (SUCCESS / NO_ANSWER / FOLLOWUP only)
-            if call_status == "answered":
+            if is_reply_check:
+                # Клиент молчит: FOLLOWUP, если агент запланировал следующий шаг
+                # или написал клиенту, иначе NO_ANSWER («не ответил»).
+                post_call_decision = "FOLLOWUP" if (created_task or message_sent) else "NO_ANSWER"
+            elif call_status == "answered":
                 post_call_decision = "FOLLOWUP" if created_task else "SUCCESS"
             else:
                 post_call_decision = "NO_ANSWER"
@@ -1411,7 +1487,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "transcript_length": len(transcript),
                 "analyzed_at": datetime.utcnow().isoformat(),
             }
-            if is_tg_out:
+            if is_proactive:
                 # Для UI: было ли сообщение реально отправлено (оркестратор мог
                 # осознанно не отправлять, если договорённость уже закрыта).
                 agent_call.postcall_log["message_sent"] = message_sent
@@ -1419,7 +1495,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             # Запланированная отправка в Telegram — не попытка дозвона: счётчик
             # попыток и авто-маппинг стадии (SUCCESS → success) к ней не применяем.
             # Стадию при отправке сообщения меняет только явный move_contact_stage.
-            if not is_tg_out:
+            if not is_proactive:
                 agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
                 agent_contact.last_called_at = datetime.utcnow()
                 # Обязательная стадия воронки: если оркестратор не двинул контакт
@@ -1454,12 +1530,12 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             agent_call.completed_at = datetime.utcnow()
             agent_call.transcript = transcript
             agent_call.duration_seconds = int(duration_seconds)
-            if not is_tg_out:
+            if not is_proactive:
                 agent_contact.attempts_count = (agent_contact.attempts_count or 0) + 1
                 agent_contact.last_called_at = datetime.utcnow()
             # Стадия воронки по решению — только если есть основание её менять
-            # (для telegram_outbound авто-маппинг не применяем, см. выше).
-            _new_stage = None if is_tg_out else stage_from_decision(agent_call.post_call_decision, agent_contact.status)
+            # (для telegram_outbound и reply_check авто-маппинг не применяем, см. выше).
+            _new_stage = None if is_proactive else stage_from_decision(agent_call.post_call_decision, agent_contact.status)
             if _new_stage:
                 agent_contact.status = _new_stage
             if task:
@@ -2812,6 +2888,8 @@ async def handle_inbound_sms(sms_message_id: str):
         )
         db.add(inbound_call)
         db.commit()
+        # Клиент вышел на связь — ожидающие проверки ответа больше не нужны.
+        cancel_pending_reply_checks(db, contact.id, reason="inbound_sms")
 
         logger.info(
             f"[AGENT-SMS] Inbound SMS {sms.id}: from={sms.from_number} -> agent {agent.id}, "
@@ -2891,6 +2969,8 @@ async def handle_inbound_telegram(account_id: str, agent_contact_id: str, messag
         )
         db.add(inbound_call)
         db.commit()
+        # Клиент вышел на связь — ожидающие проверки ответа больше не нужны.
+        cancel_pending_reply_checks(db, contact.id, reason="inbound_telegram")
 
         logger.info(
             f"[AGENT-TG-USER] Inbound TG message -> agent {agent.id}, "
@@ -2972,6 +3052,8 @@ async def handle_inbound_max(account_id: str, agent_contact_id: str, message_bod
         )
         db.add(inbound_call)
         db.commit()
+        # Клиент вышел на связь — ожидающие проверки ответа больше не нужны.
+        cancel_pending_reply_checks(db, contact.id, reason="inbound_max")
 
         logger.info(
             f"[AGENT-MAX-USER] Inbound MAX message -> agent {agent.id}, "

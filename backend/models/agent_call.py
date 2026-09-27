@@ -101,7 +101,8 @@ class AgentCall(Base):
 
     def _resolve_channel(self):
         """
-        Канал события для UI: "sms", "telegram", "max" или "call".
+        Канал события для UI: "sms", "telegram", "max", "reply_check"
+        (проверка ответа клиента) или "call".
 
         Новые записи помечаются через postcall_log.call_direction ("sms_inbound"
         / "telegram_inbound" / "telegram_outbound" / "max_inbound" /
@@ -117,6 +118,8 @@ class AgentCall(Base):
                 return "telegram"
             if post.get("call_direction") in ("max_inbound", "max_outbound"):
                 return "max"
+            if post.get("call_direction") == "reply_check":
+                return "reply_check"
         if self.transcript:
             t = self.transcript.strip()
             if t.startswith("Клиент прислал SMS"):

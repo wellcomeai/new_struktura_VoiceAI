@@ -36,6 +36,7 @@ from backend.models.agent_contact import AgentContact
 from backend.models.agent_call import AgentCall
 from backend.services.voximplant_partner import get_voximplant_partner_service
 from backend.services.agent_orchestrator import PreCallOrchestrator, PostCallOrchestrator
+from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL, client_reply_since
 
 logger = get_logger(__name__)
 
@@ -316,6 +317,11 @@ class TaskScheduler:
                 await self.execute_agent_messenger_task(task.channel, task, agent_contact, agent_config, user, db)
                 return
 
+            # Проверка ответа клиента (schedule_reply_check): не звонок.
+            if (task.channel or "call") == REPLY_CHECK_CHANNEL:
+                await self.execute_agent_reply_check(task, agent_contact, agent_config, user, db)
+                return
+
             # Get assistant info
             assistant_id, assistant_name, assistant_type = self._get_assistant_info(task, db)
             if not assistant_id or not assistant_type:
@@ -419,6 +425,88 @@ class TaskScheduler:
             try:
                 task.status = TaskStatus.FAILED
                 task.call_result = f"Internal error: {str(e)}"
+                db.commit()
+            except Exception:
+                pass
+
+    async def execute_agent_reply_check(self, task: Task, agent_contact, agent_config, user, db: Session):
+        """
+        Исполнить проверку ответа (channel="reply_check").
+
+        Сначала без LLM смотрим, выходил ли клиент на связь после постановки
+        задачи (client_reply_since). Ответил → задача COMPLETED (REPLIED),
+        оркестратор не запускаем: на сам ответ агент уже среагировал входящим
+        прогоном. Молчит → AgentCall + один прогон оркестратора
+        (PostCallOrchestrator.run_for_reply_check), дальше агент решает сам.
+
+        Вызывается из execute_agent_task ПОСЛЕ общих проверок; задача уже PENDING.
+        """
+        agent_call = None
+        try:
+            reply = client_reply_since(db, agent_contact, task.created_at)
+            if reply:
+                task.status = TaskStatus.COMPLETED
+                task.post_call_decision = "REPLIED"
+                task.call_result = json.dumps({"replied": True, **reply}, ensure_ascii=False)
+                task.call_completed_at = datetime.utcnow()
+                db.commit()
+                logger.info(
+                    f"[TASK-SCHEDULER] 🔎 Reply check {task.id}: client replied via {reply['channel']}, nothing to do"
+                )
+                return
+
+            # «Не звонить» — клиента больше не трогаем, прогон не нужен.
+            if (agent_contact.status or "") == "do_not_call":
+                task.status = TaskStatus.COMPLETED
+                task.post_call_decision = "NO_ANSWER"
+                task.call_result = json.dumps({"replied": False, "skipped": "do_not_call"}, ensure_ascii=False)
+                task.call_completed_at = datetime.utcnow()
+                db.commit()
+                logger.info(f"[TASK-SCHEDULER] 🔎 Reply check {task.id}: contact is do_not_call, skipped")
+                return
+
+            # Прогон реализован только для v3-агентов (OpenRouter): тулза
+            # schedule_reply_check домешивается только им.
+            if not getattr(agent_config, "uses_hardcoded_prompt", False):
+                task.status = TaskStatus.FAILED
+                task.call_result = json.dumps({"error": "reply_check_requires_v3_agent"}, ensure_ascii=False)
+                task.call_completed_at = datetime.utcnow()
+                db.commit()
+                logger.warning(f"[TASK-SCHEDULER] 🔎 Reply check {task.id} failed: agent is not v3")
+                return
+
+            # Запись в истории агента; канал события — postcall_log.call_direction="reply_check".
+            agent_call = AgentCall(
+                agent_contact_id=agent_contact.id,
+                agent_config_id=agent_config.id,
+                user_id=user.id,
+                source_task_id=task.id,
+                status="calling",
+                direction="outbound",
+                scheduled_at=task.scheduled_time,
+                started_at=datetime.utcnow(),
+            )
+            db.add(agent_call)
+            db.flush()
+            task.agent_call_id = agent_call.id
+            db.commit()
+
+            await PostCallOrchestrator().run_for_reply_check(
+                agent_call, agent_contact, agent_config, user, task, db
+            )
+            task.call_completed_at = datetime.utcnow()
+            db.commit()
+            logger.info(f"[TASK-SCHEDULER] 🔎 Reply check {task.id}: client silent, agent run completed")
+
+        except Exception as e:
+            logger.error(f"[TASK-SCHEDULER] Error in reply check {task.id}: {e}", exc_info=True)
+            safe_rollback(db)
+            try:
+                task.status = TaskStatus.FAILED
+                task.call_result = f"Internal error: {str(e)}"
+                if agent_call is not None and agent_call.status == "calling":
+                    agent_call.status = "failed"
+                    agent_call.completed_at = datetime.utcnow()
                 db.commit()
             except Exception:
                 pass

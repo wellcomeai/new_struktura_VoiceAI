@@ -326,6 +326,20 @@ stage `active` включает легаси-статусы). Модели за�
   отменяет запланированные задачи), `bulk_cancel_calls` (статус cancelled, `channel`).
   Пустой фильтр запрещён. Ответы короткие: числа + первые 20 задач.
 
+## Проверка ответа клиента (ветка 2709-skills)
+
+Тулза `schedule_reply_check` (только v3, домешивается в `build_chat_tools` /
+`build_postcall_tools`) ставит `Task(channel="reply_check")`: «через N проверь, ответил ли
+клиент». У контакта одна ожидающая проверка — новая отменяет прежние. Логика в
+`backend/services/agent_reply_check.py`: `client_reply_since` без LLM смотрит входящие
+Telegram/MAX/SMS, входящий или состоявшийся (answered) звонок после `task.created_at`.
+Планировщик (`TaskScheduler.execute_agent_reply_check`): ответил → задача `COMPLETED`,
+`post_call_decision="REPLIED"`, модель не запускается; молчит → `AgentCall` +
+`PostCallOrchestrator.run_for_reply_check` (`call_direction="reply_check"`), дальше агент
+решает сам по своему промпту; попытки и авто-стадия не трогаются; `do_not_call` пропускается.
+Входящие Telegram/MAX/SMS сразу закрывают ожидающие проверки (`cancel_pending_reply_checks`
+в `handle_inbound_*`). В UI канал `reply_check` — бейдж «Проверка ответа» (`core.js`, `calls.js`).
+
 ## Key API Prefixes
 
 | Prefix | Description |
