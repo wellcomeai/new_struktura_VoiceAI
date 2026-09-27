@@ -340,6 +340,33 @@ Telegram/MAX/SMS, входящий или состоявшийся (answered) з
 Входящие Telegram/MAX/SMS сразу закрывают ожидающие проверки (`cancel_pending_reply_checks`
 в `handle_inbound_*`). В UI канал `reply_check` — бейдж «Проверка ответа» (`core.js`, `calls.js`).
 
+## Файлы агента: PDF и таблицы (ветка 2709-skills)
+
+Тулзы v3 (домешиваются в `build_chat_tools` / `build_postcall_tools`, `export_contacts_table`
+только в чат): `create_pdf_document` (простая разметка `#`, `-`, `1.`, `| таблица |`, `**жирный**`
+→ PDF через reportlab, кириллица — шрифт DejaVu из `backend/assets/fonts`, системных шрифтов на
+Render нет), `create_spreadsheet` (листы `{name, columns, rows}` → xlsx; строка с `=` пишется
+текстом, не формулой), `export_contacts_table` (фильтр как у `search_contacts` →
+`generate_contacts_export_xlsx(contact_ids=…)`, до 10 000 контактов, сборка в потоке),
+`get_agent_files`. Логика — `backend/services/agent_files.py`, таблица `agent_files` (байты в
+Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`). Публичная ссылка с
+секретным токеном: `GET /api/agent-files/{id}/{token}/{filename}` (`backend/api/agent_files.py`).
+`telegram_send_message`, `max_send_message` (через `pymax.File`) и `send_telegram_notification`
+(бот, `sendDocument`) принимают `file_id` и шлют файл вложением; в тред пишется пометка `[📎 имя]`.
+
+## Массовая рассылка в мессенджерах и фильтр «молчит» (ветка 2709-skills)
+
+- Фильтр контактов `no_reply_days=N`: агент выходил на связь (исходящий звонок, кроме
+  проверок ответа, или исходящее сообщение Telegram/MAX) N+ дней назад, а клиент за последние
+  N дней не ответил (нет входящего события `AgentCall.direction="inbound"`, состоявшегося
+  исходящего звонка, входящих в тредах Telegram/MAX). Прогоны отправки сообщений (`answered`
+  с `call_direction=telegram_outbound/max_outbound`) ответом не считаются.
+- `bulk_schedule_messages` (только чат и только при подключённом Telegram или MAX): по фильтру
+  ставит `Task(channel=telegram|max)` каждому контакту с инструкцией в `description`, до 200 за
+  вызов, `do_not_call` пропускает, дубли в том же канале по умолчанию пропускает. Интервал не
+  меньше 12 мин, если есть контакты без переписки (лимит 5 новых диалогов в час), иначе не
+  меньше 2 мин.
+
 ## Key API Prefixes
 
 | Prefix | Description |

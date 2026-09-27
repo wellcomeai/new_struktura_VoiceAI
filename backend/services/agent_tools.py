@@ -369,6 +369,7 @@ async def build_chat_tools(agent_config, db: Session) -> list:
     )
     tools = _augment_with_telegram_account(tools, agent_config, db)
     tools = _augment_with_max_account(tools, agent_config, db)
+    tools = _augment_with_bulk_messages(tools, agent_config, db)
     return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL, *FILE_CHAT_TOOLS])
 
 
@@ -500,6 +501,21 @@ def _augment_with_telegram_account(base_tools: list, agent_config, db: Session) 
         logger.warning(f"[AGENT-TOOLS] telegram account lookup failed: {e}")
         return base_tools
     return base_tools + to_chat_completions_tools(TELEGRAM_USER_TOOLS)
+
+
+def _augment_with_bulk_messages(tools: list, agent_config, db: Session) -> list:
+    """bulk_schedule_messages — только в чат и только если подключён Telegram или MAX."""
+    try:
+        connected = agent_config is not None and (
+            telegram_user_service.account_connected(db, agent_config.id)
+            or max_user_service.account_connected(db, agent_config.id)
+        )
+    except Exception as e:
+        logger.warning(f"[AGENT-TOOLS] messenger account lookup failed: {e}")
+        connected = False
+    if not connected:
+        return tools
+    return tools + to_chat_completions_tools([BULK_SCHEDULE_MESSAGES_TOOL])
 
 
 async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: Session) -> dict:
@@ -1082,6 +1098,14 @@ CONTACT_FILTER_PROPERTIES = {
     "created_before": {"type": "string", "description": "Добавлен в базу раньше (ISO 8601, UTC)"},
     "has_scheduled_call": {"type": "boolean", "description": "true — только те, у кого уже есть запланированный звонок"},
     "no_scheduled_call": {"type": "boolean", "description": "true — только те, у кого запланированного звонка нет"},
+    "no_reply_days": {
+        "type": "integer",
+        "description": (
+            "Клиент молчит N+ дней, N ≥ 1: агент выходил на связь (звонок или сообщение) N и более "
+            "дней назад, а клиент за последние N дней ни разу не ответил — не писал в Telegram/MAX/SMS, "
+            "не звонил и не брал трубку"
+        ),
+    },
 }
 
 # Значения query, которые модели передают в смысле «все» — это не поиск.
@@ -1103,7 +1127,7 @@ def _normalize_contact_filter(f: dict) -> dict:
             value = str(value).strip()
             if not value or value.lower() in _QUERY_WILDCARDS:
                 continue
-        elif key in ("attempts_min", "attempts_max", "not_called_days", "called_within_days"):
+        elif key in ("attempts_min", "attempts_max", "not_called_days", "called_within_days", "no_reply_days"):
             n = _as_int(value)
             if n is None or n <= 0:
                 continue
@@ -1171,6 +1195,69 @@ def _scheduled_call_exists():
         Task.status == TaskStatus.SCHEDULED,
         Task.channel == "call",
     ))
+
+
+def _call_direction_sql():
+    """postcall_log->>'call_direction' (канал события AgentCall), '' если нет."""
+    return func.coalesce(AgentCall.postcall_log["call_direction"].astext, "")
+
+
+def _touched_before(cutoff):
+    """Агент выходил на связь с контактом не позже cutoff (звонок или сообщение)."""
+    from backend.models.agent_telegram_account import AgentTelegramMessage
+    from backend.models.agent_max_account import AgentMaxMessage
+    return or_(
+        exists().where(and_(
+            AgentCall.agent_contact_id == AgentContact.id,
+            AgentCall.direction == "outbound",
+            AgentCall.created_at <= cutoff,
+            _call_direction_sql() != "reply_check",
+        )),
+        exists().where(and_(
+            AgentTelegramMessage.agent_contact_id == AgentContact.id,
+            AgentTelegramMessage.direction == "outbound",
+            AgentTelegramMessage.created_at <= cutoff,
+        )),
+        exists().where(and_(
+            AgentMaxMessage.agent_contact_id == AgentContact.id,
+            AgentMaxMessage.direction == "outbound",
+            AgentMaxMessage.created_at <= cutoff,
+        )),
+    )
+
+
+def _replied_since(cutoff):
+    """
+    Клиент выходил на связь после cutoff: любое входящее событие агента
+    (звонок, SMS, Telegram, MAX — у всех AgentCall.direction="inbound"),
+    состоявшийся исходящий звонок или входящее сообщение в тредах мессенджеров
+    (на случай, если агент был выключен и событие не создалось).
+    """
+    from backend.models.agent_telegram_account import AgentTelegramMessage
+    from backend.models.agent_max_account import AgentMaxMessage
+    return or_(
+        exists().where(and_(
+            AgentCall.agent_contact_id == AgentContact.id,
+            AgentCall.created_at >= cutoff,
+            or_(
+                AgentCall.direction == "inbound",
+                and_(
+                    AgentCall.status == "answered",
+                    _call_direction_sql().in_(["", "outbound"]),
+                ),
+            ),
+        )),
+        exists().where(and_(
+            AgentTelegramMessage.agent_contact_id == AgentContact.id,
+            AgentTelegramMessage.direction == "inbound",
+            AgentTelegramMessage.created_at >= cutoff,
+        )),
+        exists().where(and_(
+            AgentMaxMessage.agent_contact_id == AgentContact.id,
+            AgentMaxMessage.direction == "inbound",
+            AgentMaxMessage.created_at >= cutoff,
+        )),
+    )
 
 
 def _contact_filter_query(db: Session, user_id: str, agent_config_id: str, f: dict):
@@ -1247,6 +1334,11 @@ def _contact_filter_query(db: Session, user_id: str, agent_config_id: str, f: di
             if not dt:
                 return None, f"invalid_{key}"
             q = q.filter(AgentContact.created_at >= dt if op == "ge" else AgentContact.created_at < dt)
+
+    no_reply_days = _as_int(f.get("no_reply_days"))
+    if no_reply_days is not None and no_reply_days > 0:
+        cutoff = now - timedelta(days=no_reply_days)
+        q = q.filter(_touched_before(cutoff), ~_replied_since(cutoff))
 
     if f.get("has_scheduled_call") is True:
         q = q.filter(_scheduled_call_exists())
@@ -1559,6 +1651,194 @@ async def fn_get_agent_files(args: dict, user_id: str, agent_config_id: str, db:
         "ok": True,
         "files": [{**f.to_dict(), "url": agent_files.public_url(f)} for f in rows],
     }
+
+
+# ============================================================================
+# BULK MESSAGES — массовая рассылка в Telegram/MAX с личного аккаунта владельца.
+# Создаёт по Task(channel=telegram|max) на контакт: каждое сообщение составит
+# оркестратор в момент отправки по инструкции (как schedule_*_message).
+# ============================================================================
+
+MESSENGER_BULK_MAX = 200
+# Новые диалоги по номеру: не больше 5 в час на аккаунт (TG/MAX_PHONE_RESOLVE_HOURLY_LIMIT),
+# поэтому контактам без переписки пишем не чаще раза в 12 минут.
+MESSENGER_COLD_INTERVAL_MIN = 12
+MESSENGER_WARM_INTERVAL_MIN = 2
+
+BULK_SCHEDULE_MESSAGES_TOOL = {
+    "type": "function",
+    "name": "bulk_schedule_messages",
+    "description": (
+        "Запланировать сообщения группе контактов в Telegram или MAX (личный аккаунт владельца) "
+        "по фильтру filter, как у search_contacts: «напиши всем, кто молчит неделю» → "
+        "filter={no_reply_days:7}. Передавай ИНСТРУКЦИЮ (цель и тезисы), а не готовый текст: "
+        "каждому клиенту сообщение составится отдельно в момент отправки с учётом его памяти "
+        "и переписки (это отдельный прогон модели на каждого — стоит кредитов). «Не звонить» "
+        "пропускаются всегда. Контактам без переписки пишем не чаще раза в 12 минут "
+        "(антиспам мессенджеров). Выполняй только по явной просьбе владельца; сначала "
+        "dry_run=true и назови число."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "filter": BULK_FILTER_SCHEMA,
+            "channel": {"type": "string", "enum": ["telegram", "max"], "description": "Мессенджер"},
+            "instruction": {"type": "string", "description": "Что и зачем написать (не готовый текст)"},
+            "start_at": {"type": "string", "description": "Время первого сообщения ISO 8601 UTC (по умолчанию через 3 минуты)"},
+            "interval_minutes": {"type": "integer", "description": "Интервал между сообщениями, минут (по умолчанию 15)"},
+            "title": {"type": "string", "description": "Название задач (видно в календаре)"},
+            "skip_if_scheduled": {
+                "type": "boolean",
+                "description": "Пропускать контакты, которым в этот мессенджер уже запланировано сообщение (по умолчанию true)",
+            },
+            "sort": {"type": "string", "enum": CONTACT_SORT_KEYS, "description": "Очерёдность (по умолчанию oldest)"},
+            "dry_run": BULK_COMMON_PROPERTIES["dry_run"],
+            "max_contacts": {
+                "type": "integer",
+                "description": f"Не больше N контактов за вызов (по умолчанию и максимум {MESSENGER_BULK_MAX})",
+            },
+        },
+        "required": ["filter", "channel", "instruction"],
+    },
+}
+
+
+async def fn_bulk_schedule_messages(args: dict, user_id: str, agent_config, db: Session) -> dict:
+    from backend.models.agent_telegram_account import AgentTelegramDialog, AgentTelegramAccount
+    from backend.models.agent_max_account import AgentMaxDialog, AgentMaxAccount
+
+    channel = args.get("channel")
+    if channel not in ("telegram", "max"):
+        return {"ok": False, "error": "channel должен быть telegram или max"}
+    svc = max_user_service if channel == "max" else telegram_user_service
+    if not svc.is_configured():
+        return {"ok": False, "error": svc.error_human("not_configured")}
+    if agent_config is None or not svc.account_connected(db, agent_config.id):
+        return {"ok": False, "error": svc.error_human("not_connected")}
+    agent_config_id = str(agent_config.id)
+
+    instruction = (args.get("instruction") or "").strip()
+    if not instruction:
+        return {"ok": False, "error": "Пустая инструкция — опиши, что и зачем написать"}
+
+    now_utc = datetime.now(timezone.utc)
+    start_dt = _parse_iso_utc(args.get("start_at")) if args.get("start_at") else None
+    if start_dt is None or start_dt < now_utc + timedelta(minutes=2):
+        start_dt = now_utc + timedelta(minutes=3)
+
+    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    excluded_dnc = q.filter(AgentContact.status == "do_not_call").count()
+    q = q.filter(AgentContact.status != "do_not_call")
+
+    skipped_scheduled = 0
+    if args.get("skip_if_scheduled", True) is not False:
+        pending = exists().where(and_(
+            Task.agent_contact_id == AgentContact.id,
+            Task.is_agent_task == True,
+            Task.status == TaskStatus.SCHEDULED,
+            Task.channel == channel,
+        ))
+        skipped_scheduled = q.filter(pending).count()
+        q = q.filter(~pending)
+
+    # Есть ли уже переписка в этом мессенджере (тогда номер резолвить не нужно).
+    if channel == "max":
+        dialog_exists = exists().where(and_(
+            AgentMaxDialog.agent_contact_id == AgentContact.id,
+            AgentMaxDialog.account_id == AgentMaxAccount.id,
+            AgentMaxAccount.agent_config_id == agent_config.id,
+        ))
+    else:
+        dialog_exists = exists().where(and_(
+            AgentTelegramDialog.agent_contact_id == AgentContact.id,
+            AgentTelegramDialog.account_id == AgentTelegramAccount.id,
+            AgentTelegramAccount.agent_config_id == agent_config.id,
+        ))
+
+    total = q.count()
+    without_dialog = q.filter(~dialog_exists).count()
+    limit = max(1, min(_as_int(args.get("max_contacts"), MESSENGER_BULK_MAX) or MESSENGER_BULK_MAX, MESSENGER_BULK_MAX))
+    interval = max(1, min(_as_int(args.get("interval_minutes"), 15) or 15, 1440))
+    min_interval = MESSENGER_COLD_INTERVAL_MIN if without_dialog else MESSENGER_WARM_INTERVAL_MIN
+    interval_raised = interval < min_interval
+    interval = max(interval, min_interval)
+    sort = args.get("sort") or "oldest"
+
+    if args.get("dry_run"):
+        preview = _bulk_preview(q, total, limit, sort)
+        preview.update({
+            "channel": channel,
+            "excluded_do_not_call": excluded_dnc,
+            "skipped_already_scheduled": skipped_scheduled,
+            "without_dialog": without_dialog,
+            "interval_minutes": interval,
+            "estimated_duration_minutes": interval * max(0, min(total, limit) - 1),
+        })
+        return preview
+    if total == 0:
+        return {
+            "ok": False, "error": "no_contacts_matched",
+            "excluded_do_not_call": excluded_dnc, "skipped_already_scheduled": skipped_scheduled,
+        }
+
+    contacts = _sort_contacts(q, sort).limit(limit).all()
+    title = args.get("title") or ("Сообщение в MAX" if channel == "max" else "Сообщение в Telegram")
+    task_kwargs = assistant_task_kwargs(agent_config)
+
+    scheduled = []
+    for i, contact in enumerate(contacts):
+        slot = start_dt + timedelta(minutes=interval * i)
+        if isinstance(contact.memory, dict):
+            snooze_until = _parse_iso_utc(contact.memory.get("snooze_until"))
+            if snooze_until and slot < snooze_until:
+                slot = snooze_until
+        task = Task(
+            is_agent_task=True,
+            channel=channel,
+            agent_contact_id=contact.id,
+            user_id=user_id,
+            contact_id=None,
+            status=TaskStatus.SCHEDULED,
+            scheduled_time=slot,
+            title=title,
+            description=instruction,
+            **task_kwargs,
+        )
+        db.add(task)
+        scheduled.append((task, contact, slot))
+    db.commit()
+    logger.info(
+        f"[AGENT-TOOLS] Bulk scheduled {len(scheduled)} {channel} messages for user {user_id} (filter={applied})"
+    )
+
+    slots = [slot for _, _, slot in scheduled]
+    result = {
+        "ok": True,
+        "channel": channel,
+        "scheduled_count": len(scheduled),
+        "remaining_not_scheduled": max(0, total - len(scheduled)),
+        "excluded_do_not_call": excluded_dnc,
+        "skipped_already_scheduled": skipped_scheduled,
+        "without_dialog": without_dialog,
+        "interval_minutes": interval,
+        "first_message_at": min(slots).isoformat(),
+        "last_message_at": max(slots).isoformat(),
+        "tasks": [
+            {"task_id": str(t.id), "agent_contact_id": str(c.id), "contact_name": c.name or c.phone,
+             "scheduled_at": sl.isoformat()}
+            for t, c, sl in scheduled[:20]
+        ],
+        "tasks_truncated": len(scheduled) > 20,
+    }
+    if interval_raised:
+        result["note"] = (
+            f"Интервал поднят до {interval} мин: контактов без переписки — {without_dialog}, "
+            "а новые диалоги мессенджер разрешает открывать не чаще 5 в час."
+        )
+    return result
 
 
 AGENT_CHAT_TOOLS = [
@@ -3628,6 +3908,7 @@ _TOOL_MAP = {
     "create_spreadsheet": "fn_create_spreadsheet",
     "export_contacts_table": "fn_export_contacts_table",
     "get_agent_files": "fn_get_agent_files",
+    "bulk_schedule_messages": "fn_bulk_schedule_messages",
 }
 
 
@@ -3750,6 +4031,11 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_export_contacts_table(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_agent_files":
             result = await fn_get_agent_files(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "bulk_schedule_messages":
+            agent_config = context.get("agent_config")
+            if agent_config is None and agent_config_id:
+                agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
+            result = await fn_bulk_schedule_messages(tool_args, user_id, agent_config, db)
         elif composio_service.is_composio_tool(tool_name):
             result = await fn_execute_connector(tool_name, tool_args, agent_config_id, db)
         else:
