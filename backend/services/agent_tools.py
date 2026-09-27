@@ -1123,9 +1123,15 @@ def _normalize_contact_filter(f: dict) -> dict:
     for key, value in (f or {}).items():
         if value is None or value == "" or value == []:
             continue
-        if key == "query":
+        if key in ("query", "company"):
             value = str(value).strip()
             if not value or value.lower() in _QUERY_WILDCARDS:
+                continue
+        elif key == "stage" and str(value).strip().lower() in _QUERY_WILDCARDS:
+            continue  # «любая стадия» — не фильтр
+        elif key == "stages" and isinstance(value, list):
+            value = [v for v in value if str(v).strip().lower() not in _QUERY_WILDCARDS]
+            if not value:
                 continue
         elif key in ("attempts_min", "attempts_max", "not_called_days", "called_within_days", "no_reply_days"):
             n = _as_int(value)
@@ -1147,7 +1153,9 @@ BULK_FILTER_SCHEMA = {
     "type": "object",
     "description": (
         "Каких контактов касается действие. Поля и их смысл — как у search_contacts. "
-        "Пустой фильтр не допускается; вся база — all_contacts=true (только по явной просьбе)."
+        "Передавай только условия, названные владельцем: каждое поле сужает выборку. "
+        "Пустой фильтр не допускается; вся база — {all_contacts: true} без других полей "
+        "(только по явной просьбе)."
     ),
     "properties": {
         **{k: {kk: vv for kk, vv in v.items() if kk != "description"} for k, v in CONTACT_FILTER_PROPERTIES.items()},
@@ -1384,19 +1392,63 @@ def _bulk_targets(args: dict, db: Session, user_id: str, agent_config_id: str, l
     Пустой фильтр запрещён — вся база только через all_contacts=true.
     Возвращает (query, filter_dict, error).
     """
-    f = dict(args.get("filter") or {})
+    raw = args.get("filter")
+    # Модели иногда присылают filter строкой JSON — разбираем, а не падаем.
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw.strip() else {}
+        except (ValueError, TypeError):
+            return None, {}, (
+                "invalid_filter: filter должен быть объектом, например {\"all_contacts\": true}. "
+                "Это ошибка вызова, а не пустая база — повтори вызов."
+            )
+    f = dict(raw) if isinstance(raw, dict) else {}
     if args.get("agent_contact_ids") and not f.get("agent_contact_ids"):
         f["agent_contact_ids"] = args["agent_contact_ids"]
     if legacy_stage and args.get("stage") and not (f.get("stage") or f.get("stages")):
         f["stage"] = args["stage"]
+    # Поля фильтра, положенные моделью на верхний уровень, а не в filter
+    # ({"all_contacts": true} вместо {"filter": {"all_contacts": true}}).
+    # stage/stages не переносим: у bulk_move_contacts_stage это целевая стадия.
+    for key in list(CONTACT_FILTER_PROPERTIES) + ["all_contacts"]:
+        if key in ("stage", "stages"):
+            continue
+        if key in args and key not in f:
+            f[key] = args[key]
 
     f = _normalize_contact_filter(f)
     criteria = {k: v for k, v in f.items() if k != "all_contacts"}
     if not criteria and f.get("all_contacts") is not True:
-        return None, f, "empty_filter: передай filter (или agent_contact_ids), либо filter.all_contacts=true для всей базы"
+        return None, f, (
+            "empty_filter: не передан фильтр. Это ошибка вызова, а не пустая база — повтори вызов "
+            "с filter (например {\"stage\": \"new\"}) или filter={\"all_contacts\": true} для всей базы."
+        )
 
     q, err = _contact_filter_query(db, user_id, agent_config_id, criteria)
     return q, criteria, err
+
+
+def _empty_result_hint(db: Session, user_id: str, agent_config_id: str, applied: dict) -> dict:
+    """
+    Фильтр дал 0, а база не пуста — подсказка модели, как у search_contacts,
+    чтобы она не отвечала владельцу «в базе нет контактов».
+    """
+    try:
+        base_q, _ = _contact_filter_query(db, user_id, agent_config_id, {})
+        total_in_base = base_q.count()
+    except Exception:
+        safe_rollback(db)
+        return {}
+    if not total_in_base:
+        return {"total_in_base": 0}
+    return {
+        "total_in_base": total_in_base,
+        "hint": (
+            f"По фильтру {json.dumps(applied, ensure_ascii=False)} никого нет, но всего в базе "
+            f"{total_in_base} контактов. Не говори, что база пуста; если эти условия владелец не "
+            "просил — повтори вызов только с тем, что он просил (вся база — filter={\"all_contacts\": true})."
+        ),
+    }
 
 
 def _bulk_limit(args: dict) -> int:
@@ -1483,8 +1535,10 @@ EXPORT_CONTACTS_TABLE_TOOL = {
         "Выгрузить контакты агента в Excel по фильтру (те же поля, что у search_contacts, "
         "внутри filter): «скинь таблицу тех, кто не отвечает неделю», «выгрузи отказников». "
         "Лист «Контакты»: данные, стадия, итог последнего звонка, память, следующий шаг; "
-        "при include_calls=true — ещё лист «Звонки» с транскриптами. Вся база — "
-        "filter={all_contacts:true}. В ответе число строк, file_id и url."
+        "при include_calls=true — ещё лист «Звонки» с транскриптами. Вся база — ровно "
+        "filter={all_contacts:true}, без других полей: каждое добавленное поле сужает выборку. "
+        "В ответе число строк, file_id и url. rows=0 при total_in_base>0 — дело в фильтре, "
+        "а не в пустой базе."
     ),
     "parameters": {
         "type": "object",
@@ -1604,7 +1658,11 @@ async def fn_export_contacts_table(args: dict, user_id: str, agent_config_id: st
         return {"ok": False, "error": err}
     total = q.count()
     if total == 0:
-        return {"ok": True, "rows": 0, "note": "По фильтру нет контактов — файл не создан"}
+        return {
+            "ok": True, "rows": 0, "filter": applied,
+            "note": "По фильтру нет контактов — файл не создан",
+            **_empty_result_hint(db, user_id, agent_config_id, applied),
+        }
     if total > EXPORT_CONTACTS_MAX:
         return {"ok": False, "error": f"Слишком много контактов ({total}); максимум {EXPORT_CONTACTS_MAX} — сузь фильтр"}
     ids = [r[0] for r in q.with_entities(AgentContact.id).all()]
@@ -1782,6 +1840,7 @@ async def fn_bulk_schedule_messages(args: dict, user_id: str, agent_config, db: 
         return {
             "ok": False, "error": "no_contacts_matched",
             "excluded_do_not_call": excluded_dnc, "skipped_already_scheduled": skipped_scheduled,
+            **_empty_result_hint(db, user_id, agent_config_id, applied),
         }
 
     contacts = _sort_contacts(q, sort).limit(limit).all()
@@ -3413,6 +3472,7 @@ async def fn_bulk_schedule_calls(args: dict, user_id: str, agent_config_id: str,
         return {
             "ok": False, "error": "no_contacts_matched",
             "excluded_do_not_call": excluded_dnc, "skipped_already_scheduled": skipped_scheduled,
+            **_empty_result_hint(db, user_id, agent_config_id, applied),
         }
 
     contacts = _sort_contacts(q, sort).limit(limit).all()
