@@ -1384,12 +1384,19 @@ def _compact_contact(c: AgentContact) -> dict:
     return {k: v for k, v in row.items() if v not in (None, "")}
 
 
-def _bulk_targets(args: dict, db: Session, user_id: str, agent_config_id: str, legacy_stage: bool = False):
+def _bulk_targets(
+    args: dict, db: Session, user_id: str, agent_config_id: str,
+    legacy_stage: bool = False, whole_base_default: bool = False,
+):
     """
     Разбирает цель массового действия: filter / agent_contact_ids / stage.
     stage верхнего уровня — легаси-фильтр только у bulk_schedule_calls (legacy_stage=True);
     у bulk_move_contacts_stage это целевая стадия, а не фильтр.
     Пустой фильтр запрещён — вся база только через all_contacts=true.
+    whole_base_default=True (неразрушающие действия, напр. выгрузка): пустой
+    фильтр или all_contacts=true — это вся база, прочие поля рядом с
+    all_contacts игнорируются (модели дописывают к «всем» случайные условия
+    и получают 0).
     Возвращает (query, filter_dict, error).
     """
     raw = args.get("filter")
@@ -1418,6 +1425,9 @@ def _bulk_targets(args: dict, db: Session, user_id: str, agent_config_id: str, l
 
     f = _normalize_contact_filter(f)
     criteria = {k: v for k, v in f.items() if k != "all_contacts"}
+    if whole_base_default and (f.get("all_contacts") is True or not criteria):
+        q, err = _contact_filter_query(db, user_id, agent_config_id, {})
+        return q, {"all_contacts": True}, err
     if not criteria and f.get("all_contacts") is not True:
         return None, f, (
             "empty_filter: не передан фильтр. Это ошибка вызова, а не пустая база — повтори вызов "
@@ -1532,22 +1542,22 @@ EXPORT_CONTACTS_TABLE_TOOL = {
     "type": "function",
     "name": "export_contacts_table",
     "description": (
-        "Выгрузить контакты агента в Excel по фильтру (те же поля, что у search_contacts, "
-        "внутри filter): «скинь таблицу тех, кто не отвечает неделю», «выгрузи отказников». "
-        "Лист «Контакты»: данные, стадия, итог последнего звонка, память, следующий шаг; "
-        "при include_calls=true — ещё лист «Звонки» с транскриптами. Вся база — ровно "
-        "filter={all_contacts:true}, без других полей: каждое добавленное поле сужает выборку. "
-        "В ответе число строк, file_id и url. rows=0 при total_in_base>0 — дело в фильтре, "
-        "а не в пустой базе."
+        "Выгрузить контакты агента в Excel. «Все контакты», «всю базу», «таблицу контактов» — "
+        "вызывай с all_contacts=true и БЕЗ filter. filter — только если владелец назвал условие "
+        "(стадия, компания, «кто молчит неделю» и т.п.; поля как у search_contacts); передавай в "
+        "нём только названные условия. Лист «Контакты»: данные, стадия, итог последнего звонка, "
+        "память, следующий шаг; include_calls=true — ещё лист «Звонки» с транскриптами. "
+        "Вызывай ОДИН раз: в ответе rows, file_id и url — дай владельцу ссылку url. rows=0 при "
+        "total_in_base>0 — дело в фильтре, а не в пустой базе."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "all_contacts": {"type": "boolean", "description": "true — выгрузить всю базу (filter не нужен)"},
             "filter": BULK_FILTER_SCHEMA,
             "include_calls": {"type": "boolean", "description": "Добавить лист «Звонки» с историей и транскриптами (по умолчанию false)"},
             "filename": {"type": "string", "description": "Имя файла без расширения"},
         },
-        "required": ["filter"],
     },
 }
 
@@ -1653,7 +1663,7 @@ async def fn_create_spreadsheet(args: dict, user_id: str, agent_config_id: str, 
 async def fn_export_contacts_table(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
     from backend.services.contact_export_service import generate_contacts_export_xlsx
 
-    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id)
+    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id, whole_base_default=True)
     if err:
         return {"ok": False, "error": err}
     total = q.count()

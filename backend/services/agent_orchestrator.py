@@ -66,6 +66,13 @@ TIMELINE_MAX_EVENTS = 40      # сколько последних событий
 TIMELINE_DAYS_WINDOW = 30     # окно по времени (дни)
 TIMELINE_CALL_SNIPPET = 300   # длина сниппета транскрипта звонка в ленте
 
+# Ответ владельцу, если модель израсходовала все шаги цикла инструментов и так
+# и не дала текст (раньше тут было «Готово.», хотя ничего не было сделано).
+STEP_LIMIT_TEXT = (
+    "Не успел закончить: закончился лимит шагов на один ответ. "
+    "Попробуйте повторить запрос проще или разбить его на части."
+)
+
 _CHANNEL_ICON = {"call": "📞", "sms": "✉️", "telegram": "✈️", "max": "🅜"}
 
 
@@ -1916,7 +1923,7 @@ class ChatOrchestrator:
                 })
 
         if not final_text:
-            final_text = "Готово."
+            final_text = STEP_LIMIT_TEXT if iteration >= max_iterations else "Готово."
 
         # Списываем кредиты за весь диалоговый цикл (раздел 5.2)
         if total_prompt or total_completion:
@@ -2075,7 +2082,7 @@ class ChatOrchestrator:
                     })
 
             if not final_text:
-                final_text = "Готово."
+                final_text = STEP_LIMIT_TEXT if iteration >= max_iterations else "Готово."
 
             if total_prompt or total_completion:
                 try:
@@ -2287,7 +2294,7 @@ class ChatOrchestrator:
                 })
 
         if not final_text:
-            final_text = "Готово."
+            final_text = STEP_LIMIT_TEXT if iteration >= max_iterations else "Готово."
 
         debug_log.append({"ts": self._now_ts(), "type": "gpt_response", "data": final_text[:500]})
 
@@ -2402,7 +2409,7 @@ class ChatOrchestrator:
                 })
 
         if not final_text:
-            final_text = "Готово."
+            final_text = STEP_LIMIT_TEXT if iteration >= max_iterations else "Готово."
 
         # Списываем кредиты за весь цикл обработки
         if total_prompt or total_completion:
@@ -2594,7 +2601,7 @@ class ChatOrchestrator:
                     })
 
             if not final_text:
-                final_text = "Готово."
+                final_text = STEP_LIMIT_TEXT if iteration >= max_iterations else "Готово."
             if not gpt_response_logged:
                 debug_log.append({"ts": self._now_ts(), "type": "gpt_response", "data": final_text[:500]})
 

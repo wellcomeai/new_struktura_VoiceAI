@@ -346,7 +346,7 @@ Telegram/MAX/SMS, входящий или состоявшийся (answered) з
 только в чат): `create_pdf_document` (простая разметка `#`, `-`, `1.`, `| таблица |`, `**жирный**`
 → PDF через reportlab, кириллица — шрифт DejaVu из `backend/assets/fonts`, системных шрифтов на
 Render нет), `create_spreadsheet` (листы `{name, columns, rows}` → xlsx; строка с `=` пишется
-текстом, не формулой), `export_contacts_table` (фильтр как у `search_contacts` →
+текстом, не формулой), `export_contacts_table` (`all_contacts=true`, пустой фильтр или `all_contacts` внутри filter — вся база, остальные поля тогда игнорируются; иначе фильтр как у `search_contacts` →
 `generate_contacts_export_xlsx(contact_ids=…)`, до 10 000 контактов, сборка в потоке),
 `get_agent_files`. Логика — `backend/services/agent_files.py`, таблица `agent_files` (байты в
 Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`). Публичная ссылка с
