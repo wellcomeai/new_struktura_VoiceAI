@@ -53,6 +53,10 @@ const POSTCALL_TOOL_LABELS = {
   max_get_thread: { label: 'Прочитал MAX-переписку', icon: 'fa-comments', color: '#7C3AED' },
   schedule_max_message: { label: 'Запланировал сообщение в MAX', icon: 'fa-calendar-plus', color: '#6D28D9' },
   schedule_reply_check: { label: 'Поставил проверку ответа', icon: 'fa-hourglass-half', color: '#B45309' },
+  create_pdf_document: { label: 'Создал PDF', icon: 'fa-file-pdf', color: '#DC2626' },
+  create_spreadsheet: { label: 'Создал таблицу', icon: 'fa-file-excel', color: '#15803D' },
+  export_contacts_table: { label: 'Выгрузил контакты в Excel', icon: 'fa-file-excel', color: '#15803D' },
+  get_agent_files: { label: 'Посмотрел свои файлы', icon: 'fa-folder-open', color: '#6366F1' },
 };
 
 function renderCallExpanded(call, uid){
@@ -130,8 +134,13 @@ function renderCallExpanded(call, uid){
         .filter(k => a[k]).map(k => a[k]).join(' · ');
     } else if(tc.tool === 'search_knowledge_base'){
       detail = (tc.args || {}).query || '';
-    } else if(tc.tool === 'telegram_send_message'){
+    } else if(tc.tool === 'telegram_send_message' || tc.tool === 'max_send_message'){
       detail = (tc.args || {}).text || '';
+      if((tc.args || {}).file_id) detail += ' 📎';
+    } else if(tc.tool === 'create_pdf_document' || tc.tool === 'create_spreadsheet' || tc.tool === 'export_contacts_table'){
+      const r = tc.result || {};
+      detail = r.filename || (tc.args || {}).title || (tc.args || {}).filename || '';
+      if(r.url) detail += ' · ' + r.url;
     } else if(tc.tool === 'schedule_reply_check'){
       const a = tc.args || {};
       detail = `${a.instruction || a.title || ''} — на ${a.scheduled_at ? fmtDate(a.scheduled_at) : (a.delay_minutes ? 'через ' + a.delay_minutes + ' мин' : '?')}`;

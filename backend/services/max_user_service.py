@@ -943,9 +943,12 @@ async def send_message(
     chat_id: Optional[int] = None,
     peer_id: Optional[int] = None,
     phone: Optional[str] = None,
+    file_bytes: Optional[bytes] = None,
+    file_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Отправить сообщение через ЖИВОЙ ONLINE-клиент аккаунта (вариант A).
+    file_bytes — файл-вложение (pymax.File), текст идёт в том же сообщении.
 
     Требует, чтобы постоянное соединение было поднято в этом процессе (его
     поднимает supervisor). Резолв получателя:
@@ -958,7 +961,7 @@ async def send_message(
     или {ok: False, error}.
     """
     text = (text or "").strip()
-    if not text:
+    if not text and not file_bytes:
         return {"ok": False, "error": "empty_text"}
 
     account_id = str(account_id)
@@ -1001,7 +1004,13 @@ async def send_message(
         if not target_chat_id:
             return {"ok": False, "error": "recipient_not_resolved"}
 
-        msg = await client.send_message(chat_id=target_chat_id, text=text, notify=True)
+        attachments = None
+        if file_bytes:
+            pymax = _import_pymax()
+            attachments = [pymax.File(raw=file_bytes, name=file_name or "file")]
+        msg = await client.send_message(
+            chat_id=target_chat_id, text=text or None, attachments=attachments, notify=True,
+        )
 
         return {
             "ok": True,

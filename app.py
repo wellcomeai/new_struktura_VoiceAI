@@ -52,6 +52,7 @@ from backend.api import (
     agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
     agent_telegram_account,  # ✅ Личный Telegram-аккаунт агента (MTProto)
     agent_max_account,  # ✅ Личный аккаунт MAX агента (PyMax)
+    agent_files,  # 🆕 Публичное скачивание файлов агента (PDF / xlsx)
     credits,  # ✅ Система кредитов оркестратора
     wallet,  # ✅ v6.0: Единый кошелёк + тарифы голосовых моделей
     seo,  # ✅ robots.txt, sitemap.xml, llms.txt
@@ -228,6 +229,7 @@ app.include_router(agent.router, prefix="/api/agent", tags=["Agent"])  # ✅ v5.
 app.include_router(agent_telegram.router, prefix="/api/agent/telegram", tags=["Agent Telegram"])  # ✅ v2.2
 app.include_router(agent_telegram_account.router, prefix="/api/agent/telegram-account", tags=["Agent Telegram Account"])  # ✅ Личный TG-аккаунт агента
 app.include_router(agent_max_account.router, prefix="/api/agent/max-account", tags=["Agent MAX Account"])  # ✅ Личный MAX-аккаунт агента (PyMax)
+app.include_router(agent_files.router, prefix="/api/agent-files", tags=["Agent Files"])  # 🆕 Файлы агента по ссылке с токеном
 app.include_router(credits.router, tags=["Credits"])  # ✅ Кредиты оркестратора (prefix /api/credits встроен)
 app.include_router(wallet.router, tags=["Wallet"])  # ✅ v6.0: единый кошелёк + тарифы (prefix /api/wallet встроен)
 app.include_router(seo.router, tags=["SEO"])  # ✅ robots.txt, sitemap.xml, llms.txt для поисковиков и ИИ-краулеров
@@ -2137,6 +2139,19 @@ def ensure_agent_connectors_table():
         logger.error(f"❌ ensure_agent_connectors_table error: {e}")
 
 
+def ensure_agent_files_table():
+    """Идемпотентно создаёт таблицу agent_files (файлы, созданные агентом)."""
+    try:
+        from sqlalchemy import inspect
+        from backend.models.agent_file import AgentFile
+
+        if not inspect(engine).has_table(AgentFile.__tablename__):
+            AgentFile.__table__.create(bind=engine, checkfirst=True)
+            logger.info(f"✅ Created table {AgentFile.__tablename__}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_files_table error: {e}")
+
+
 def ensure_agent_telegram_account_tables():
     """
     Идемпотентно создаёт таблицы личного Telegram-аккаунта агента (MTProto):
@@ -2348,6 +2363,9 @@ async def startup_event():
 
                 # 🆕 Шаг 22: FK-колонки yandex_assistant_id (агент + задачи)
                 ensure_yandex_agent_columns()
+
+                # 🆕 Шаг 23: Таблица файлов агента (PDF / xlsx)
+                ensure_agent_files_table()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

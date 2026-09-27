@@ -3,6 +3,7 @@ Agent Tools — tool definitions and implementations for GPT-5 Responses API.
 Two tool sets: AGENT_CHAT_TOOLS (user chat) and AGENT_POSTCALL_TOOLS (post-call analysis).
 """
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,7 @@ from backend.models.user import User
 from backend.models.agent_connector import AgentConnector
 from backend.services import composio_service
 from backend.services import agent_memory
+from backend.services import agent_files
 from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL
 from backend.services import telegram_user_service
 from backend.services import max_user_service
@@ -184,6 +186,7 @@ SEND_TELEGRAM_NOTIFICATION_TOOL = {
         "type": "object",
         "properties": {
             "message": {"type": "string", "description": "Текст уведомления"},
+            "file_id": {"type": "string", "description": "Приложить файл (file_id из create_pdf_document / create_spreadsheet / export_contacts_table)"},
         },
         "required": ["message"],
     },
@@ -366,7 +369,7 @@ async def build_chat_tools(agent_config, db: Session) -> list:
     )
     tools = _augment_with_telegram_account(tools, agent_config, db)
     tools = _augment_with_max_account(tools, agent_config, db)
-    return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL])
+    return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL, *FILE_CHAT_TOOLS])
 
 
 async def build_postcall_tools(agent_config, db: Session) -> list:
@@ -376,7 +379,7 @@ async def build_postcall_tools(agent_config, db: Session) -> list:
     )
     tools = _augment_with_telegram_account(tools, agent_config, db)
     tools = _augment_with_max_account(tools, agent_config, db)
-    return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL])
+    return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL, *FILE_POSTCALL_TOOLS])
 
 
 async def fn_execute_connector(tool_name: str, args: dict, agent_config_id: str, db: Session) -> dict:
@@ -410,7 +413,8 @@ TELEGRAM_SEND_MESSAGE_TOOL = {
         "properties": {
             "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
             "username": {"type": "string", "description": "Telegram @username получателя (если известен)"},
-            "text": {"type": "string", "description": "Текст сообщения"},
+            "text": {"type": "string", "description": "Текст сообщения (с файлом — подпись к нему)"},
+            "file_id": {"type": "string", "description": "Приложить файл (file_id из create_pdf_document / create_spreadsheet / get_agent_files)"},
         },
         "required": ["text"],
     },
@@ -519,7 +523,10 @@ async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: S
         return {"ok": False, "error": telegram_user_service.error_human("not_connected")}
 
     text = (args.get("text") or "").strip()
-    if not text:
+    attach, attach_err = _attachment(args, db, agent_config.id)
+    if attach_err:
+        return {"ok": False, "error": attach_err}
+    if not text and attach is None:
         return {"ok": False, "error": telegram_user_service.error_human("empty_text")}
 
     hour_ago = datetime.utcnow() - timedelta(hours=1)
@@ -572,6 +579,8 @@ async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: S
         username=username,
         phone=phone if allow_phone else None,
         contact_name=(contact.name if contact else None),
+        file_bytes=(bytes(attach.content) if attach else None),
+        file_name=(attach.filename if attach else None),
     )
     if not result.get("ok"):
         err = result.get("error") or "telegram_error"
@@ -606,7 +615,7 @@ async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: S
             dialog.tg_name = result["name"]
 
     telegram_user_service.store_message(
-        db, account, "outbound", text,
+        db, account, "outbound", _body_with_attachment(text, attach),
         agent_contact_id=(contact.id if contact else (dialog.agent_contact_id if dialog else None)),
         tg_peer_id=res_peer,
         tg_message_id=result.get("tg_message_id"),
@@ -680,7 +689,8 @@ MAX_SEND_MESSAGE_TOOL = {
         "type": "object",
         "properties": {
             "agent_contact_id": {"type": "string", "description": "UUID контакта агента"},
-            "text": {"type": "string", "description": "Текст сообщения"},
+            "text": {"type": "string", "description": "Текст сообщения (с файлом — подпись к нему)"},
+            "file_id": {"type": "string", "description": "Приложить файл (file_id из create_pdf_document / create_spreadsheet / get_agent_files)"},
         },
         "required": ["agent_contact_id", "text"],
     },
@@ -889,7 +899,10 @@ async def fn_max_send_message(args: dict, user_id: str, agent_config, db: Sessio
         return {"ok": False, "error": max_user_service.error_human("not_connected")}
 
     text = (args.get("text") or "").strip()
-    if not text:
+    attach, attach_err = _attachment(args, db, agent_config.id)
+    if attach_err:
+        return {"ok": False, "error": attach_err}
+    if not text and attach is None:
         return {"ok": False, "error": max_user_service.error_human("empty_text")}
 
     hour_ago = datetime.utcnow() - timedelta(hours=1)
@@ -941,6 +954,8 @@ async def fn_max_send_message(args: dict, user_id: str, agent_config, db: Sessio
         chat_id=chat_id,
         peer_id=peer_id,
         phone=phone if allow_phone else None,
+        file_bytes=(bytes(attach.content) if attach else None),
+        file_name=(attach.filename if attach else None),
     )
     if not result.get("ok"):
         err = result.get("error") or "max_error"
@@ -976,7 +991,7 @@ async def fn_max_send_message(args: dict, user_id: str, agent_config, db: Sessio
             dialog.max_name = result["name"]
 
     max_user_service.store_message(
-        db, account, "outbound", text,
+        db, account, "outbound", _body_with_attachment(text, attach),
         agent_contact_id=(contact.id if contact else (dialog.agent_contact_id if dialog else None)),
         max_chat_id=res_chat,
         max_message_id=result.get("max_message_id"),
@@ -1299,6 +1314,252 @@ def _bulk_limit(args: dict) -> int:
 # ============================================================================
 # TOOL DEFINITIONS FOR GPT-5 RESPONSES API
 # ============================================================================
+
+# ============================================================================
+# FILES — PDF и таблицы xlsx (services/agent_files.py). Только v3: домешиваются
+# в build_chat_tools / build_postcall_tools. Файл хранится в agent_files, в ответе
+# file_id (для отправки вложением) и публичная ссылка url.
+# ============================================================================
+
+EXPORT_CONTACTS_MAX = 10000
+
+CREATE_PDF_DOCUMENT_TOOL = {
+    "type": "function",
+    "name": "create_pdf_document",
+    "description": (
+        "Создать PDF-документ: коммерческое предложение, счёт-памятку, итоги разговора, "
+        "инструкцию, отчёт. Текст пиши сам в content простой разметкой: «# », «## », «### » — "
+        "заголовки; «- » — список; «1. » — нумерованный список; строки «| a | b |» — таблица "
+        "(первая строка — шапка); **жирный**; «---» — разделитель; пустая строка — новый "
+        "абзац. В ответе file_id и url. Отправить клиенту — telegram_send_message / "
+        "max_send_message с file_id или ссылкой url в send_sms; владельцу — "
+        "send_telegram_notification с file_id. Не выдумывай цены и условия — бери из базы "
+        "знаний и инструкций владельца."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Заголовок документа (крупно вверху первой страницы)"},
+            "content": {"type": "string", "description": "Текст документа в простой разметке (см. описание)"},
+            "filename": {"type": "string", "description": "Имя файла без расширения, например «КП Ромашка»"},
+            "agent_contact_id": {"type": "string", "description": "UUID контакта, если документ для конкретного клиента"},
+        },
+        "required": ["title", "content"],
+    },
+}
+
+CREATE_SPREADSHEET_TOOL = {
+    "type": "function",
+    "name": "create_spreadsheet",
+    "description": (
+        "Создать таблицу Excel (.xlsx) из своих данных: прайс, сравнение, отчёт, список. "
+        "sheets — листы: name, columns (шапка) и rows (строки: массивы значений в порядке "
+        "columns). Числа передавай числами, чтобы в Excel их можно было считать. Для выгрузки "
+        "базы контактов есть export_contacts_table. В ответе file_id и url."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "filename": {"type": "string", "description": "Имя файла без расширения"},
+            "sheets": {
+                "type": "array",
+                "description": "Листы таблицы (до 10)",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Название листа (до 31 символа)"},
+                        "columns": {"type": "array", "items": {"type": "string"}, "description": "Заголовки колонок"},
+                        "rows": {
+                            "type": "array",
+                            "description": "Строки данных (до 5000 на лист)",
+                            "items": {"type": "array", "items": {}},
+                        },
+                    },
+                    "required": ["columns", "rows"],
+                },
+            },
+            "agent_contact_id": {"type": "string", "description": "UUID контакта, если таблица для конкретного клиента"},
+        },
+        "required": ["sheets"],
+    },
+}
+
+EXPORT_CONTACTS_TABLE_TOOL = {
+    "type": "function",
+    "name": "export_contacts_table",
+    "description": (
+        "Выгрузить контакты агента в Excel по фильтру (те же поля, что у search_contacts, "
+        "внутри filter): «скинь таблицу тех, кто не отвечает неделю», «выгрузи отказников». "
+        "Лист «Контакты»: данные, стадия, итог последнего звонка, память, следующий шаг; "
+        "при include_calls=true — ещё лист «Звонки» с транскриптами. Вся база — "
+        "filter={all_contacts:true}. В ответе число строк, file_id и url."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "filter": BULK_FILTER_SCHEMA,
+            "include_calls": {"type": "boolean", "description": "Добавить лист «Звонки» с историей и транскриптами (по умолчанию false)"},
+            "filename": {"type": "string", "description": "Имя файла без расширения"},
+        },
+        "required": ["filter"],
+    },
+}
+
+GET_AGENT_FILES_TOOL = {
+    "type": "function",
+    "name": "get_agent_files",
+    "description": (
+        "Список файлов, которые ты уже создал (PDF, таблицы), новые сверху: file_id, имя, "
+        "контакт, дата, url. Нужен, чтобы повторно отправить готовый документ, а не делать заново."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "agent_contact_id": {"type": "string", "description": "Только файлы этого контакта"},
+            "limit": {"type": "integer", "description": "Сколько файлов (по умолчанию 20, максимум 50)"},
+        },
+    },
+}
+
+FILE_CHAT_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, EXPORT_CONTACTS_TABLE_TOOL, GET_AGENT_FILES_TOOL]
+FILE_POSTCALL_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, GET_AGENT_FILES_TOOL]
+
+
+def _attachment(args: dict, db: Session, agent_config_id) -> tuple:
+    """
+    Файл-вложение по args.file_id (только файлы этого агента).
+    Возвращает (AgentFile | None, error | None).
+    """
+    fid = (args.get("file_id") or "").strip() if isinstance(args.get("file_id"), str) else args.get("file_id")
+    if not fid:
+        return None, None
+    f = agent_files.get_agent_file(db, fid, agent_config_id)
+    if f is None:
+        safe_rollback(db)
+        return None, "Файл не найден — возьми file_id из create_pdf_document / get_agent_files"
+    return f, None
+
+
+def _body_with_attachment(text: str, f) -> str:
+    """Текст для треда/хронологии: сообщение + пометка о вложении."""
+    if f is None:
+        return text
+    mark = f"[📎 {f.filename}]"
+    return f"{text}\n{mark}" if text else mark
+
+
+def _file_contact_id(args: dict, db: Session, user_id: str, agent_config_id: str):
+    """agent_contact_id из аргументов, если это контакт этого агента. (id, error)."""
+    cid = args.get("agent_contact_id")
+    if not cid:
+        return None, None
+    try:
+        row = db.query(AgentContact.id).filter(
+            AgentContact.id == cid,
+            AgentContact.user_id == user_id,
+            AgentContact.agent_config_id == agent_config_id,
+        ).first()
+    except Exception:
+        safe_rollback(db)
+        row = None
+    if not row:
+        return None, "Контакт не найден"
+    return row[0], None
+
+
+async def fn_create_pdf_document(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    title = (args.get("title") or "").strip()
+    content = args.get("content") or ""
+    contact_id, err = _file_contact_id(args, db, user_id, agent_config_id)
+    if err:
+        return {"ok": False, "error": err}
+    try:
+        pdf = await asyncio.to_thread(agent_files.build_pdf, title, content)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    f = agent_files.save_file(
+        db, user_id=user_id, agent_config_id=agent_config_id, kind="pdf",
+        filename=agent_files.safe_filename(args.get("filename") or title, "pdf"),
+        content=pdf, title=title, agent_contact_id=contact_id,
+    )
+    return agent_files.file_result(f)
+
+
+async def fn_create_spreadsheet(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    contact_id, err = _file_contact_id(args, db, user_id, agent_config_id)
+    if err:
+        return {"ok": False, "error": err}
+    try:
+        data, rows = await asyncio.to_thread(agent_files.build_xlsx, args.get("sheets") or [])
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    name = args.get("filename") or agent_files.default_filename("Таблица")
+    f = agent_files.save_file(
+        db, user_id=user_id, agent_config_id=agent_config_id, kind="xlsx",
+        filename=agent_files.safe_filename(name, "xlsx", "table"),
+        content=data, title=name, agent_contact_id=contact_id,
+    )
+    result = agent_files.file_result(f)
+    result["rows"] = rows
+    return result
+
+
+async def fn_export_contacts_table(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    from backend.services.contact_export_service import generate_contacts_export_xlsx
+
+    q, applied, err = _bulk_targets(args, db, user_id, agent_config_id)
+    if err:
+        return {"ok": False, "error": err}
+    total = q.count()
+    if total == 0:
+        return {"ok": True, "rows": 0, "note": "По фильтру нет контактов — файл не создан"}
+    if total > EXPORT_CONTACTS_MAX:
+        return {"ok": False, "error": f"Слишком много контактов ({total}); максимум {EXPORT_CONTACTS_MAX} — сузь фильтр"}
+    ids = [r[0] for r in q.with_entities(AgentContact.id).all()]
+
+    def _build():
+        # Сборка до 10k строк с транскриптами — в потоке и на своей сессии,
+        # чтобы не держать event loop.
+        from backend.db.session import SessionLocal
+        tdb = SessionLocal()
+        try:
+            return generate_contacts_export_xlsx(
+                tdb, agent_config_id, contact_ids=ids, include_calls=bool(args.get("include_calls")),
+            )
+        finally:
+            tdb.close()
+
+    data = await asyncio.to_thread(_build)
+    name = args.get("filename") or agent_files.default_filename("Контакты")
+    try:
+        f = agent_files.save_file(
+            db, user_id=user_id, agent_config_id=agent_config_id, kind="xlsx",
+            filename=agent_files.safe_filename(name, "xlsx", "contacts"),
+            content=data, title=name,
+        )
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    result = agent_files.file_result(f)
+    result["rows"] = total
+    result["filter"] = applied
+    return result
+
+
+async def fn_get_agent_files(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    from backend.models.agent_file import AgentFile
+    q = db.query(AgentFile).filter(
+        AgentFile.agent_config_id == agent_config_id,
+        AgentFile.user_id == user_id,
+    )
+    if args.get("agent_contact_id"):
+        q = q.filter(AgentFile.agent_contact_id == args["agent_contact_id"])
+    limit = max(1, min(_as_int(args.get("limit"), 20) or 20, 50))
+    rows = q.order_by(AgentFile.created_at.desc()).limit(limit).all()
+    return {
+        "ok": True,
+        "files": [{**f.to_dict(), "url": agent_files.public_url(f)} for f in rows],
+    }
+
 
 AGENT_CHAT_TOOLS = [
     {
@@ -2367,9 +2628,17 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
         return {"ok": False, "error": "no_chat_ids_configured"}
 
     # Тело уведомления может быть в Markdown → конвертируем в безопасный Telegram-HTML
+    attach, attach_err = _attachment(args, db, agent_config.id)
+    if attach_err:
+        return {"ok": False, "error": attach_err}
+
     body_html = markdown_to_telegram_html(message)
     text = f"🤖 <b>Voicyfy Agent</b>\n\n{body_html}"
-    result = await AgentTelegramService.send_to_all_chats(agent_config, text)
+    result = await AgentTelegramService.send_to_all_chats(
+        agent_config, text,
+        file_bytes=(bytes(attach.content) if attach else None),
+        file_name=(attach.filename if attach else None),
+    )
 
     logger.info(
         f"[AGENT-TOOLS] Telegram notification: sent={result['sent']} "
@@ -3355,6 +3624,10 @@ _TOOL_MAP = {
     "max_get_thread": "fn_max_get_thread",
     "schedule_max_message": "fn_schedule_max_message",
     "schedule_reply_check": "fn_schedule_reply_check",
+    "create_pdf_document": "fn_create_pdf_document",
+    "create_spreadsheet": "fn_create_spreadsheet",
+    "export_contacts_table": "fn_export_contacts_table",
+    "get_agent_files": "fn_get_agent_files",
 }
 
 
@@ -3469,6 +3742,14 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             result = await fn_schedule_max_message(tool_args, user_id, agent_config, db)
         elif tool_name == "schedule_reply_check":
             result = await fn_schedule_reply_check(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "create_pdf_document":
+            result = await fn_create_pdf_document(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "create_spreadsheet":
+            result = await fn_create_spreadsheet(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "export_contacts_table":
+            result = await fn_export_contacts_table(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "get_agent_files":
+            result = await fn_get_agent_files(tool_args, user_id, agent_config_id, db)
         elif composio_service.is_composio_tool(tool_name):
             result = await fn_execute_connector(tool_name, tool_args, agent_config_id, db)
         else:

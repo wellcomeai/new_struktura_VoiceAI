@@ -74,6 +74,7 @@ boto3>=1.28.0,<2.0.0
 
 # Импорт контактов агента (xlsx/csv + нормализация телефонов)
 openpyxl>=3.1.0,<4.0.0
+reportlab>=4.0.0,<5.0.0         # PDF-документы агента (create_pdf_document), шрифт DejaVu в backend/assets/fonts
 phonenumbers>=8.13.0,<9.0.0
 
 # Fish Audio — realtime TTS по WebSocket (протокол на MessagePack)

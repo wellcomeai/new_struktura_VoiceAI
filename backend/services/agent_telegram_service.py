@@ -407,6 +407,30 @@ class AgentTelegramService:
         return ok_any
 
     @staticmethod
+    async def send_document(token: str, chat_id: str, content: bytes, filename: str) -> bool:
+        """sendDocument (multipart). Безопасная обёртка — не бросает наружу."""
+        if not token or not chat_id or not content:
+            return False
+        url = TELEGRAM_API.format(token=token, method="sendDocument")
+        try:
+            async with httpx.AsyncClient(timeout=max(REQUEST_TIMEOUT, 60)) as client:
+                resp = await client.post(
+                    url,
+                    data={"chat_id": str(chat_id)},
+                    files={"document": (filename or "file", content)},
+                )
+                data = resp.json()
+                if resp.status_code == 200 and data.get("ok"):
+                    return True
+                logger.error(
+                    f"[AGENT-TG] sendDocument failed: {data.get('error_code')} - {data.get('description')}"
+                )
+                return False
+        except Exception as e:
+            logger.error(f"[AGENT-TG] sendDocument request error: {e}")
+            return False
+
+    @staticmethod
     async def send_rich_message(
         token: str,
         chat_id: str,
@@ -513,9 +537,13 @@ class AgentTelegramService:
         )
 
     @staticmethod
-    async def send_to_all_chats(agent_config: AgentConfig, text: str) -> dict:
+    async def send_to_all_chats(
+        agent_config: AgentConfig, text: str,
+        file_bytes: Optional[bytes] = None, file_name: Optional[str] = None,
+    ) -> dict:
         """
-        Шлёт text во все chat_id из agent_config.telegram_chat_ids параллельно.
+        Шлёт text во все chat_id из agent_config.telegram_chat_ids параллельно
+        (и следом файл file_bytes, если передан).
         Возвращает {"sent": int, "failed": int, "total": int}.
         """
         if not agent_config.telegram_enabled or not agent_config.has_telegram_bot():
@@ -526,8 +554,15 @@ class AgentTelegramService:
             return {"sent": 0, "failed": 0, "total": 0}
 
         token = agent_config.telegram_bot_token
+
+        async def _one(cid):
+            ok = await AgentTelegramService.send_message(token, cid, text)
+            if file_bytes:
+                ok = (await AgentTelegramService.send_document(token, cid, file_bytes, file_name)) and ok
+            return ok
+
         results = await asyncio.gather(
-            *[AgentTelegramService.send_message(token, cid, text) for cid in chat_ids],
+            *[_one(cid) for cid in chat_ids],
             return_exceptions=True,
         )
 

@@ -213,9 +213,12 @@ async def send_message(
     username: Optional[str] = None,
     phone: Optional[str] = None,
     contact_name: Optional[str] = None,
+    file_bytes: Optional[bytes] = None,
+    file_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Отправить сообщение. Резолв получателя (по мере предпочтительности):
+    Отправить сообщение (и, если передан file_bytes, файл-вложение с текстом
+    в подписи). Резолв получателя (по мере предпочтительности):
       1) username — самый надёжный и безопасный;
       2) peer_id — скан get_dialogs (работает, если диалог уже есть);
       3) phone — ImportContacts (рискованно, вызывающий обязан лимитировать).
@@ -224,7 +227,7 @@ async def send_message(
     или {ok: False, error}.
     """
     text = (text or "").strip()
-    if not text:
+    if not text and not file_bytes:
         return {"ok": False, "error": "empty_text"}
 
     client = _new_client(session_str)
@@ -272,7 +275,17 @@ async def send_message(
         if getattr(entity, "bot", False) or getattr(entity, "is_self", False):
             return {"ok": False, "error": "recipient_not_allowed"}
 
-        msg = await client.send_message(entity, text)
+        if file_bytes:
+            import io
+            buf = io.BytesIO(file_bytes)
+            buf.name = file_name or "file"
+            # Подпись к файлу ограничена ~1024 символами: длинный текст — отдельным сообщением.
+            caption = text if len(text) <= 1000 else ""
+            msg = await client.send_file(entity, buf, caption=caption or None, force_document=True)
+            if text and not caption:
+                msg = await client.send_message(entity, text)
+        else:
+            msg = await client.send_message(entity, text)
 
         # Импортированный контакт убираем из адресной книги владельца —
         # доступ к диалогу уже установлен, мусорить в контактах не нужно.

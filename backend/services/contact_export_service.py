@@ -136,24 +136,24 @@ def _style_header(ws, widths: List[int]) -> None:
     ws.auto_filter.ref = ws.dimensions
 
 
-def _collect(db: Session, agent_config_id) -> Dict[str, Any]:
-    """Достаём всё одним проходом: контакты, звонки, ближайшие задачи."""
-    contacts: List[AgentContact] = (
-        db.query(AgentContact)
-        .filter(AgentContact.agent_config_id == agent_config_id)
-        .order_by(AgentContact.created_at.desc())
-        .all()
-    )
+def _collect(db: Session, agent_config_id, contact_ids=None) -> Dict[str, Any]:
+    """
+    Достаём всё одним проходом: контакты, звонки, ближайшие задачи.
+    contact_ids — необязательный подзапрос/список id: выгрузить только часть
+    базы (тулза агента export_contacts_table с фильтром).
+    """
+    cq = db.query(AgentContact).filter(AgentContact.agent_config_id == agent_config_id)
+    if contact_ids is not None:
+        cq = cq.filter(AgentContact.id.in_(contact_ids))
+    contacts: List[AgentContact] = cq.order_by(AgentContact.created_at.desc()).all()
 
-    calls: List[AgentCall] = (
-        db.query(AgentCall)
-        .filter(
-            AgentCall.agent_config_id == agent_config_id,
-            AgentCall.status.in_(FINALIZED_CALL_STATUSES),
-        )
-        .order_by(AgentCall.created_at.desc())
-        .all()
+    callq = db.query(AgentCall).filter(
+        AgentCall.agent_config_id == agent_config_id,
+        AgentCall.status.in_(FINALIZED_CALL_STATUSES),
     )
+    if contact_ids is not None:
+        callq = callq.filter(AgentCall.agent_contact_id.in_(contact_ids))
+    calls: List[AgentCall] = callq.order_by(AgentCall.created_at.desc()).all()
 
     # Последний завершённый звонок по каждому контакту (список уже отсортирован desc).
     last_call_by_contact: Dict[str, AgentCall] = {}
@@ -188,9 +188,14 @@ def _collect(db: Session, agent_config_id) -> Dict[str, Any]:
     }
 
 
-def generate_contacts_export_xlsx(db: Session, agent_config_id) -> bytes:
-    """Собирает xlsx со всей базой контактов агента и историей звонков."""
-    data = _collect(db, agent_config_id)
+def generate_contacts_export_xlsx(
+    db: Session, agent_config_id, contact_ids=None, include_calls: bool = True,
+) -> bytes:
+    """
+    Собирает xlsx с базой контактов агента и историей звонков. По умолчанию —
+    вся база; contact_ids сужает выгрузку, include_calls=False — без листа «Звонки».
+    """
+    data = _collect(db, agent_config_id, contact_ids)
     contacts: List[AgentContact] = data["contacts"]
     calls: List[AgentCall] = data["calls"]
     last_call_by_contact = data["last_call_by_contact"]
@@ -224,6 +229,11 @@ def generate_contacts_export_xlsx(db: Session, agent_config_id) -> bytes:
             _cell(_fmt_dt(c.created_at)),
         ])
     _style_header(ws, CONTACT_WIDTHS)
+
+    if not include_calls:
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
 
     # ── Лист 2: Звонки ──
     ws2 = wb.create_sheet("Звонки")

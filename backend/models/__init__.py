@@ -80,6 +80,9 @@ from .agent_max_account import (
     AgentMaxMessage,
 )
 
+# 🆕 Файлы, созданные агентом (PDF, xlsx)
+from .agent_file import AgentFile
+
 # ✅ НОВОЕ v3.0: Импортируем Voximplant Partner модели
 from .voximplant_child import (
     VoximplantChildAccount,
@@ -165,6 +168,7 @@ __all__ = [
     "AgentMaxAccount",
     "AgentMaxDialog",
     "AgentMaxMessage",
+    "AgentFile",
     # ✅ НОВОЕ v3.0: Voximplant Partner модели
     "VoximplantChildAccount",
     "VoximplantPhoneNumber",
