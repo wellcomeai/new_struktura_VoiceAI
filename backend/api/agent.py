@@ -1377,10 +1377,10 @@ def _memory_report_or_400(report: dict) -> dict:
 @router.get("/memory")
 def get_agent_memory(
     agent_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Память агента целиком (заметки по секциям + лимиты)."""
+    """Память агента целиком (заметки по секциям + лимиты). JWT или X-Api-Key."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
@@ -1391,10 +1391,10 @@ def get_agent_memory(
 def add_agent_memory_note(
     body: MemoryNoteCreate,
     agent_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Владелец добавляет заметку (source=owner)."""
+    """Владелец добавляет заметку (source=owner). JWT или X-Api-Key."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
@@ -1413,10 +1413,10 @@ def update_agent_memory_note(
     note_id: str,
     body: MemoryNoteUpdate,
     agent_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Владелец правит текст (и при желании секцию) одной заметки."""
+    """Владелец правит текст (и при желании секцию) одной заметки. JWT или X-Api-Key."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
@@ -1435,10 +1435,10 @@ def update_agent_memory_note(
 def delete_agent_memory_note(
     note_id: str,
     agent_id: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_flexible),
     db: Session = Depends(get_db),
 ):
-    """Удалить одну заметку."""
+    """Удалить одну заметку. JWT или X-Api-Key."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
@@ -1454,7 +1454,7 @@ def clear_agent_memory(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Очистить память агента целиком (все секции)."""
+    """Очистить память агента целиком (все секции). Только JWT: по API-ключу массовое удаление закрыто."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")

@@ -367,6 +367,16 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
   меньше 12 мин, если есть контакты без переписки (лимит 5 новых диалогов в час), иначе не
   меньше 2 мин.
 
+## Описание API для ИИ-инструментов (ветка 2709-skills)
+
+`backend/static/agent-api.md` — «скилл» для Claude Code и т.п.: справочник возможностей агента
++ эндпоинты по персональному ключу `X-Api-Key` (`get_current_user_flexible`). По ключу открыты:
+агенты (list/get/create/update, модели), каскад-ассистенты и заметки памяти агента
+(`GET/POST /api/agent/memory`, `PUT/DELETE /api/agent/memory/{note_id}`; очистка всей памяти
+`DELETE /api/agent/memory` — только JWT). База знаний, контакты, подключения — только кабинет.
+Добавляя тулзу агента или меняя тарифы/провайдеров, обновляй этот файл (шпаргалка, таблицы
+инструментов, PostCall-набор, «Тарифы»). HTML-версия для людей — `agent-api-docs.html`.
+
 ## Key API Prefixes
 
 | Prefix | Description |

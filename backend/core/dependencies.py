@@ -98,8 +98,9 @@ def get_current_user_flexible(
     принимает ЛИБО персональный API-ключ (заголовок X-Api-Key: vfy_...),
     ЛИБО обычный JWT (Authorization: Bearer <jwt>) — как в кабинете.
 
-    Используется ТОЛЬКО на выбранных эндпоинтах агента (create/update/get/list
-    и справочнике моделей). Остальной API остаётся строго JWT-only.
+    Используется ТОЛЬКО на выбранных эндпоинтах агента (create/update/get/list,
+    справочник моделей, заметки памяти агента GET/POST/PUT/DELETE по одной) и
+    каскад-ассистентов. Остальной API остаётся строго JWT-only.
     """
     # 1) Персональный API-ключ
     api_key = request.headers.get("X-Api-Key")
