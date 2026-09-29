@@ -428,3 +428,11 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 - **Task scheduler:** Background scheduler (`core/task_scheduler.py`) polls for scheduled call tasks every 30 seconds and executes them automatically.
 - **Trailing slash:** маршруты вида `@router.get("/")` с префиксом (`/api/contacts/`) доступны и без слэша: `TrailingSlashRewriteMiddleware` в `backend/core/http_optimizations.py` подменяет путь вместо 307-редиректа Starlette, потому что за прокси Render Location редиректа собирался с внутренним хостом `*.onrender.com` и фронт получал 403.
 - **Static pages:** App pages (agents, dashboard, CRM, etc.) are vanilla HTML/JS served by FastAPI's `StaticFiles`. The React app is only used for the landing page.
+
+## Промпт голосового агента во входящих (ветка 2709-skills)
+
+`GET /api/telephony/config` (входящие): если номер привязан к агенту (`agent_config_id`) и у агента
+заполнено `voice_additional_instructions` (вкладка «Звонки» → «Инструкции для голосового агента»),
+в сценарий уходит **только этот текст** + карточка звонящего, без `VOICE_AGENT_PROMPT_BASE`
+(шаблон написан под исходящие со стратегией оркестратора). Пустое поле — прежний `system_prompt`
+ассистента (шаблон + блок владельца). Исходящие не менялись.
