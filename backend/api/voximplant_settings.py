@@ -73,13 +73,16 @@ class VoximplantConfigDeleteResponse(BaseModel):
 # 🆕 v3.9: TELEGRAM SCHEMAS
 # ============================================================================
 
+TELEGRAM_TOKEN_MASK = "***"
+
+
 class TelegramConfigUpdate(BaseModel):
     """Схема для обновления настроек Telegram"""
     bot_token: str = Field(
         ..., 
-        min_length=20, 
+        min_length=1, 
         max_length=100, 
-        description="Telegram Bot Token (получить у @BotFather)"
+        description="Telegram Bot Token (получить у @BotFather); маска из GET (с ***) — оставить сохранённый"
     )
     chat_id: str = Field(
         ..., 
@@ -91,6 +94,12 @@ class TelegramConfigUpdate(BaseModel):
     @validator('bot_token')
     def validate_bot_token(cls, v):
         """Валидация формата токена бота"""
+        v = v.strip()
+        # Форма подставляет в поле маску из GET (…***…). Сохранение без правки
+        # токена присылает её обратно — это «оставить сохранённый токен»,
+        # подмена делается в update_telegram_settings.
+        if TELEGRAM_TOKEN_MASK in v:
+            return v
         if not TelegramNotificationService.validate_bot_token(v):
             raise ValueError(
                 'Неверный формат токена. Токен должен быть в формате: 123456789:ABCdefGHI...'
@@ -466,8 +475,15 @@ def update_telegram_settings(
     try:
         logger.info(f"[TELEGRAM-SETTINGS] Updating settings for user {current_user.id}")
         
-        # Обновляем настройки
-        current_user.telegram_bot_token = config.bot_token
+        # Маска вместо токена — оставляем сохранённый, меняем только chat_id
+        if TELEGRAM_TOKEN_MASK in config.bot_token:
+            if not current_user.telegram_bot_token:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Введите полный токен бота от @BotFather"
+                )
+        else:
+            current_user.telegram_bot_token = config.bot_token
         current_user.telegram_chat_id = config.chat_id
         
         db.commit()
@@ -485,6 +501,8 @@ def update_telegram_settings(
             is_configured=True
         )
         
+    except HTTPException:
+        raise
     except ValueError as ve:
         # Ошибки валидации Pydantic
         logger.warning(f"[TELEGRAM-SETTINGS] Validation error: {ve}")

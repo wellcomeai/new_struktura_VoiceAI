@@ -2204,7 +2204,12 @@
           const data = await response.json();
           
           if (!response.ok) {
-            throw new Error(data.detail || 'Произошла ошибка');
+            // 422 FastAPI: detail — массив [{msg, ...}], а не строка
+            let detail = data.detail;
+            if (Array.isArray(detail)) {
+              detail = detail.map(e => String(e.msg || '').replace(/^Value error, /, '')).filter(Boolean).join('; ');
+            }
+            throw new Error(detail || 'Произошла ошибка');
           }
           
           return data;
