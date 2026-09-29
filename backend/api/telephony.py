@@ -5853,13 +5853,15 @@ def get_scenario_config(
 
             caller_contact = _find_caller_contact(db, agent_config_id, caller) if caller else None
 
-            # (0) Входящий промпт агента = только инструкции с вкладки «Звонки»
-            #     (voice_additional_instructions), без базового шаблона: шаблон
-            #     написан под исходящие (задача и стратегия от оркестратора),
-            #     во входящем их нет. Пустое поле — остаётся промпт ассистента.
+            # (0) Входящий промпт агента = инструкции с вкладки «Звонки»
+            #     (voice_additional_instructions) + правила вызова функций, без
+            #     остального шаблона: он написан под исходящие (задача и стратегия
+            #     от оркестратора), во входящем их нет. Пустое поле — остаётся
+            #     промпт ассистента.
             voice_instructions = (getattr(agent_cfg, "voice_additional_instructions", None) or "").strip()
             if voice_instructions:
-                system_prompt = voice_instructions
+                from backend.services.agent_prompts import VOICE_AGENT_FUNCTIONS_BLOCK
+                system_prompt = voice_instructions + "\n\n" + VOICE_AGENT_FUNCTIONS_BLOCK.strip()
                 logger.info(f"[TELEPHONY]   📝 Inbound agent prompt: voice instructions only ({len(voice_instructions)} chars)")
 
             # (1) Карточка звонящего → дописываем в system_prompt (знает клиента
