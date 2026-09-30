@@ -3116,9 +3116,8 @@ async def public_outbound_call(
         
         # Общий CRM-сценарий умеет не всех: у каскада и Fish свои исходящие
         # сценарии (цепочка с vox-turn-taking / прокси синтеза Fish).
-        from backend.core.task_scheduler import _outbound_rule_name
-        rule_name = _outbound_rule_name(assistant_type)
-        rule_id = child_account.vox_rule_ids.get(rule_name)
+        from backend.core.task_scheduler import _resolve_outbound_rule
+        rule_name, rule_id = _resolve_outbound_rule(child_account.vox_rule_ids, assistant_type)
 
         if not rule_id:
             logger.warning(f"[TELEPHONY-PUBLIC] Rule '{rule_name}' not found")
