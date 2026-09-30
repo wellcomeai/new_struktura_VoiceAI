@@ -379,7 +379,9 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
 все 22 встроенных голоса gpt-live-1 (`OPENAI_VOICES` в `backend/schemas/assistant.py`; дубли во
 фронте: `voice-assistants.html`, `agent/instructions-voice.js`); 12 из них (`OPENAI_LIVE_ONLY_VOICES`)
 Realtime не знает — звучат только во входящих, исходящие/виджет с ними пока не проверены. Шлагбаум и списание —
-тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`). Исходящие и виджет OpenAI —
+тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`). Исходящие — `voximplant_scenarios/outbound_openai.js` (v5.0) по той же схеме: `/api/telephony/outbound-config`
+тоже отдаёт `live_session`, а контекст CRM из `customData` (`contact_name`, `task_title`,
+`task_description`, `task`, `custom_greeting`) сценарий дописывает в instructions обоих слоёв. Виджет OpenAI —
 по-прежнему Realtime. Серверный мост `inbound_live.js` + `handler_live_telephony.py` оставлен
 для отката. Раскатка кода со стримом: `POST /api/telephony/admin/setup-openai-scenarios-stream`
 (копирует `inbound_openai`/`outbound_openai` с родительского аккаунта на все дочерние).

@@ -546,6 +546,11 @@ class OutboundConfigResponse(BaseModel):
     fish_tts_url:      Optional[str] = None
     # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
+    # GPT-Live (исходящие OpenAI, сценарий outbound_openai v5): session для
+    # sessionStart без контекста CRM (его дописывает сценарий из customData)
+    # и карта имя функции → function_id.
+    live_session:      Optional[Dict[str, Any]] = None
+    live_function_ids: Optional[Dict[str, str]] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -3390,7 +3395,8 @@ def get_outbound_config(
         voice_speed = None
         folder_id = None
         keys, allowed, billing_mode = resolve_scenario_keys(
-            db, user, assistant_type, "[TELEPHONY-OUTBOUND]"
+            db, user, assistant_type, "[TELEPHONY-OUTBOUND]",
+            tariff_code=LIVE_TARIFF_CODE if assistant_type == "openai" else None,
         )
         if not allowed:
             return OutboundConfigResponse(success=False)
@@ -3435,6 +3441,24 @@ def get_outbound_config(
         if hasattr(assistant, 'greeting_message'):
             first_phrase = assistant.greeting_message
         
+        # GPT-Live для исходящих OpenAI: контекст звонка (контакт, задача,
+        # номера, время) известен только сценарию — он дописывает его в
+        # instructions обоих слоёв перед sessionStart. Поле model не трогаем,
+        # пока на аккаунтах может жить старый Realtime-сценарий.
+        live_session = None
+        live_function_ids = None
+        if assistant_type == "openai":
+            live_tools, live_function_ids = flatten_realtime_tools(functions)
+            live_session = compose_live_session(
+                system_prompt=system_prompt,
+                voice=resolve_live_voice(voice),
+                tools=live_tools,
+                voice_extra_instructions=(
+                    "Это исходящий телефонный звонок: ты сам звонишь клиенту. "
+                    "Когда он ответит, начни разговор первым."
+                ),
+            )
+
         logger.info(f"[TELEPHONY-OUTBOUND] ✅ Config returned for {assistant_id}")
         logger.info(f"[TELEPHONY-OUTBOUND]    Assistant: {assistant_name} ({assistant_type})")
         logger.info(f"[TELEPHONY-OUTBOUND]    Voice: {voice}")
@@ -3482,6 +3506,8 @@ def get_outbound_config(
             sample_rate=assistant.sample_rate if assistant_type == "fish" else None,
             fish_tts_url=build_fish_tts_url(assistant.id) if assistant_type == "fish" else None,
             billing_mode=billing_mode,
+            live_session=live_session,
+            live_function_ids=live_function_ids,
         )
 
     except Exception as e:
