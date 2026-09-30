@@ -1,7 +1,9 @@
 /*
- * Прогон inbound_fish.js на заглушках VoxEngine.
+ * Прогон inbound_fish.js (v2.0, каскад ASR → LLM → Fish) на заглушках VoxEngine.
  * Проверяем реальный код сценария, а не его копию: подменяем платформенные
- * глобалы, прокручиваем звонок и смотрим, что ушло в сокет синтеза.
+ * глобалы, прокручиваем звонок и смотрим, что ушло в модель и в сокет синтеза.
+ *
+ *   node voximplant_scenarios/test_inbound_fish.js
  */
 const fs = require("fs");
 const vm = require("vm");
@@ -14,7 +16,7 @@ const CONFIG = {
     assistant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     assistant_name: "Тестовый Fish",
     api_key: "sk-test",
-    model: "gpt-realtime-2.1-mini",
+    model: "gpt-realtime-2.1",
     system_prompt: "Ты ассистент.",
     first_phrase: "Здравствуйте! Чем помочь?",
     language: "ru",
@@ -23,12 +25,16 @@ const CONFIG = {
     fish_latency: "balanced",
     sample_rate: 8000,
     fish_tts_url: "wss://voicyfy.ru/ws/fish/tts/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    functions: null,
+    functions: [
+        { type: "function", function: { name: "get_price", description: "Цена",
+          parameters: { type: "object", properties: {} } } },
+    ],
 };
 
 // ── заглушки платформы ──────────────────────────────────────────────────────
 const appHandlers = {};
 const logs = [];
+const httpCalls = [];
 
 function Emitter() {
     this._h = {};
@@ -57,24 +63,28 @@ class FakeCall extends Emitter {
         this.answered = false;
         this.recording = false;
         this.hungup = false;
-        this.mediaTo = null;
+        this.mediaTo = [];
     }
     id() { return "call-1"; }
     callerid() { return "+70000000000"; }
     answer() { this.answered = true; }
     record() { this.recording = true; }
-    sendMediaTo(u) { this.mediaTo = u; }
+    sendMediaTo(u) { this.mediaTo.push(u); }
     hangup() { this.hungup = true; }
 }
 
 let createdSocket = null;
-let realtimeClient = null;
+let llm = null;
+let vad = null;
+let vadParams = null;
+let asr = null;
+let asrParams = null;
 
 const sandbox = {
     console,
-    setTimeout, clearTimeout, Promise, JSON, Math, Date, String, Array, Object, RegExp, Error,
+    setTimeout, clearTimeout, Promise, JSON, Math, Date, String, Array, Object, RegExp, Error, Number,
     require: () => {},
-    Modules: { OpenAI: "OpenAI" },
+    Modules: { ASR: "ASR", Silero: "Silero", OpenAI: "OpenAI" },
     Logger: { write: (m) => logs.push(String(m)) },
     AppEvents: { Started: "Started", CallAlerting: "CallAlerting" },
     CallEvents: {
@@ -84,40 +94,67 @@ const sandbox = {
     WebSocketEvents: {
         OPEN: "WebSocket.Open", MESSAGE: "WebSocket.Message",
         CLOSE: "WebSocket.Close", ERROR: "WebSocket.Error",
+        MEDIA_STARTED: "WebSocket.MediaStarted", MEDIA_ENDED: "WebSocket.MediaEnded",
+    },
+    ASREvents: {
+        InterimResult: "ASR.InterimResult", Result: "ASR.Result",
+        Stopped: "ASR.Stopped", ASRError: "ASR.Error",
+    },
+    ASRProfileList: {
+        Yandex: { ru_RU: "yandex-ru", en_US: "yandex-en" },
+        Deepgram: { ru: "deepgram-ru", en_US: "deepgram-en" },
+    },
+    ASRModelList: {
+        Yandex: { general: "yandex-general" },
+        Deepgram: { nova2_general: "nova2-general" },
+    },
+    Silero: {
+        VADEvents: { Result: "Silero.VAD.Result", Error: "Silero.VAD.Error" },
+        createVAD: async (params) => {
+            vadParams = params;
+            vad = new Emitter();
+            vad.close = () => {};
+            return vad;
+        },
     },
     VoxEngine: {
         addEventListener: (ev, cb) => { appHandlers[ev] = cb; },
         createWebSocket: (url) => { createdSocket = new FakeSocket(url); return createdSocket; },
+        createASR: (params) => {
+            asrParams = params;
+            asr = new Emitter();
+            asr.stop = () => {};
+            return asr;
+        },
         terminate: () => { sandbox.__terminated = true; },
     },
     Net: {
-        httpRequestAsync: async (url) => {
+        httpRequestAsync: async (url, opts) => {
+            httpCalls.push({ url, opts });
             if (url.indexOf("/telephony/config") !== -1) {
                 return { code: 200, text: JSON.stringify(CONFIG) };
+            }
+            if (url.indexOf("/functions/execute") !== -1) {
+                return { code: 200, text: JSON.stringify({ price: 1000 }) };
             }
             return { code: 200, text: "{}" };
         },
     },
     OpenAI: {
-        RealtimeAPIClientType: { REALTIME: "realtime" },
-        RealtimeAPIEvents: {
-            SessionCreated: "SessionCreated", SessionUpdated: "SessionUpdated",
-            ResponseCreated: "ResponseCreated",
-            ResponseOutputTextDelta: "TextDelta", ResponseOutputTextDone: "TextDone",
-            InputAudioBufferSpeechStarted: "SpeechStarted",
-            InputAudioBufferSpeechStopped: "SpeechStopped",
-            ConversationItemInputAudioTranscriptionCompleted: "Transcript",
-            ResponseOutputItemDone: "OutputItemDone",
-            Error: "Error",
+        ResponsesAPIEvents: {
+            ResponseCreated: "R.Created", ResponseTextDelta: "R.TextDelta",
+            ResponseTextDone: "R.TextDone", ResponseOutputItemDone: "R.ItemDone",
+            ResponseCompleted: "R.Completed", ResponseIncomplete: "R.Incomplete",
+            ResponseFailed: "R.Failed", ResponseError: "R.Error",
+            ResponsesAPIError: "R.APIError",
         },
-        createRealtimeAPIClient: async () => {
-            realtimeClient = new Emitter();
-            realtimeClient.sessionUpdate = () => {};
-            realtimeClient.responseCreate = () => {};
-            realtimeClient.conversationItemCreate = () => {};
-            realtimeClient.clearMediaBuffer = () => {};
-            realtimeClient.close = () => {};
-            return realtimeClient;
+        createResponsesAPIClient: async (params) => {
+            llm = new Emitter();
+            llm.params = params;
+            llm.requests = [];
+            llm.createResponses = (p) => llm.requests.push(JSON.parse(JSON.stringify(p)));
+            llm.close = () => {};
+            return llm;
         },
     },
 };
@@ -137,13 +174,40 @@ function assert(cond, msg) {
     }
 }
 
+// ── помощники: абонент и модель ─────────────────────────────────────────────
+const speechStart = () => vad.fire("Silero.VAD.Result", { vad, speechStartAt: 1.0 });
+const speechEnd = () => vad.fire("Silero.VAD.Result", { vad, speechEndAt: 2.0 });
+const interim = (text) => asr.fire("ASR.InterimResult", { text });
+const final = (text) => asr.fire("ASR.Result", { text });
+
+async function userSays(text, { finalToo = false } = {}) {
+    speechStart();
+    interim(text);
+    if (finalToo) final(text);
+    speechEnd();
+    await tick(250);   // SUBMIT_SETTLE_MS + запас
+}
+
+function modelReplies(text) {
+    llm.fire("R.Created", { data: { payload: {} } });
+    for (const ch of text.match(/.{1,5}/g)) {
+        llm.fire("R.TextDelta", { data: { payload: { delta: ch } } });
+    }
+    llm.fire("R.TextDone", { data: { payload: { text } } });
+    llm.fire("R.Completed", { data: { payload: { response: { usage: {
+        input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 80 } } } } } });
+}
+
+const lastRequest = () => llm.requests[llm.requests.length - 1];
+const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) => i.content);
+
 (async () => {
     appHandlers.Started({ sessionId: "sess-1" });
 
     const call = new FakeCall();
     const done = appHandlers.CallAlerting({ call, destination: "74951234567" });
 
-    await tick(10);   // конфиг + подключение OpenAI
+    await tick(10);   // конфиг + подключение LLM и VAD
 
     // ── сокет к прокси поднят до ответа на звонок ───────────────────────────
     assert(createdSocket, "сокет к прокси не создан");
@@ -152,10 +216,19 @@ function assert(cond, msg) {
 
     await done;
     assert(call.answered, "звонок не отвечен");
-    assert(call.mediaTo === realtimeClient, "аудио звонящего не подключено к OpenAI");
+
+    // ── пайплайн: ASR + VAD на аудио звонка, LLM на ключе из конфига ────────
+    assert(asr && call.mediaTo.includes(asr), "аудио звонящего не подключено к ASR");
+    assert(vad && call.mediaTo.includes(vad), "аудио звонящего не подключено к VAD");
+    assert(asrParams.profile === "yandex-ru" && asrParams.interimResults === true,
+           "ASR настроен неверно: " + JSON.stringify(asrParams));
+    assert(vadParams.minSilenceDurationMs === 500, "тишина VAD не 500 мс: " + JSON.stringify(vadParams));
+    assert(llm.params.apiKey === CONFIG.api_key, "LLM создан не на ключе из конфига");
+    console.log("✅ пайплайн: звонок → ASR (Yandex, interim) + Silero VAD 500 мс, LLM на api_key");
 
     // ── приветствие ушло в очередь, пока сокет закрыт ───────────────────────
     assert(createdSocket.sent.length === 0, "текст ушёл в неоткрытый сокет");
+    assert(llm.requests.length === 0, "при first_phrase приветствие не должно идти через модель");
 
     createdSocket.fire("WebSocket.Open");
     await tick();
@@ -165,58 +238,141 @@ function assert(cond, msg) {
     assert(msgs[0] && msgs[0].event === "text", "первым не ушёл текст приветствия: " + JSON.stringify(msgs[0]));
     assert(msgs[0].text === CONFIG.first_phrase, "приветствие искажено: " + msgs[0].text);
     assert(msgs[1] && msgs[1].event === "flush", "приветствие не закрыто flush");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     console.log("✅ приветствие: накопилось до OPEN, ушло текстом + flush");
 
-    // ── реплика модели дельтами ────────────────────────────────────────────
-    createdSocket.sent = [];
-    realtimeClient.fire("SpeechStopped");
-    realtimeClient.fire("ResponseCreated");
+    // ── шум без текста не становится репликой ──────────────────────────────
+    speechStart();
+    speechEnd();
+    await tick(1100);   // EMPTY_TEXT_WAIT_MS + запас
+    assert(llm.requests.length === 0, "сегмент без текста ушёл в модель");
+    console.log("✅ шум: сегмент VAD без текста ASR в модель не уходит");
 
+    // ── ход абонента: тишина → запрос в модель ─────────────────────────────
+    await userSays("сколько стоит");
+    assert(llm.requests.length === 1, "реплика не ушла в модель после тишины");
+    let req = lastRequest();
+    assert(req.model === "gpt-5.6-luna", "не та модель: " + req.model);
+    assert(req.instructions.indexOf("Ты ассистент.") === 0, "в instructions нет system_prompt");
+    assert(req.instructions.indexOf("Не здоровайся повторно") !== -1, "в instructions нет пометки о приветствии");
+    assert(req.store === false, "store должен быть false — историю ведёт сценарий");
+    assert(req.input[0].role === "assistant" && req.input[0].content === CONFIG.first_phrase,
+           "приветствие не попало в историю первым");
+    assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит"]),
+           "реплика абонента искажена: " + JSON.stringify(req.input));
+    assert(req.tools && req.tools[0].name === "get_price", "функции не переданы модели");
+    console.log("✅ ход: тишина VAD → запрос в gpt-5.6-luna с историей и функциями");
+
+    // ── ответ модели дельтами → Fish ───────────────────────────────────────
+    createdSocket.sent = [];
     const reply = "Конечно, помогу вам с этим. ";
-    for (const ch of reply.match(/.{1,5}/g)) {
-        realtimeClient.fire("TextDelta", { data: { delta: ch } });
-    }
-    realtimeClient.fire("TextDone", { data: { text: reply } });
+    modelReplies(reply);
     await tick();
 
     msgs = createdSocket.sent;
     const texts = msgs.filter((m) => m.event === "text");
     const flushes = msgs.filter((m) => m.event === "flush");
-
-    assert(texts.length > 0, "реплика не ушла в синтез");
-    // батчинг: кадров заметно меньше, чем дельт
+    assert(texts.length > 0, "ответ не ушёл в синтез");
     assert(texts.length < 5, "батчинг не работает: " + texts.length + " кадров на 6 дельт");
-    assert(flushes.length >= 1, "реплика не закрыта flush");
-
+    assert(flushes.length >= 1, "ответ не закрыт flush");
     const joined = texts.map((m) => m.text).join("");
     assert(joined === reply, "текст склеился неверно:\n  ожидали: " + JSON.stringify(reply) +
                              "\n  получили: " + JSON.stringify(joined));
-    console.log("✅ реплика: " + texts.length + " кадров на 6 дельт, текст склеивается побайтово");
+    console.log("✅ ответ: " + texts.length + " кадров на 6 дельт, текст склеивается побайтово");
 
-    // ── перебивание ────────────────────────────────────────────────────────
+    // ── поздний финал ASR правит историю без нового запроса ────────────────
+    final("сколько стоит доставка");
+    await tick(50);
+    assert(llm.requests.length === 1, "поздний финал ASR вызвал лишний запрос к модели");
+
+    // ── перебивание: речь поверх агента дольше BARGE_IN_MIN_MS ─────────────
     createdSocket.sent = [];
     const clearedBefore = createdSocket.cleared;
-    realtimeClient.fire("SpeechStarted");
-    await tick();
-
+    speechStart();
+    await tick(100);
+    assert(createdSocket.cleared === clearedBefore, "перебивание сработало раньше BARGE_IN_MIN_MS");
+    await tick(300);
     assert(createdSocket.cleared === clearedBefore + 1, "буфер Voximplant не сброшен при перебивании");
-    const clears = createdSocket.sent.filter((m) => m.event === "clear");
-    assert(clears.length === 1, "прокси не получил clear при перебивании");
-    console.log("✅ перебивание: clearMediaBuffer + clear в прокси");
+    assert(createdSocket.sent.filter((m) => m.event === "clear").length === 1,
+           "прокси не получил clear при перебивании");
+    console.log("✅ перебивание: после 300 мс речи — clearMediaBuffer + clear в прокси");
+
+    interim("а для юрлиц");
+    speechEnd();
+    await tick(250);
+    assert(llm.requests.length === 2, "реплика после перебивания не ушла в модель");
+    req = lastRequest();
+    assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит доставка", "а для юрлиц"]),
+           "история после уточнения неверна: " + JSON.stringify(userItems(req)));
+    assert(req.input.some((i) => i.role === "assistant" && i.content === reply.trim()),
+           "ответ агента не попал в историю");
+    console.log("✅ уточнение: финал ASR исправил реплику в истории без лишнего запроса");
+
+    // ── абонент продолжил фразу до звука ответа → одна реплика ─────────────
+    // ответ на "а для юрлиц" ещё идёт (нет ни одной дельты), абонент продолжает
+    speechStart();
+    interim("тоже есть скидка");
+    speechEnd();
+    await tick(250);
+    assert(llm.requests.length === 2, "новый запрос ушёл, пока прошлый ответ не закрылся");
+    // старый ответ закрывается — его текст выбрасываем, уходит объединённая реплика
+    createdSocket.sent = [];
+    modelReplies("Это ответ, который никто не услышит.");
+    await tick();
+    assert(createdSocket.sent.filter((m) => m.event === "text").length === 0,
+           "выброшенный ответ ушёл в синтез");
+    assert(llm.requests.length === 3, "отложенная реплика не ушла после закрытия ответа");
+    req = lastRequest();
+    const users = userItems(req);
+    assert(users[users.length - 1] === "а для юрлиц тоже есть скидка",
+           "реплика с паузой не склеилась: " + JSON.stringify(users));
+    assert(!req.input.some((i) => i.content === "Это ответ, который никто не услышит."),
+           "выброшенный ответ попал в историю");
+    console.log("✅ пауза посреди фразы: куски склеены, недозвучавший ответ выброшен");
+
+    // ── вызов функции: результат уходит обратно в модель ───────────────────
+    llm.fire("R.Created", { data: { payload: {} } });
+    llm.fire("R.ItemDone", { data: { payload: { item: {
+        type: "function_call", name: "get_price", call_id: "fc-1", arguments: "{}",
+    } } } });
+    llm.fire("R.Completed", { data: { payload: {} } });
+    await tick(20);
+    assert(httpCalls.some((c) => c.url.indexOf("/functions/execute") !== -1), "функция не вызвана на бэкенде");
+    assert(llm.requests.length === 4, "после функции модель не вызвана повторно");
+    req = lastRequest();
+    const fc = req.input.find((i) => i.type === "function_call");
+    const fo = req.input.find((i) => i.type === "function_call_output");
+    assert(fc && fc.call_id === "fc-1" && fo && fo.call_id === "fc-1", "в истории нет пары function_call/output");
+    assert(JSON.parse(fo.output).price === 1000, "результат функции искажён: " + fo.output);
+    modelReplies("Стоит тысячу рублей.");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    await tick();
+    console.log("✅ функции: вызов через /functions/execute, результат → повторный запрос");
+
+    // ── модель не приняла reasoning → повтор без него ──────────────────────
+    await userSays("спасибо");
+    assert(llm.requests.length === 5, "реплика не ушла в модель");
+    assert(lastRequest().reasoning, "reasoning не передан по умолчанию");
+    llm.fire("R.Failed", { data: { payload: { error: { message: "Unsupported parameter: reasoning.effort" } } } });
+    await tick();
+    assert(llm.requests.length === 6, "после отказа по reasoning нет повтора");
+    assert(!lastRequest().reasoning, "повтор снова с reasoning");
+    assert(userItems(lastRequest()).slice(-1)[0] === "спасибо", "повтор ушёл не с той репликой");
+    console.log("✅ reasoning: при отказе модели ход повторяется без него");
 
     // ── прощание и hangup по speech_done ───────────────────────────────────
     createdSocket.sent = [];
-    realtimeClient.fire("OutputItemDone", {
-        data: { payload: { item: {
-            type: "function_call", name: "hangup_call", call_id: "fc-1",
-            arguments: JSON.stringify({ farewell_message: "Всего доброго!", reason: "done" }),
-        } } },
-    });
+    llm.fire("R.ItemDone", { data: { payload: { item: {
+        type: "function_call", name: "hangup_call", call_id: "fc-2",
+        arguments: JSON.stringify({ farewell_message: "Всего доброго!", reason: "done" }),
+    } } } });
+    llm.fire("R.Completed", { data: { payload: {} } });
     await tick();
 
     const farewell = createdSocket.sent.filter((m) => m.event === "text");
     assert(farewell.length === 1 && farewell[0].text === "Всего доброго!",
            "прощание не ушло в синтез: " + JSON.stringify(createdSocket.sent));
+    assert(llm.requests.length === 6, "после hangup_call модель вызвана ещё раз");
 
     assert(!call.hungup, "трубка положена до окончания прощания");
     createdSocket.fire("WebSocket.Message", {
@@ -225,6 +381,21 @@ function assert(cond, msg) {
     await tick(400);
     assert(call.hungup, "трубка не положена после speech_done");
     console.log("✅ прощание: озвучено, трубка положена по speech_done");
+
+    // ── итоговый лог: диалог и стоимость ASR ───────────────────────────────
+    asr.fire("ASR.Stopped", { cost: 0.12 });
+    call.fire("Disconnected", { cost: 1.5, duration: 42 });
+    await tick(700);
+    const logCall = httpCalls.filter((c) => c.url.indexOf("/voximplant/log") !== -1).pop();
+    assert(logCall, "финальный лог не отправлен");
+    const payload = JSON.parse(logCall.opts.postData);
+    assert(payload.call_cost === 1.62, "в стоимость не добавлен ASR: " + payload.call_cost);
+    const roles = payload.data.dialog.map((d) => d.role + ":" + d.text);
+    assert(roles.includes("user:сколько стоит доставка"), "в диалоге нет уточнённой реплики: " + JSON.stringify(roles));
+    assert(roles.includes("user:а для юрлиц тоже есть скидка"), "в диалоге нет склеенной реплики");
+    assert(!roles.includes("user:а для юрлиц"), "в диалоге остался кусок до склейки");
+    assert(roles.includes("assistant:Всего доброго!"), "в диалоге нет прощания");
+    console.log("✅ лог: диалог с уточнениями, cost = звонок + ASR");
 
     console.log("\nвсе проверки inbound_fish пройдены");
 })();
