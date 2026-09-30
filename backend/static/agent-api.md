@@ -515,6 +515,8 @@ PostCall и чата — агент «помнит» клиента между �
     новые сессии не начинаются.
   - **Fish Audio** работает только на серверном ключе — всегда по тарифу из
     кошелька.
+  - Входящие звонки OpenAI (GPT-Live) на серверном ключе списываются по
+    тарифу **OpenAI Live** (`openai-live`).
   - **Каскад** работает на внутренних ресурсах платформы, свои ключи не
     нужны.
   - Телефония (номера, минуты, SMS) — Voximplant, подключается в кабинете.
@@ -719,6 +721,13 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
 Невалидное имя голоса → `400 invalid_voice` (в update) или молча дефолт (в create).
 Дефолты: fish — Светлана, cascade — `Anna`, openai — `alloy`, gemini — `Kore`,
 yandex — `marina`.
+
+Входящие звонки на OpenAI-ассистентов (и агентов, чей голосовой ассистент — OpenAI)
+обслуживает модель **GPT-Live** (`gpt-live-1`, full-duplex) с бэкенд-моделью
+`gpt-5.6-terra` для функций. У неё свой набор голосов: `marin`, `cedar`, `quartz`,
+`ripple`, `vesper`, `willow`, `stone`, `gleam`, `meridian`, `bossa`, `tempo`,
+`beacon`, `delta`, `cinder`; голоса Realtime (`alloy` и др.) на входящих звучат
+как `marin`. Исходящие и виджет OpenAI — по-прежнему Realtime.
 
 ---
 

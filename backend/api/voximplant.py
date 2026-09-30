@@ -1274,10 +1274,15 @@ async def log_conversation_data(
                         ConversationService._normalize_phone(caller_number)
                         if caller_number else None
                     )
+                    # Входящие OpenAI на GPT-Live (сценарий inbound_openai) — свой тариф
+                    _tariff = assistant_type
+                    if assistant_type == "openai" and request_data.get("voice_model") == "gpt-live-1":
+                        from backend.websockets.live_client import LIVE_TARIFF_CODE
+                        _tariff = LIVE_TARIFF_CODE
                     WalletService.charge(
                         db=db,
                         user_id=_owner.id,
-                        model_code=assistant_type,
+                        model_code=_tariff,
                         seconds=_seconds,
                         channel="telephony",
                         ref_type="call",

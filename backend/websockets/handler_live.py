@@ -43,14 +43,11 @@ from backend.services import provider_keys
 from backend.services.conversation_service import ConversationService
 from backend.services.user_service import UserService
 from backend.services.voice_billing import VoiceBillingSession
-from backend.websockets.live_client import OpenAILiveClient, LIVE_MODEL, LIVE_VOICES
+from backend.websockets.live_client import OpenAILiveClient, LIVE_MODEL, LIVE_VOICES, LIVE_TARIFF_CODE
 
 logger = get_logger(__name__)
 
 LIVE_AUDIO_RATE = 24000
-# Код тарифа кошелька для этого транспорта (voice_model_tariffs.code)
-LIVE_TARIFF_CODE = "openai-live"
-
 
 # ----------------------------------------------------------------------
 # Транскрипт: фрагменты → реплики

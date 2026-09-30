@@ -367,6 +367,20 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
   меньше 12 мин, если есть контакты без переписки (лимит 5 новых диалогов в час), иначе не
   меньше 2 мин.
 
+## Входящие OpenAI на GPT-Live (ветка 2709-skills)
+
+Все входящие звонки на OpenAI-ассистентов и агентов идут через сценарий
+`voximplant_scenarios/inbound_openai.js` (v5.0): Voximplant сам открывает `gpt-live-1`
+(`OpenAI.createLiveAPIClient`), без нашего сервера на пути аудио. Настройки сессии отдаёт
+`/api/telephony/config` полями `live_session` (собирает `compose_live_session` в
+`backend/websockets/live_client.py` — общий с виджетом и серверным мостом) и
+`live_function_ids`; поле `model` осталось Realtime для старого сценария до раскатки.
+Бэкенд-модель — `LIVE_DELEGATION_MODEL` (по умолчанию `gpt-5.6-terra`). Шлагбаум и списание —
+тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`). Исходящие и виджет OpenAI —
+по-прежнему Realtime. Серверный мост `inbound_live.js` + `handler_live_telephony.py` оставлен
+для отката. Раскатка кода со стримом: `POST /api/telephony/admin/setup-openai-scenarios-stream`
+(копирует `inbound_openai`/`outbound_openai` с родительского аккаунта на все дочерние).
+
 ## Описание API для ИИ-инструментов (ветка 2709-skills)
 
 `backend/static/agent-api.md` — «скилл» для Claude Code и т.п.: справочник возможностей агента
