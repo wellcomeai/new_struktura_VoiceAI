@@ -1,5 +1,5 @@
 /*
- * Voximplant INBOUND OpenAI Script v5.0 — GPT-Live (gpt-live-1)
+ * Voximplant INBOUND OpenAI Script v5.1 — GPT-Live (gpt-live-1)
  * ====================================================================
  * Замена v4.10 (Realtime API). Голос ведёт gpt-live-1 — full-duplex модель:
  * слушает и говорит одновременно, сама решает, когда отвечать и когда
@@ -11,8 +11,14 @@
  *
  * Порядок звонка (абонент слышит гудки, пока идёт подготовка):
  *   конфиг (/api/telephony/config) → createLiveAPIClient → sessionStart
- *   → SessionStarted → answer + запись + sendMediaBetween → приветствие
- * Если сессия не поднялась за LIVE_START_TIMEOUT_MS — сбрасываем звонок.
+ *   → SessionStarted → тишина из URL-плеера в Live + указание с приветствием
+ *   → SessionInstructionsAppended → answer + запись + sendMediaBetween
+ * Прогрев тишиной (v5.1): таймлайн Live идёт только пока в сессию поступает
+ * аудио, и первый медиапоток коннектор поднимает ~2 с. Раньше это было после
+ * answer — абонент слышал ~3 с тишины. Теперь поток запускается на гудках,
+ * а отвечаем, когда модель приняла приветствие (до первого слова ~0.7 с).
+ * Если сессия не поднялась за LIVE_START_TIMEOUT_MS — сбрасываем звонок;
+ * если приветствие не принято за GREETING_ANSWER_TIMEOUT_MS — отвечаем всё равно.
  *
  * Настройки сессии целиком приходят с бэкенда (CONFIG.live_session):
  * промпт голосового слоя, голос Live, промпт и функции бэкенд-модели.
@@ -36,10 +42,12 @@ var LIVE_START_TIMEOUT_MS = 8000;  // ждём SessionStarted, абонент п
 var SESSION_CLOSE_WAIT_MS = 2000;  // ждём SessionClosed (итоговый usage) при завершении
 var HANGUP_MAX_WAIT_MS    = 10000; // hangup_call: максимум ждём конца прощания
 var HANGUP_NO_SPEECH_MS   = 4000;  // hangup_call: если прощание так и не зазвучало
+var GREETING_ANSWER_TIMEOUT_MS = 5000; // прогрев: не дождались SessionInstructionsAppended — отвечаем
 
 var BASE_URL      = "https://voicyfy.ru";
 var FUNCTIONS_URL = BASE_URL + "/api/voximplant/functions/execute";
 var LOG_URL       = BASE_URL + "/api/voximplant/log";
+var SILENCE_URL   = BASE_URL + "/static/audio/silence.wav"; // 5 с тишины, играется по кругу
 
 // ────────────────────────────────────────────────────────────────────
 // БИЛЛИНГ
@@ -52,7 +60,7 @@ var call_duration = 0;
 VoxEngine.addEventListener(AppEvents.Started, function(e) {
     call_session_history_id = e.sessionId;
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🚀 APP STARTED (INBOUND OpenAI v5.0 - GPT-Live)");
+    Logger.write("🚀 APP STARTED (INBOUND OpenAI v5.1 - GPT-Live)");
     Logger.write("🔑 Session History ID: " + call_session_history_id);
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });
@@ -84,6 +92,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var isHangingUp = false;
     var startTimer = null;
     var greetingKicked = false;
+    var warmupPlayer = null;     // тишина в Live до ответа на звонок
+    var greetingTimer = null;
 
     // Функции бэкенда: вызовы копятся по delegation_id до response.completed
     var pendingCalls = {};
@@ -103,7 +113,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         "&caller=" + caller_number.replace(/\D/g, '');
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("📞 INBOUND CALL (OpenAI v5.0 - GPT-Live)");
+    Logger.write("📞 INBOUND CALL (OpenAI v5.1 - GPT-Live)");
     Logger.write("   From: " + caller_number);
     Logger.write("   To:   " + called_number);
     Logger.write("   Call ID: " + call_id);
@@ -227,6 +237,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         isHangingUp = true;
 
         if (startTimer) { clearTimeout(startTimer); startTimer = null; }
+        if (greetingTimer) { clearTimeout(greetingTimer); greetingTimer = null; }
+        stopWarmup();
         for (var i = 0; i < hangupTimers.length; i++) clearTimeout(hangupTimers[i]);
 
         Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -278,13 +290,49 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     });
 
     // ═══════════════════════════════════════════════════════════════
-    // ОТВЕТ НА ЗВОНОК (по SessionStarted)
+    // ПРОГРЕВ И ОТВЕТ НА ЗВОНОК
     // ═══════════════════════════════════════════════════════════════
-    function answerAndBridge() {
+    function greetingText() {
+        var phrase = (CONFIG.first_phrase || "").split(/\s+/).join(" ").trim();
+        return phrase
+            ? "Разговор только начался, собеседник ещё ничего не сказал. Начни первым: скажи дословно «" +
+              phrase + "» и после этого жди ответа. Не повторяй приветствие позже."
+            : "Разговор только начался, собеседник ещё ничего не сказал. Начни первым: коротко поздоровайся " +
+              "и спроси, чем можешь помочь. Потом жди ответа.";
+    }
+
+    function stopWarmup() {
+        if (!warmupPlayer) return;
+        try { warmupPlayer.stopMediaTo(liveClient); } catch (err) {}
+        try { warmupPlayer.stop(); } catch (err) {}
+        warmupPlayer = null;
+    }
+
+    // SessionStarted: ещё на гудках запускаем в Live поток тишины и отдаём
+    // приветствие. Ответим на звонок, когда модель его примет.
+    function warmupAndGreet() {
+        try {
+            warmupPlayer = VoxEngine.createURLPlayer({ url: SILENCE_URL }, { loop: true });
+            warmupPlayer.sendMediaTo(liveClient);
+            Logger.write("🔇 Warm-up: silence → gpt-live-1 (call still ringing)");
+        } catch (err) {
+            Logger.write("⚠️ Warm-up player failed: " + err + " — answering now");
+            warmupPlayer = null;
+            answerAndBridge("warm-up failed");
+        }
+        liveClient.sessionInstructionsAppend({ content: greetingText(), delegation_id: null });
+        greetingTimer = setTimeout(function() {
+            Logger.write("⚠️ Greeting not accepted in " + GREETING_ANSWER_TIMEOUT_MS + "ms");
+            answerAndBridge("greeting timeout");
+        }, GREETING_ANSWER_TIMEOUT_MS);
+    }
+
+    function answerAndBridge(reason) {
         if (isCallAnswered || isHangingUp) return;
         isCallAnswered = true;
         answeredAt = Date.now();
         if (startTimer) { clearTimeout(startTimer); startTimer = null; }
+        if (greetingTimer) { clearTimeout(greetingTimer); greetingTimer = null; }
 
         call.answer(null, { disableDtxForAudio: true });
         try {
@@ -292,16 +340,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         } catch (recordError) {
             Logger.write("⚠️ Failed to start recording: " + recordError);
         }
+        // Вход Live переключается с тишины на абонента (новый поток заменяет прежний)
         VoxEngine.sendMediaBetween(call, liveClient);
-        Logger.write("📲 Answered, media bridged to gpt-live-1");
-
-        var phrase = (CONFIG.first_phrase || "").split(/\s+/).join(" ").trim();
-        var greeting = phrase
-            ? "Разговор только начался, собеседник ещё ничего не сказал. Начни первым: скажи дословно «" +
-              phrase + "» и после этого жди ответа. Не повторяй приветствие позже."
-            : "Разговор только начался, собеседник ещё ничего не сказал. Начни первым: коротко поздоровайся " +
-              "и спроси, чем можешь помочь. Потом жди ответа.";
-        liveClient.sessionInstructionsAppend({ content: greeting, delegation_id: null });
+        stopWarmup();
+        Logger.write("📲 Answered (" + reason + "), media bridged to gpt-live-1");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -480,13 +522,15 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             sessionStarted = true;
             liveSessionId = (p.session && p.session.id) || p.session_id || null;
             Logger.write("✅ Live session started: " + liveSessionId);
-            answerAndBridge();
+            warmupAndGreet();
         });
 
         liveClient.addEventListener(OpenAI.LiveAPIEvents.SessionInstructionsAppended, function() {
-            // Первое принятое указание — приветствие: просим модель начать разговор
+            // Первое принятое указание — приветствие: отвечаем на звонок и просим
+            // модель начать разговор (первое слово ~0.7 с после этого события)
             if (greetingKicked) return;
             greetingKicked = true;
+            answerAndBridge("greeting accepted");
             liveClient.sessionCommentaryAppend({
                 content: "Begin the conversation now, following the instructions provided.",
                 delegation_id: null
