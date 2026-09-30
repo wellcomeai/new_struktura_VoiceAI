@@ -1,5 +1,5 @@
 /*
- * Прогон telephony.html и test_outbound-calls.html в Chromium с подставным API.
+ * Прогон telephony.html в Chromium с подставным API.
  * Проверяем, что Fish реально доехал до UI: появился в списках типов,
  * тянет своих ассистентов и уходит в запросы с assistant_type="fish".
  */
@@ -149,42 +149,9 @@ function check(cond, msg, errors) {
         await page.close();
     }
 
-    // ── test_outbound-calls.html ───────────────────────────────────────────
-    {
-        const { page, errors } = await makePage(browser);
-        await page.goto("https://voicyfy.ru/static/test_outbound-calls.html",
-                        { waitUntil: "networkidle" });
-        await page.waitForTimeout(800);
-
-        const tab = page.locator('.assistant-type-tab[data-type="fish"]');
-        check(await tab.count() === 1, "вкладки Fish нет на странице обзвона", errors);
-        console.log("✅ обзвон: вкладка Fish на месте");
-
-        requested.length = 0;
-        await tab.click();
-        await page.waitForTimeout(600);
-
-        const hit = requested.find((u) => u.startsWith("/api/fish-assistants"));
-        check(hit, "клик по Fish не запросил ассистентов. Запросы: " + requested.join(" | "), errors);
-        console.log("✅ обзвон: по клику тянется " + hit);
-
-        const shown = await page.textContent("#assistantContent").catch(() => "");
-        check(shown.indexOf(FISH_AGENT.name) !== -1,
-              "Fish-ассистент не отрисовался в списке: " + shown.trim().slice(0, 120), errors);
-        console.log("✅ обзвон: ассистент «" + FISH_AGENT.name + "» виден в списке");
-
-        const active = await page.getAttribute('.assistant-type-tab[data-type="fish"]', "class");
-        check(active.indexOf("active") !== -1, "вкладка Fish не стала активной: " + active, errors);
-        console.log("✅ обзвон: вкладка Fish активна");
-
-        // Полный сценарий запуска обзвона (выбор caller id + список номеров)
-        // стендом не гоняется — здесь проверено, что тип долетает до state,
-        // а payload формируется из него (assistant_type: state.assistantType).
-
-        check(errors.length === 0, "ошибки JS на test_outbound-calls.html:\n   " + errors.join("\n   "), errors);
-        await page.close();
-    }
+    // test_outbound-calls.html переписана на дизайн-систему — её проверяет
+    // test_outbound_calls_page.js.
 
     await browser.close();
-    console.log("\nобе страницы проверены");
+    console.log("\ntelephony.html проверена");
 })();
