@@ -386,6 +386,25 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(userItems(lastRequest()).slice(-1)[0] === "спасибо", "повтор после обрыва ушёл не с той репликой");
     console.log("✅ обрыв: переподключение и повтор того же хода");
 
+    // ── длинное первое предложение: первый flush по запятой ───────────────
+    createdSocket.sent = [];
+    modelReplies("У нас есть финская сауна, русская баня на дровах и турецкий хамам. Записать вас?");
+    await tick();
+    const firstFlush = createdSocket.sent.findIndex((m) => m.event === "flush");
+    assert(firstFlush > 0, "flush не отправлен");
+    const beforeFlush = createdSocket.sent.slice(0, firstFlush)
+        .filter((m) => m.event === "text").map((m) => m.text).join("");
+    assert(beforeFlush.indexOf("сауна,") !== -1 && beforeFlush.indexOf("хамам.") === -1,
+           "первый flush не по запятой: до него ушло «" + beforeFlush + "»");
+    assert(createdSocket.sent.filter((m) => m.event === "text").map((m) => m.text).join("") ===
+           "У нас есть финская сауна, русская баня на дровах и турецкий хамам. Записать вас?",
+           "текст с ранним flush склеился неверно");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    console.log("✅ Fish: длинное первое предложение уходит в синтез по запятой");
+
+    await userSays("нет, спасибо, до свидания");
+    assert(llm.requests.length === 8, "реплика перед прощанием не ушла в модель");
+
     // ── прощание и hangup по speech_done ───────────────────────────────────
     createdSocket.sent = [];
     modelCallsTool("hangup_call", { farewell_message: "Всего доброго!", reason: "done" }, "call_2");
@@ -394,7 +413,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     const farewell = createdSocket.sent.filter((m) => m.event === "text");
     assert(farewell.length === 1 && farewell[0].text === "Всего доброго!",
            "прощание не ушло в синтез: " + JSON.stringify(createdSocket.sent));
-    assert(llm.requests.length === 7, "после hangup_call модель вызвана ещё раз");
+    assert(llm.requests.length === 8, "после hangup_call модель вызвана ещё раз");
 
     assert(!call.hungup, "трубка положена до окончания прощания");
     createdSocket.fire("WebSocket.Message", {
@@ -406,18 +425,20 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
 
     // ── итоговый лог: диалог и стоимость ASR ───────────────────────────────
     asr.fire("ASR.Stopped", { cost: 0.12 });
+    call.fire("RecordStopped", { url: "https://rec", cost: 0.3 });
     call.fire("Disconnected", { cost: 1.5, duration: 42 });
     await tick(700);
     const logCall = httpCalls.filter((c) => c.url.indexOf("/voximplant/log") !== -1).pop();
     assert(logCall, "финальный лог не отправлен");
     const payload = JSON.parse(logCall.opts.postData);
-    assert(payload.call_cost === 1.62, "в стоимость не добавлен ASR: " + payload.call_cost);
+    assert(payload.call_cost === 1.92, "в стоимость не добавлены ASR и запись: " + payload.call_cost);
+    assert(payload.call_cost_parts.record === 0.3, "нет стоимости записи в call_cost_parts");
     const roles = payload.data.dialog.map((d) => d.role + ":" + d.text);
     assert(roles.includes("user:сколько стоит доставка"), "в диалоге нет уточнённой реплики: " + JSON.stringify(roles));
     assert(roles.includes("user:а для юрлиц тоже есть скидка"), "в диалоге нет склеенной реплики");
     assert(!roles.includes("user:а для юрлиц"), "в диалоге остался кусок до склейки");
     assert(roles.includes("assistant:Всего доброго!"), "в диалоге нет прощания");
-    console.log("✅ лог: диалог с уточнениями, cost = звонок + ASR");
+    console.log("✅ лог: диалог с уточнениями, cost = звонок + ASR + запись");
 
     // ── модель недоступна: извиниться голосом и положить трубку ───────────
     const call2 = new FakeCall();

@@ -45,14 +45,16 @@ require(Modules.OpenAI);
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
 var LLM_MODEL        = "gpt-5.6-luna";
 var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений (у luna: none/low/medium/high/xhigh, minimal нет); null — не передавать
+var LLM_SERVICE_TIER = null;           // "priority" — приоритетная обработка OpenAI (быстрее, дороже); null — обычная
 var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
 var VAD_SILENCE_MS   = 500;            // тишина, после которой реплика закончена
 var VAD_THRESHOLD    = 0.5;
 var VAD_SPEECH_PAD_MS = 30;
-var SUBMIT_SETTLE_MS = 150;            // ждём хвост текста от ASR после тишины
+var SUBMIT_SETTLE_MS = 50;             // ждём хвост текста от ASR после тишины (на проде текст готов раньше)
 var EMPTY_TEXT_WAIT_MS = 900;          // сколько ждать текст, если ASR ещё молчит
 var BARGE_IN_MIN_MS  = 300;            // речь поверх агента короче — не перебивание
 var FIRST_FLUSH_MIN  = 25;             // ранний flush первого предложения реплики
+var FIRST_CLAUSE_MIN = 30;             // ...или первой части фразы до запятой/тире, если она не короче
 var TEXT_BATCH_MIN   = 40;             // копим дельты до этой длины перед отправкой
 var TTS_WATCHDOG_MS  = 4000;           // нет звука после отправки текста → тревога
 var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
@@ -70,6 +72,7 @@ var record_url = null;
 var call_cost = 0;
 var call_duration = 0;
 var asr_cost = 0;
+var record_cost = 0;
 
 VoxEngine.addEventListener(AppEvents.Started, function(e) {
     call_session_history_id = e.sessionId;
@@ -116,6 +119,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var llmPending = false;      // после закрытия ответа нужен новый запрос
     var llmStuckTimer = null;
     var llmReasoning = LLM_REASONING;
+    var llmServiceTier = LLM_SERVICE_TIER;
     var toolsInFlight = 0;
     var history = [];            // сообщения диалога (без system)
     var needsFollowUp = false;   // после функций нужен ответ модели
@@ -211,12 +215,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 // Fallback-стоимость: то, что видно сценарию. ASR в cost звонка
                 // не входит — добавляем сами. Полный счёт бэкенд берёт из
                 // GetCallHistory по call_session_history_id.
-                payload.call_cost     = Math.round((call_cost + asr_cost) * 1e6) / 1e6;
-                payload.call_cost_parts = { telephony: call_cost, asr: asr_cost };
+                payload.call_cost     = Math.round((call_cost + asr_cost + record_cost) * 1e6) / 1e6;
+                payload.call_cost_parts = { telephony: call_cost, asr: asr_cost, record: record_cost };
                 payload.call_duration = call_duration;
 
                 Logger.write("📊 Billing: record=" + (record_url ? "YES" : "NO") +
-                    ", cost=" + payload.call_cost + " (asr=" + asr_cost + ")" +
+                    ", cost=" + payload.call_cost + " (asr=" + asr_cost + ", record=" + record_cost + ")" +
                     ", duration=" + call_duration + "s");
             }
 
@@ -594,14 +598,42 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         }
     }
 
+    // Запятая, тире, двоеточие — граница части фразы. Запятая между цифрами
+    // (1,5) границей не считается.
+    function hasClauseEnd(s) {
+        for (var i = 0; i < s.length; i++) {
+            var ch = s.charAt(i);
+            if (ch === "—" || ch === ";" || ch === ":") return true;
+            if (ch === ",") {
+                var prev = i > 0 ? s.charAt(i - 1) : "";
+                var next = i + 1 < s.length ? s.charAt(i + 1) : "";
+                if (/\d/.test(prev) && /\d/.test(next)) continue;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Fish начинает звучать только после flush и синтезирует весь накопленный
+    // кусок. Длинное первое предложение («У нас есть финская сауна, русская
+    // баня…») давало ~1 с до звука против ~0.4 с у короткого, поэтому первый
+    // flush делаем уже на запятой, если кусок не слишком короткий.
     function maybeEarlyFlush() {
         if (firstFlushDone || isInterrupted) return;
-        if (turnFullText.length < FIRST_FLUSH_MIN) return;
-        if (!hasSentenceEnd(turnFullText)) return;
+        var bySentence = turnFullText.length >= FIRST_FLUSH_MIN && hasSentenceEnd(turnFullText);
+        var byClause = !bySentence && turnFullText.length >= FIRST_CLAUSE_MIN && hasClauseEnd(turnFullText);
+        if (!bySentence && !byClause) return;
         firstFlushDone = true;
+        // Всё, что копилось в пачке, должно уйти в Fish до flush — иначе он
+        // озвучит только уже отправленную часть.
+        if (deltaBuffer) {
+            var out = deltaBuffer;
+            deltaBuffer = "";
+            speak(out, false);
+        }
         if (ttsOpen) sendToTts({ event: "flush" });
         else ttsFlushQueued = true;
-        Logger.write("[Fish] ⚡ early flush первого предложения");
+        Logger.write("[Fish] ⚡ early flush " + (bySentence ? "первого предложения" : "по запятой"));
     }
 
     // Перебивание: гасим очередь Voximplant (мгновенно) и рвём генерацию у
@@ -775,6 +807,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             params.tool_choice = "auto";
         }
         if (llmReasoning) params.reasoning_effort = llmReasoning;
+        if (llmServiceTier) params.service_tier = llmServiceTier;
 
         llmBusy = true;
         llmDiscard = false;
@@ -836,6 +869,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (llmReasoning && /reasoning/i.test(text)) {
             Logger.write("[LLM] модель не приняла reasoning_effort — повтор без него");
             llmReasoning = null;
+        } else if (llmServiceTier && /service_tier/i.test(text)) {
+            Logger.write("[LLM] service_tier не принят — повтор без него");
+            llmServiceTier = null;
         } else {
             llmFailures++;
         }
@@ -1326,6 +1362,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     });
     call.addEventListener(CallEvents.RecordStopped, function(event) {
         if (event.url) record_url = event.url;
+        // Запись тарифицируется отдельно и в cost звонка не входит.
+        if (event.cost !== undefined) record_cost = Number(event.cost) || 0;
     });
 
     // Аудио звонящего → ASR (текст) и VAD (границы речи)
