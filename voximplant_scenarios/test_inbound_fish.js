@@ -75,6 +75,7 @@ class FakeCall extends Emitter {
 
 let createdSocket = null;
 let llm = null;
+const llmClients = [];
 let vad = null;
 let vadParams = null;
 let asr = null;
@@ -141,20 +142,19 @@ const sandbox = {
         },
     },
     OpenAI: {
-        ResponsesAPIEvents: {
-            ResponseCreated: "R.Created", ResponseTextDelta: "R.TextDelta",
-            ResponseTextDone: "R.TextDone", ResponseOutputItemDone: "R.ItemDone",
-            ResponseCompleted: "R.Completed", ResponseIncomplete: "R.Incomplete",
-            ResponseFailed: "R.Failed", ResponseError: "R.Error",
-            ResponsesAPIError: "R.APIError",
+        ChatCompletionsAPIEvents: {
+            ContentDelta: "C.ContentDelta", ContentDone: "C.ContentDone",
+            Chunk: "C.Chunk", ChatCompletionsAPIError: "C.Error",
         },
-        createResponsesAPIClient: async (params) => {
-            llm = new Emitter();
-            llm.params = params;
-            llm.requests = [];
-            llm.createResponses = (p) => llm.requests.push(JSON.parse(JSON.stringify(p)));
-            llm.close = () => {};
-            return llm;
+        createChatCompletionsAPIClient: async (params) => {
+            const client = new Emitter();
+            client.params = params;
+            client.requests = llm ? llm.requests : [];   // общий журнал запросов между переподключениями
+            client.createChatCompletions = (p) => client.requests.push(JSON.parse(JSON.stringify(p)));
+            client.close = () => {};
+            llmClients.push(client);
+            llm = client;
+            return client;
         },
     },
 };
@@ -188,18 +188,30 @@ async function userSays(text, { finalToo = false } = {}) {
     await tick(250);   // SUBMIT_SETTLE_MS + запас
 }
 
+const chunk = (payload) => llm.fire("C.Chunk", { data: { payload } });
+
 function modelReplies(text) {
-    llm.fire("R.Created", { data: { payload: {} } });
     for (const ch of text.match(/.{1,5}/g)) {
-        llm.fire("R.TextDelta", { data: { payload: { delta: ch } } });
+        llm.fire("C.ContentDelta", { data: { payload: { delta: ch } } });
+        chunk({ choices: [{ index: 0, delta: { content: ch }, finish_reason: null }] });
     }
-    llm.fire("R.TextDone", { data: { payload: { text } } });
-    llm.fire("R.Completed", { data: { payload: { response: { usage: {
-        input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 80 } } } } } });
+    llm.fire("C.ContentDone", { data: { payload: { content: text } } });
+    chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+    chunk({ choices: [], usage: { prompt_tokens: 100, completion_tokens: 10,
+                                  prompt_tokens_details: { cached_tokens: 80 } } });
+}
+
+function modelCallsTool(name, args, id) {
+    chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id, type: "function",
+            function: { name, arguments: "" } }] }, finish_reason: null }] });
+    const a = JSON.stringify(args);
+    chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: a.slice(0, 5) } }] } }] });
+    chunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: a.slice(5) } }] } }] });
+    chunk({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] });
 }
 
 const lastRequest = () => llm.requests[llm.requests.length - 1];
-const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) => i.content);
+const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i) => i.content);
 
 (async () => {
     appHandlers.Started({ sessionId: "sess-1" });
@@ -253,15 +265,18 @@ const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) =>
     assert(llm.requests.length === 1, "реплика не ушла в модель после тишины");
     let req = lastRequest();
     assert(req.model === "gpt-5.6-luna", "не та модель: " + req.model);
-    assert(req.instructions.indexOf("Ты ассистент.") === 0, "в instructions нет system_prompt");
-    assert(req.instructions.indexOf("Не здоровайся повторно") !== -1, "в instructions нет пометки о приветствии");
-    assert(req.store === false, "store должен быть false — историю ведёт сценарий");
-    assert(req.input[0].role === "assistant" && req.input[0].content === CONFIG.first_phrase,
+    assert(req.stream === true, "запрос не стримовый");
+    assert(req.messages[0].role === "system" && req.messages[0].content.indexOf("Ты ассистент.") === 0,
+           "первым сообщением не system_prompt");
+    assert(req.messages[0].content.indexOf("Не здоровайся повторно") !== -1, "в system нет пометки о приветствии");
+    assert(req.messages[1].role === "assistant" && req.messages[1].content === CONFIG.first_phrase,
            "приветствие не попало в историю первым");
     assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит"]),
-           "реплика абонента искажена: " + JSON.stringify(req.input));
-    assert(req.tools && req.tools[0].name === "get_price", "функции не переданы модели");
-    console.log("✅ ход: тишина VAD → запрос в gpt-5.6-luna с историей и функциями");
+           "реплика абонента искажена: " + JSON.stringify(req.messages));
+    assert(req.tools && req.tools[0].function.name === "get_price", "функции не переданы модели");
+    assert(req.reasoning_effort === "minimal", "reasoning_effort не передан");
+    assert(llm.params.storeContext === false, "storeContext должен быть false — историю ведёт сценарий");
+    console.log("✅ ход: тишина VAD → запрос в gpt-5.6-luna (Chat Completions) с историей и функциями");
 
     // ── ответ модели дельтами → Fish ───────────────────────────────────────
     createdSocket.sent = [];
@@ -304,7 +319,7 @@ const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) =>
     req = lastRequest();
     assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит доставка", "а для юрлиц"]),
            "история после уточнения неверна: " + JSON.stringify(userItems(req)));
-    assert(req.input.some((i) => i.role === "assistant" && i.content === reply.trim()),
+    assert(req.messages.some((i) => i.role === "assistant" && i.content === reply.trim()),
            "ответ агента не попал в историю");
     console.log("✅ уточнение: финал ASR исправил реплику в истории без лишнего запроса");
 
@@ -326,24 +341,25 @@ const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) =>
     const users = userItems(req);
     assert(users[users.length - 1] === "а для юрлиц тоже есть скидка",
            "реплика с паузой не склеилась: " + JSON.stringify(users));
-    assert(!req.input.some((i) => i.content === "Это ответ, который никто не услышит."),
+    assert(!req.messages.some((i) => i.content === "Это ответ, который никто не услышит."),
            "выброшенный ответ попал в историю");
     console.log("✅ пауза посреди фразы: куски склеены, недозвучавший ответ выброшен");
 
     // ── вызов функции: результат уходит обратно в модель ───────────────────
-    llm.fire("R.Created", { data: { payload: {} } });
-    llm.fire("R.ItemDone", { data: { payload: { item: {
-        type: "function_call", name: "get_price", call_id: "fc-1", arguments: "{}",
-    } } } });
-    llm.fire("R.Completed", { data: { payload: {} } });
+    modelCallsTool("get_price", { item: "массаж" }, "call_1");
     await tick(20);
-    assert(httpCalls.some((c) => c.url.indexOf("/functions/execute") !== -1), "функция не вызвана на бэкенде");
+    const fnCall = httpCalls.filter((c) => c.url.indexOf("/functions/execute") !== -1).pop();
+    assert(fnCall, "функция не вызвана на бэкенде");
+    assert(JSON.parse(fnCall.opts.postData).arguments.item === "массаж",
+           "аргументы функции склеились неверно: " + fnCall.opts.postData);
     assert(llm.requests.length === 4, "после функции модель не вызвана повторно");
     req = lastRequest();
-    const fc = req.input.find((i) => i.type === "function_call");
-    const fo = req.input.find((i) => i.type === "function_call_output");
-    assert(fc && fc.call_id === "fc-1" && fo && fo.call_id === "fc-1", "в истории нет пары function_call/output");
-    assert(JSON.parse(fo.output).price === 1000, "результат функции искажён: " + fo.output);
+    const fc = req.messages.find((i) => i.role === "assistant" && i.tool_calls);
+    const fo = req.messages.find((i) => i.role === "tool");
+    assert(fc && fc.tool_calls[0].id === "call_1" && fc.tool_calls[0].function.name === "get_price",
+           "в истории нет assistant.tool_calls: " + JSON.stringify(fc));
+    assert(fo && fo.tool_call_id === "call_1", "в истории нет ответа функции");
+    assert(JSON.parse(fo.content).price === 1000, "результат функции искажён: " + fo.content);
     modelReplies("Стоит тысячу рублей.");
     createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     await tick();
@@ -352,27 +368,33 @@ const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) =>
     // ── модель не приняла reasoning → повтор без него ──────────────────────
     await userSays("спасибо");
     assert(llm.requests.length === 5, "реплика не ушла в модель");
-    assert(lastRequest().reasoning, "reasoning не передан по умолчанию");
-    llm.fire("R.Failed", { data: { payload: { error: { message: "Unsupported parameter: reasoning.effort" } } } });
-    await tick();
+    llm.fire("C.Error", { data: { payload: { text: "Unsupported value: 'reasoning_effort' does not support 'minimal'" } } });
+    await tick(400);
     assert(llm.requests.length === 6, "после отказа по reasoning нет повтора");
-    assert(!lastRequest().reasoning, "повтор снова с reasoning");
+    assert(!lastRequest().reasoning_effort, "повтор снова с reasoning_effort");
     assert(userItems(lastRequest()).slice(-1)[0] === "спасибо", "повтор ушёл не с той репликой");
     console.log("✅ reasoning: при отказе модели ход повторяется без него");
 
+    // ── ошибка + обрыв сокета: переподключение и повтор того же хода ───────
+    const clientsBefore = llmClients.length;
+    const failedClient = llm;
+    failedClient.fire("C.Error", { data: { payload: { text: "Missing required parameter" } } });
+    failedClient.params.onWebSocketClose({ code: 1006, reason: "closed" });
+    await tick(400);
+    assert(llmClients.length === clientsBefore + 1, "после обрыва сокета клиент не переподключён");
+    assert(llm.requests.length === 7, "после переподключения ход не повторён");
+    assert(userItems(lastRequest()).slice(-1)[0] === "спасибо", "повтор после обрыва ушёл не с той репликой");
+    console.log("✅ обрыв: переподключение и повтор того же хода");
+
     // ── прощание и hangup по speech_done ───────────────────────────────────
     createdSocket.sent = [];
-    llm.fire("R.ItemDone", { data: { payload: { item: {
-        type: "function_call", name: "hangup_call", call_id: "fc-2",
-        arguments: JSON.stringify({ farewell_message: "Всего доброго!", reason: "done" }),
-    } } } });
-    llm.fire("R.Completed", { data: { payload: {} } });
+    modelCallsTool("hangup_call", { farewell_message: "Всего доброго!", reason: "done" }, "call_2");
     await tick();
 
     const farewell = createdSocket.sent.filter((m) => m.event === "text");
     assert(farewell.length === 1 && farewell[0].text === "Всего доброго!",
            "прощание не ушло в синтез: " + JSON.stringify(createdSocket.sent));
-    assert(llm.requests.length === 6, "после hangup_call модель вызвана ещё раз");
+    assert(llm.requests.length === 7, "после hangup_call модель вызвана ещё раз");
 
     assert(!call.hungup, "трубка положена до окончания прощания");
     createdSocket.fire("WebSocket.Message", {
@@ -396,6 +418,28 @@ const userItems = (req) => req.input.filter((i) => i.role === "user").map((i) =>
     assert(!roles.includes("user:а для юрлиц"), "в диалоге остался кусок до склейки");
     assert(roles.includes("assistant:Всего доброго!"), "в диалоге нет прощания");
     console.log("✅ лог: диалог с уточнениями, cost = звонок + ASR");
+
+    // ── модель недоступна: извиниться голосом и положить трубку ───────────
+    const call2 = new FakeCall();
+    await appHandlers.CallAlerting({ call: call2, destination: "74951234567" });
+    createdSocket.fire("WebSocket.Open");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    await tick();
+    await userSays("алло");
+    for (let i = 0; i < 3; i++) {
+        const dying = llm;
+        dying.fire("C.Error", { data: { payload: { text: "Service unavailable" } } });
+        dying.params.onWebSocketClose({ code: 1006, reason: "closed" });
+        await tick(400);
+    }
+    const apology = createdSocket.sent.filter((m) => m.event === "text").pop();
+    assert(apology && apology.text.indexOf("технические неполадки") !== -1,
+           "при недоступной модели нет извинения: " + JSON.stringify(createdSocket.sent));
+    assert(!call2.hungup, "трубка положена до конца извинения");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 20 }) });
+    await tick(400);
+    assert(call2.hungup, "после извинения трубка не положена");
+    console.log("✅ модель недоступна: извинение голосом, затем hangup");
 
     console.log("\nвсе проверки inbound_fish пройдены");
 })();

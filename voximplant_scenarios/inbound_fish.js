@@ -11,7 +11,7 @@ require(Modules.OpenAI);
  *           └─► Silero VAD (тишина VAD_SILENCE_MS) ────────────── конец реплики
  *                        │
  *                        ▼  реплика целиком
- *            OpenAI Responses API (gpt-5.6-luna, стрим текста)
+ *        OpenAI Chat Completions (gpt-5.6-luna, стрим текста)
  *                        │  дельты текста
  *                        ▼
  *     /ws/fish/tts/{id} (прокси Voicyfy) ──► Fish Audio ──► PCM в звонок
@@ -21,12 +21,14 @@ require(Modules.OpenAI);
  *     текста, и отдаём реплику модели. Никакого Pipecat / Smart Turn.
  *   - ASR и VAD встроены в Voximplant: свои ключи Yandex/Deepgram не нужны,
  *     распознавание тарифицируется Voximplant отдельной строкой (ASR.Stopped).
- *   - LLM: ключ из конфига (CONFIG.api_key — свой ключ пользователя или
- *     серверный, выбирает бэкенд). История диалога хранится в сценарии и
- *     уходит в каждый запрос целиком (instructions статичны → кэш промпта).
- *     Поэтому поздний финальный текст от ASR просто исправляет реплику в
- *     истории — лишнего запроса к модели не нужно.
- *   - У Responses-клиента нет отмены ответа. Перебивание = гасим звук в
+ *   - LLM: клиент Chat Completions VoxEngine, ключ из конфига (CONFIG.api_key —
+ *     свой ключ пользователя или серверный, выбирает бэкенд). История диалога
+ *     хранится в сценарии и уходит в каждый запрос целиком (system-промпт
+ *     статичен → кэш промпта), поэтому поздний финальный текст от ASR просто
+ *     исправляет реплику в истории — лишнего запроса к модели не нужно.
+ *     Responses-клиент не подошёл: на массив сообщений он отвечал
+ *     «Missing required parameter: 'input'».
+ *   - У клиента нет отмены ответа. Перебивание = гасим звук в
  *     звонке и у прокси + игнорируем остаток ответа; следующий запрос
  *     уходит, когда текущий ответ закрылся (один ответ за раз).
  *   - Fish-часть (сокет к прокси, flush/clear, speech_done, watchdog)
@@ -42,7 +44,8 @@ require(Modules.OpenAI);
 // ============================================================================
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
 var LLM_MODEL        = "gpt-5.6-luna";
-var LLM_REASONING    = "minimal";      // null — не передавать reasoning вовсе
+var LLM_REASONING    = "minimal";      // reasoning_effort; null — не передавать
+var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
 var VAD_SILENCE_MS   = 500;            // тишина, после которой реплика закончена
 var VAD_THRESHOLD    = 0.5;
 var VAD_SPEECH_PAD_MS = 30;
@@ -55,7 +58,8 @@ var TTS_WATCHDOG_MS  = 4000;           // нет звука после отпр�
 var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
 var HANGUP_TAIL_MS   = 250;            // запас после remaining_ms перед hangup
 var TTS_REOPEN_MAX   = 2;              // попыток переоткрыть сокет к прокси
-var LLM_RECONNECT_MAX = 2;             // попыток переподключить Responses-клиент
+var LLM_FAIL_MAX     = 2;              // неудачных ходов подряд до извинения и hangup
+var LLM_RETRY_DELAY_MS = 300;          // пауза перед повтором хода после ошибки
 var LLM_STUCK_MS     = 20000;          // ответ не закрылся за это время — сброс
 
 // ============================================================================
@@ -105,17 +109,22 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
     // ── LLM ─────────────────────────────────────────────────────────────────
     var llm = null;
-    var llmReconnects = 0;
+    var llmFailures = 0;         // неудачных ходов подряд
+    var llmFailedHard = false;   // модель недоступна — только прощаемся
     var llmBusy = false;         // ответ модели в процессе
     var llmDiscard = false;      // остаток текущего ответа игнорируем
     var llmPending = false;      // после закрытия ответа нужен новый запрос
     var llmStuckTimer = null;
     var llmReasoning = LLM_REASONING;
     var toolsInFlight = 0;
-    var history = [];            // input для Responses API
+    var history = [];            // сообщения диалога (без system)
     var needsFollowUp = false;   // после функций нужен ответ модели
-    var lastRequestParams = null;
-    var greetingInput = null;    // разовый input для приветствия без first_phrase
+    var lastTurnMessages = null; // сообщения последнего запроса (для повтора)
+    var respText = "";           // текст текущего ответа (ContentDelta)
+    var respChunkText = "";      // он же из сырых чанков — запасной источник
+    var respToolCalls = {};      // вызовы функций текущего ответа по index
+    var respFinished = false;
+    var greetingInput = null;    // разовые сообщения вместо истории (приветствие, повтор)
 
     // ── Сокет к прокси синтеза ──────────────────────────────────────────────
     var ttsSocket = null;
@@ -343,9 +352,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 Logger.write("   🔧 Function: " + tool.function.name + " → ID: " + functionId);
                 voximplantTools.push({
                     type: "function",
-                    name: tool.function.name,
-                    description: tool.function.description,
-                    parameters: tool.function.parameters
+                    function: {
+                        name: tool.function.name,
+                        description: tool.function.description,
+                        parameters: tool.function.parameters
+                    }
                 });
             }
         }
@@ -719,17 +730,22 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
 
     // =========================================================================
-    // LLM: RESPONSES API (gpt-5.6-luna)
+    // LLM: CHAT COMPLETIONS (gpt-5.6-luna)
     // =========================================================================
+    // Клиент Chat Completions VoxEngine: история сообщений ведётся здесь и
+    // уходит целиком в каждый запрос (storeContext: false), ответ — стримом.
+    // Responses-клиент на проде отвечал «Missing required parameter: 'input'»
+    // на массив сообщений (в примерах Voximplant input у него только строка),
+    // а для Chat Completions ровно этот режим описан в документации.
 
     function eventPayload(event) {
         return (event && event.data && event.data.payload) || (event && event.data) || {};
     }
 
     // Один ответ за раз: у клиента нет отмены, поэтому новый запрос уходит
-    // только после того, как текущий ответ закрылся (Completed / Failed /
-    // Incomplete / Error). Если в этот момент ответ ещё идёт — помечаем его
-    // «выбросить» и ставим новый запрос в очередь.
+    // только после того, как текущий ответ закрылся (finish_reason / ошибка).
+    // Если в этот момент ответ ещё идёт — помечаем его «выбросить» и ставим
+    // новый запрос в очередь.
     function requestResponse() {
         if (isHangingUp) return;
         if (llmBusy) {
@@ -742,47 +758,50 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
 
     function sendRequest() {
-        if (isHangingUp || !llm) return;
+        if (isHangingUp || !llm || llmFailedHard) return;
 
-        var input = greetingInput || history.slice();
+        var turnMessages = greetingInput || history;
         greetingInput = null;
+        var messages = [{ role: "system", content: INSTRUCTIONS }].concat(turnMessages);
 
         var params = {
             model: LLM_MODEL,
-            instructions: INSTRUCTIONS,
-            input: input,
-            store: false
+            messages: messages,
+            stream: true,
+            stream_options: { include_usage: true }
         };
         if (voximplantTools.length > 0) {
             params.tools = voximplantTools;
             params.tool_choice = "auto";
         }
-        if (llmReasoning) params.reasoning = { effort: llmReasoning };
+        if (llmReasoning) params.reasoning_effort = llmReasoning;
 
         llmBusy = true;
         llmDiscard = false;
         llmPending = false;
         isInterrupted = false;
+        respText = "";
+        respChunkText = "";
+        respToolCalls = {};
+        respFinished = false;
+        lastTurnMessages = turnMessages;
         var vadStop = mVadStop;
         resetTurnState();
         mVadStop = vadStop;          // метрику текущего хода сохраняем
         mReqSent = Date.now();
-        lastRequestParams = params;
 
         if (llmStuckTimer) clearTimeout(llmStuckTimer);
         llmStuckTimer = setTimeout(function() {
             llmStuckTimer = null;
             if (!llmBusy) return;
-            Logger.write("⚠️ [LLM] ответ не закрылся за " + LLM_STUCK_MS + "ms — сброс");
-            onResponseClosed("stuck");
+            onLlmError("ответ не закрылся за " + LLM_STUCK_MS + "ms");
         }, LLM_STUCK_MS);
 
         try {
-            llm.createResponses(params);
-            Logger.write("[LLM] → request (" + input.length + " items)");
+            llm.createChatCompletions(params);
+            Logger.write("[LLM] → request (" + messages.length + " messages)");
         } catch (err) {
-            Logger.write("❌ [LLM] createResponses failed: " + err);
-            onResponseClosed("send error");
+            onLlmError("createChatCompletions failed: " + err);
         }
     }
 
@@ -797,145 +816,189 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
 
     function maybeContinue() {
-        if (llmBusy || toolsInFlight > 0 || isHangingUp) return;
+        if (llmBusy || toolsInFlight > 0 || isHangingUp || !llm) return;
         if (llmPending || needsFollowUp) {
             needsFollowUp = false;
             sendRequest();
         }
     }
 
-    function onResponseFailed(kind, payload) {
-        var text = JSON.stringify(payload || {});
-        Logger.write("❌ [LLM] " + kind + ": " + text.substring(0, 500));
-        // Модель может не принять reasoning.effort — повторяем тот же ход без
-        // него и больше не передаём до конца звонка.
-        if (llmReasoning && /reasoning|effort/i.test(text) && lastRequestParams && !llmDiscard) {
-            Logger.write("[LLM] повтор без reasoning");
+    // Ошибка хода. Тот же ход повторяем (после переподключения, если сокет
+    // закрылся вслед за ошибкой). reasoning_effort, который модель не приняла,
+    // убираем без счёта попыток. После LLM_FAIL_MAX неудач подряд извиняемся
+    // и кладём трубку — молчать в трубку хуже.
+    function onLlmError(text) {
+        Logger.write("❌ [LLM] " + String(text).substring(0, 500));
+        if (!llmBusy) return;
+        llmBusy = false;
+        if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+
+        if (llmReasoning && /reasoning/i.test(text)) {
+            Logger.write("[LLM] модель не приняла reasoning_effort — повтор без него");
             llmReasoning = null;
-            llmBusy = false;
-            if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
-            var retry = lastRequestParams;
-            delete retry.reasoning;
-            greetingInput = retry.input;
-            sendRequest();
-            return;
+        } else {
+            llmFailures++;
         }
-        onResponseClosed(kind);
+        if (llmFailures > LLM_FAIL_MAX) { failGracefully(); return; }
+
+        if (!llmDiscard) {
+            greetingInput = lastTurnMessages === history ? null : lastTurnMessages;
+            llmPending = true;
+        }
+        // Сокет после ошибки обычно закрывается следом — даём ему это сделать,
+        // повтор тогда уйдёт из обработчика переподключения.
+        setTimeout(maybeContinue, LLM_RETRY_DELAY_MS);
+    }
+
+    function failGracefully() {
+        if (llmFailedHard) return;
+        llmFailedHard = true;
+        llmPending = false;
+        needsFollowUp = false;
+        Logger.write("❌ [LLM] модель недоступна — извиняемся и завершаем звонок");
+        if (isHangingUp || hangupAfterSpeech) return;
+        stopSpeaking();
+        resetTurnState();
+        logDialog("assistant", FAIL_PHRASE);
+        hangupAfterSpeech = true;
+        speak(FAIL_PHRASE, true);
+        hangupGuardTimer = setTimeout(function() { finishHangup("guard timeout"); }, HANGUP_GUARD_MS);
     }
 
     async function connectLlm() {
-        llm = await OpenAI.createResponsesAPIClient({
+        var client = await OpenAI.createChatCompletionsAPIClient({
             apiKey: CONFIG.api_key,
             storeContext: false,
             onWebSocketClose: function(ev) {
-                Logger.write("[LLM] WS closed: " + JSON.stringify(ev || {}));
-                if (isHangingUp) return;
+                if (client !== llm) return;          // закрылся уже заменённый клиент
+                Logger.write("[LLM] WS closed: " + JSON.stringify(ev && { code: ev.code, reason: ev.reason }));
                 llm = null;
-                if (llmBusy) onResponseClosed("ws closed");
-                if (llmReconnects >= LLM_RECONNECT_MAX) {
-                    Logger.write("❌ [LLM] переподключения исчерпаны — завершаем звонок");
-                    try { call.hangup(); } catch (err) {}
-                    return;
-                }
-                llmReconnects++;
-                Logger.write("[LLM] переподключение (попытка " + llmReconnects + ")");
+                if (isHangingUp || llmFailedHard) return;
+                if (llmBusy) onLlmError("сокет закрылся посреди ответа");
+                if (llmFailedHard) return;
+                Logger.write("[LLM] переподключение");
                 connectLlm().then(function() {
                     Logger.write("[LLM] ✅ переподключено");
                     maybeContinue();
                 }).catch(function(err) {
                     Logger.write("❌ [LLM] reconnect failed: " + err);
+                    failGracefully();
                 });
             }
         });
-        attachLlmListeners(llm);
+        attachLlmListeners(client);
+        llm = client;
     }
 
     function attachLlmListeners(client) {
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseCreated, function() {
-            if (llmDiscard) return;
-            Logger.write("[LLM] response started (+" + (Date.now() - mReqSent) + "ms)");
-        });
-
         // Дельты текста → в Fish пачками
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseTextDelta, function(event) {
-            if (!callAnswered || llmDiscard || isInterrupted || isHangingUp) return;
+        client.addEventListener(OpenAI.ChatCompletionsAPIEvents.ContentDelta, function(event) {
+            if (client !== llm || !llmBusy || llmDiscard || isHangingUp) return;
             var delta = eventPayload(event).delta || "";
             if (!delta) return;
-            if (!mFirstDelta) mFirstDelta = Date.now();
+            if (!mFirstDelta) {
+                mFirstDelta = Date.now();
+                Logger.write("[LLM] first token +" + (mFirstDelta - mReqSent) + "ms");
+            }
+            respText += delta;
+            if (isInterrupted || !callAnswered) return;
             pushDelta(cleanForTTS(delta));
             maybeEarlyFlush();
         });
 
-        // Текст ответа закончен — в историю и flush хвоста в Fish
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseTextDone, function(event) {
-            if (llmDiscard || isHangingUp) return;
-            var text = eventPayload(event).text || "";
-            if (!text || !text.trim()) return;
-
-            Logger.write("🤖 AGENT: \"" + text.substring(0, 80) + "\"");
-            history.push({ role: "assistant", content: text.trim() });
-            logDialog("assistant", text.trim());
-
-            if (isInterrupted) return;
-            if (!turnStarted && !deltaBuffer) {
-                // Дельты не приходили (ответ отдан одним куском) — озвучиваем целиком.
-                turnFullText = cleanForTTS(text);
-                speak(turnFullText, true);
-            } else {
-                endTurn();
+        // Сырые чанки: вызовы функций, конец ответа, расход токенов
+        client.addEventListener(OpenAI.ChatCompletionsAPIEvents.Chunk, function(event) {
+            if (client !== llm) return;
+            var p = eventPayload(event);
+            if (p.usage) {
+                stats.inputTokens += p.usage.prompt_tokens || 0;
+                stats.outputTokens += p.usage.completion_tokens || 0;
+                var det = p.usage.prompt_tokens_details;
+                stats.cachedTokens += (det && det.cached_tokens) || 0;
             }
-        });
-
-        // Вызовы функций приходят целиком в OutputItemDone
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseOutputItemDone, function(event) {
-            var item = eventPayload(event).item;
-            if (!item || item.type !== "function_call") return;
-            if (llmDiscard || isHangingUp) return;
-            handleFunctionCall(item);
-        });
-
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseCompleted, function(event) {
-            try {
-                var resp = eventPayload(event).response;
-                var usage = resp && resp.usage;
-                if (usage) {
-                    stats.inputTokens += usage.input_tokens || 0;
-                    stats.outputTokens += usage.output_tokens || 0;
-                    var det = usage.input_tokens_details;
-                    stats.cachedTokens += (det && det.cached_tokens) || 0;
+            var choice = p.choices && p.choices[0];
+            if (!choice || !llmBusy) return;
+            var d = choice.delta || {};
+            if (d.content) respChunkText += d.content;
+            if (d.tool_calls) {
+                for (var i = 0; i < d.tool_calls.length; i++) {
+                    var tc = d.tool_calls[i];
+                    var key = tc.index !== undefined ? tc.index : i;
+                    var acc = respToolCalls[key] || (respToolCalls[key] = { id: "", name: "", arguments: "" });
+                    if (tc.id) acc.id = tc.id;
+                    if (tc.function && tc.function.name) acc.name += tc.function.name;
+                    if (tc.function && tc.function.arguments) acc.arguments += tc.function.arguments;
                 }
-            } catch (err) {}
-            onResponseClosed("completed");
+            }
+            if (choice.finish_reason) finishResponse(choice.finish_reason);
         });
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseIncomplete, function(event) {
-            Logger.write("⚠️ [LLM] incomplete: " + JSON.stringify(eventPayload(event)).substring(0, 300));
-            onResponseClosed("incomplete");
+
+        client.addEventListener(OpenAI.ChatCompletionsAPIEvents.ChatCompletionsAPIError, function(event) {
+            if (client !== llm) return;
+            onLlmError(JSON.stringify(eventPayload(event)));
         });
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseFailed, function(event) {
-            onResponseFailed("failed", eventPayload(event));
-        });
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponseError, function(event) {
-            onResponseFailed("error", eventPayload(event));
-        });
-        client.addEventListener(OpenAI.ResponsesAPIEvents.ResponsesAPIError, function(event) {
-            onResponseFailed("api error", eventPayload(event));
-        });
+    }
+
+    // Ответ модели целиком: текст — в историю и дожать в Fish, вызовы функций —
+    // выполнить. Одно сообщение assistant на ответ (текст + tool_calls вместе),
+    // иначе следующий запрос OpenAI отклонит.
+    function finishResponse(reason) {
+        if (respFinished) return;
+        respFinished = true;
+
+        if (llmDiscard || isHangingUp) { onResponseClosed(reason); return; }
+
+        llmFailures = 0;
+        var text = (respText || respChunkText).trim();
+        var calls = [];
+        for (var k in respToolCalls) {
+            if (respToolCalls[k].name) calls.push(respToolCalls[k]);
+        }
+
+        var msg = { role: "assistant", content: text || null };
+        if (calls.length > 0) {
+            msg.tool_calls = calls.map(function(c, i) {
+                if (!c.id) c.id = "call_" + Date.now() + "_" + i;
+                return { id: c.id, type: "function", function: { name: c.name, arguments: c.arguments || "{}" } };
+            });
+        }
+        if (text || calls.length > 0) history.push(msg);
+
+        if (text) {
+            Logger.write("🤖 AGENT: \"" + text.substring(0, 80) + "\"");
+            logDialog("assistant", text);
+            if (!isInterrupted) {
+                if (!turnStarted && !deltaBuffer) {
+                    // Дельты не приходили (ответ отдан одним куском) — озвучиваем целиком.
+                    turnFullText = cleanForTTS(text);
+                    speak(turnFullText, true);
+                } else {
+                    endTurn();
+                }
+            }
+        }
+
+        for (var j = 0; j < calls.length; j++) handleFunctionCall(calls[j]);
+
+        onResponseClosed(reason);
     }
 
     // =========================================================================
     // FUNCTION CALLS
     // =========================================================================
-    async function handleFunctionCall(item) {
-        var functionName = item.name;
-        var callId = item.call_id;
+    async function handleFunctionCall(tc) {
+        var functionName = tc.name;
+        var callId = tc.id;
         var args = {};
-        try { args = JSON.parse(item.arguments || "{}"); } catch (err) {}
+        try { args = JSON.parse(tc.arguments || "{}"); } catch (err) {}
         Logger.write("🔧 FUNCTION CALL: " + functionName);
 
         if (functionName === "hangup_call") {
             Logger.write("📴 HANGUP CALL requested");
             lastFunctionResult = { action: "call_terminated", reason: args.reason || "user request" };
-            llmDiscard = true;   // остаток ответа не озвучиваем
+            history.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(lastFunctionResult) });
+            llmPending = false;
+            needsFollowUp = false;
 
             if (args.farewell_message && args.farewell_message.trim()) {
                 var farewell = cleanForTTS(args.farewell_message.trim());
@@ -948,16 +1011,20 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 hangupGuardTimer = setTimeout(function() {
                     finishHangup("guard timeout");
                 }, HANGUP_GUARD_MS);
+            } else if (isAgentAudible()) {
+                // Модель попрощалась текстом в том же ответе — дадим договорить.
+                hangupAfterSpeech = true;
+                hangupGuardTimer = setTimeout(function() {
+                    finishHangup("guard timeout");
+                }, HANGUP_GUARD_MS);
             } else {
                 call.hangup();
             }
             return;
         }
 
-        // Пара function_call + function_call_output обязательна в истории:
-        // без output следующий запрос OpenAI отклонит.
-        history.push({ type: "function_call", call_id: callId, name: functionName,
-                       arguments: item.arguments || "{}" });
+        // Пара tool_calls + tool обязательна в истории: без ответа функции
+        // следующий запрос OpenAI отклонит.
         toolsInFlight++;
         needsFollowUp = true;
 
@@ -997,7 +1064,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             output = { error: "Function execution failed" };
         }
 
-        history.push({ type: "function_call_output", call_id: callId, output: JSON.stringify(output) });
+        history.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(output) });
         toolsInFlight--;
         maybeContinue();
     }
@@ -1178,7 +1245,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // =========================================================================
     // ПОДКЛЮЧЕНИЕ: LLM + VAD (до ответа на звонок)
     // =========================================================================
-    Logger.write("🔌 Connecting to OpenAI Responses API + Silero VAD...");
+    Logger.write("🔌 Connecting to OpenAI Chat Completions + Silero VAD...");
 
     try {
         await connectLlm();

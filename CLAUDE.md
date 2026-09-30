@@ -399,7 +399,8 @@ AEC). Откат виджета: env `WIDGET_OPENAI_TRANSPORT=realtime`; demo и
 
 `voximplant_scenarios/inbound_fish.js` v2.0 (имя сценария то же, бэкенд не менялся): ASR Voximplant
 (Yandex v2, interim; Deepgram — константа `ASR_PROVIDER`) + Silero VAD (тишина 500 мс, без Pipecat) →
-gpt-5.6-luna через OpenAI Responses API на `CONFIG.api_key` → Fish через прокси `/ws/fish/tts/{id}`.
+gpt-5.6-luna через клиент Chat Completions VoxEngine на `CONFIG.api_key` → Fish через прокси `/ws/fish/tts/{id}`.
+Responses-клиент VoxEngine не использовать: массив сообщений в `input` он отвергает (`Missing required parameter: 'input'`).
 Модель, паузу и провайдера ASR задают константы в начале сценария; `CONFIG.model` и
 `DEFAULT_FISH_LLM_MODEL` (gpt-realtime-2.1) не трогать — их использует `outbound_fish.js`, который
 остаётся на Realtime. Тест: `node voximplant_scenarios/test_inbound_fish.js`. Подробности — README сценариев.
