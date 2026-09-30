@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from backend.core.logging import get_logger
 from backend.db.session import get_db
 from backend.websockets.handler_fish_tts import handle_fish_tts_connection
+from backend.websockets.handler_llm_proxy import handle_llm_proxy_connection
 
 logger = get_logger(__name__)
 
@@ -57,6 +58,29 @@ async def fish_tts_websocket_endpoint(
         logger.error(f"[FISH-WS] WebSocket error for assistant {assistant_id}: {e}")
         logger.error(f"[FISH-WS] Traceback: {traceback.format_exc()}")
 
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except Exception:
+            pass
+
+
+@router.websocket("/ws/fish/llm/{assistant_id}")
+async def fish_llm_websocket_endpoint(
+    websocket: WebSocket,
+    assistant_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    🧠 Прокси OpenAI Chat Completions для каскада inbound_fish.js
+    (быстрее коннектора Voximplant, см. handler_llm_proxy.py).
+    """
+    try:
+        logger.info(f"[FISH-WS] New LLM connection: assistant_id={assistant_id}")
+        await handle_llm_proxy_connection(websocket=websocket, assistant_id=assistant_id, db=db)
+    except WebSocketDisconnect:
+        logger.info(f"[FISH-WS] LLM scenario disconnected: assistant_id={assistant_id}")
+    except Exception as e:
+        logger.error(f"[FISH-WS] LLM WebSocket error for assistant {assistant_id}: {e}")
         try:
             await websocket.close(code=1011, reason="Internal server error")
         except Exception:

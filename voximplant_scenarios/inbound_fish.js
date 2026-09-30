@@ -21,16 +21,19 @@ require(Modules.OpenAI);
  *     текста, и отдаём реплику модели. Никакого Pipecat / Smart Turn.
  *   - ASR и VAD встроены в Voximplant: свои ключи Yandex/Deepgram не нужны,
  *     распознавание тарифицируется Voximplant отдельной строкой (ASR.Stopped).
- *   - LLM: клиент Chat Completions VoxEngine, ключ из конфига (CONFIG.api_key —
- *     свой ключ пользователя или серверный, выбирает бэкенд). История диалога
+ *   - LLM: по умолчанию через наш прокси /ws/fish/llm/{id} (LLM_TRANSPORT =
+ *     "proxy"): бэкенд держит тёплое соединение с OpenAI, ключ остаётся на
+ *     сервере, ответ можно оборвать (cancel). Коннектор Voximplant
+ *     (OpenAI.createChatCompletionsAPIClient, ключ CONFIG.api_key) оставлен
+ *     откатом — он добавлял к первому токену 0.5–3.5 с. История диалога
  *     хранится в сценарии и уходит в каждый запрос целиком (system-промпт
  *     статичен → кэш промпта), поэтому поздний финальный текст от ASR просто
  *     исправляет реплику в истории — лишнего запроса к модели не нужно.
  *     Responses-клиент не подошёл: на массив сообщений он отвечал
  *     «Missing required parameter: 'input'».
- *   - У клиента нет отмены ответа. Перебивание = гасим звук в
- *     звонке и у прокси + игнорируем остаток ответа; следующий запрос
- *     уходит, когда текущий ответ закрылся (один ответ за раз).
+ *   - Один ответ за раз. Через прокси лишний ответ обрывается сразу
+ *     (перебивание, новая реплика); у коннектора отмены нет — там остаток
+ *     игнорируем и ждём, пока ответ закроется.
  *   - Fish-часть (сокет к прокси, flush/clear, speech_done, watchdog)
  *     перенесена из v1.0 без изменений.
  *
@@ -43,6 +46,7 @@ require(Modules.OpenAI);
 // КОНСТАНТЫ (крутить здесь, логику не трогать)
 // ============================================================================
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
+var LLM_TRANSPORT    = "proxy";        // "proxy" — наш сокет /ws/fish/llm/{id} (первый токен ~0.6 с); "connector" — клиент Chat Completions Voximplant (давал 1.1–4.2 с)
 var LLM_MODEL        = "gpt-6-luna";   // замер с Render: первый токен ~0.7 с стабильно (gpt-5.6-luna — медиана 0.6 с, но выбросы до 2.3 с), цена та же
 var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений (у luna: none/low/medium/high/xhigh, minimal нет); null — не передавать
 var LLM_SERVICE_TIER = "priority";     // приоритетная обработка OpenAI: первый токен ~0.57 с против ~0.88 с, цена x2 (~0.1 ₽ на звонок); null — обычная
@@ -53,10 +57,9 @@ var VAD_SPEECH_PAD_MS = 30;
 var SUBMIT_SETTLE_MS = 50;             // ждём хвост текста от ASR после тишины (на проде текст готов раньше)
 var EMPTY_TEXT_WAIT_MS = 900;          // сколько ждать текст, если ASR ещё молчит
 var BARGE_IN_MIN_MS  = 300;            // речь поверх агента короче — не перебивание
-var FIRST_FLUSH_MIN  = 25;             // ранний flush первого предложения реплики
+var FIRST_FLUSH_MIN  = 18;             // ранний flush первого предложения реплики («Здравствуйте, слушаю.» — уже отдельным куском)
 var FIRST_CLAUSE_MIN = 18;             // ...или первой части фразы до запятой/тире, если она не короче
-var TEXT_BATCH_MIN   = 40;
-var WARMUP_MAX_TOKENS = 16;           // прогрев кэша промпта: ответ не нужен, режем сразу             // копим дельты до этой длины перед отправкой
+var TEXT_BATCH_MIN   = 40;             // копим дельты до этой длины перед отправкой
 var TTS_WATCHDOG_MS  = 4000;           // нет звука после отправки текста → тревога
 var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
 var HANGUP_TAIL_MS   = 250;            // запас после remaining_ms перед hangup
@@ -64,6 +67,7 @@ var TTS_REOPEN_MAX   = 2;              // попыток переоткрыть 
 var LLM_FAIL_MAX     = 2;              // неудачных ходов подряд до извинения и hangup
 var LLM_RETRY_DELAY_MS = 300;          // пауза перед повтором хода после ошибки
 var LLM_STUCK_MS     = 20000;          // ответ не закрылся за это время — сброс
+var LLM_PROXY_OPEN_MS = 5000;          // ждать открытия сокета к прокси модели
 
 // ============================================================================
 // ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ БИЛЛИНГА
@@ -118,7 +122,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var llmFailedHard = false;   // модель недоступна — только прощаемся
     var llmBusy = false;         // ответ модели в процессе
     var llmDiscard = false;      // остаток текущего ответа игнорируем
-    var llmWarmup = false;       // идёт прогревочный запрос (кэш промпта)
     var llmPending = false;      // после закрытия ответа нужен новый запрос
     var llmStuckTimer = null;
     var llmReasoning = LLM_REASONING;
@@ -159,7 +162,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
     // ── Метрики ─────────────────────────────────────────────────────────────
     var mVadStop = 0, mReqSent = 0, mFirstDelta = 0, mFirstText = 0;
-    var mWarmupSent = 0;
     var stats = { turns: 0, bargeIns: 0, retracts: 0, corrections: 0, dropped: 0,
                   inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
 
@@ -808,60 +810,28 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return (event && event.data && event.data.payload) || (event && event.data) || {};
     }
 
-    // Прогрев: пока звучит приветствие (~3 с), шлём модели тот же префикс,
-    // что уйдёт в первый ход (tools + system + приветствие), и выбрасываем
-    // ответ. OpenAI кэширует префикс, и первый настоящий ход идёт по кэшу:
-    // без прогрева первый токен на первом ходе приходил за ~3.4 с против
-    // ~1 с на последующих. Ход абонента, пришедший раньше, ждёт закрытия
-    // прогрева через обычную очередь (llmPending).
-    function warmupLlm() {
-        if (llmBusy || !llm || isHangingUp || llmFailedHard) return;
-        var params = {
-            model: LLM_MODEL,
-            messages: [{ role: "system", content: INSTRUCTIONS }].concat(history)
-                .concat([{ role: "user", content: "Алло" }]),
-            stream: true,
-            stream_options: { include_usage: true },
-            max_completion_tokens: WARMUP_MAX_TOKENS
-        };
-        if (voximplantTools.length > 0) {
-            params.tools = voximplantTools;
-            params.tool_choice = "auto";
-        }
-        if (llmReasoning) params.reasoning_effort = llmReasoning;
-        if (llmServiceTier) params.service_tier = llmServiceTier;
-
-        llmBusy = true;
-        llmDiscard = true;
-        llmWarmup = true;
-        respFinished = false;
-        mWarmupSent = Date.now();
-        if (llmStuckTimer) clearTimeout(llmStuckTimer);
-        llmStuckTimer = setTimeout(function() {
-            llmStuckTimer = null;
-            if (llmBusy && llmWarmup) onLlmError("прогрев не закрылся за " + LLM_STUCK_MS + "ms");
-        }, LLM_STUCK_MS);
-        try {
-            llm.createChatCompletions(params);
-            Logger.write("[LLM] 🔥 прогрев кэша промпта");
-        } catch (err) {
-            onLlmError("warmup failed: " + err);
-        }
-    }
-
-    // Один ответ за раз: у клиента нет отмены, поэтому новый запрос уходит
-    // только после того, как текущий ответ закрылся (finish_reason / ошибка).
-    // Если в этот момент ответ ещё идёт — помечаем его «выбросить» и ставим
-    // новый запрос в очередь.
+    // Один ответ за раз. Если ответ ещё идёт — выбрасываем его: прокси
+    // обрывает запрос сразу, а у коннектора отмены нет, и новый запрос уйдёт,
+    // когда текущий закроется (finish_reason / ошибка).
     function requestResponse() {
         if (isHangingUp) return;
         if (llmBusy) {
-            llmDiscard = true;
             llmPending = true;
-            Logger.write("[LLM] ответ ещё идёт — новый запрос после его закрытия");
+            if (!discardResponse()) Logger.write("[LLM] ответ ещё идёт — новый запрос после его закрытия");
             return;
         }
         sendRequest();
+    }
+
+    // Выбросить текущий ответ. true — оборван сразу (прокси), дальше
+    // onResponseClosed → maybeContinue; false — дочитываем и игнорируем.
+    function discardResponse() {
+        if (!llmBusy) return false;
+        llmDiscard = true;
+        if (!llm || !llm.cancel) return false;
+        llm.cancel();
+        onResponseClosed("cancelled");
+        return true;
     }
 
     function sendRequest() {
@@ -919,12 +889,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!llmBusy) return;
         llmBusy = false;
         if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
-        if (llmWarmup) {
-            llmWarmup = false;
-            Logger.write("[LLM] 🔥 прогрев готов +" + (Date.now() - mWarmupSent) + "ms");
-            maybeContinue();
-            return;
-        }
         Logger.write("[LLM] response closed (" + reason + ")" + (llmDiscard ? " [discarded]" : ""));
         maybeContinue();
     }
@@ -946,14 +910,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!llmBusy) return;
         llmBusy = false;
         if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
-
-        // Прогрев не удался — не страшно: попыток не считаем и ничего не
-        // повторяем, первый настоящий ход просто пойдёт без кэша.
-        if (llmWarmup) {
-            llmWarmup = false;
-            setTimeout(maybeContinue, LLM_RETRY_DELAY_MS);
-            return;
-        }
 
         if (llmReasoning && /reasoning/i.test(text)) {
             Logger.write("[LLM] модель не приняла reasoning_effort — повтор без него");
@@ -991,28 +947,113 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
 
     async function connectLlm() {
-        var client = await OpenAI.createChatCompletionsAPIClient({
-            apiKey: CONFIG.api_key,
-            storeContext: false,
-            onWebSocketClose: function(ev) {
-                if (client !== llm) return;          // закрылся уже заменённый клиент
-                Logger.write("[LLM] WS closed: " + JSON.stringify(ev && { code: ev.code, reason: ev.reason }));
-                llm = null;
-                if (isHangingUp || llmFailedHard) return;
-                if (llmBusy) onLlmError("сокет закрылся посреди ответа");
-                if (llmFailedHard) return;
-                Logger.write("[LLM] переподключение");
-                connectLlm().then(function() {
-                    Logger.write("[LLM] ✅ переподключено");
-                    maybeContinue();
-                }).catch(function(err) {
-                    Logger.write("❌ [LLM] reconnect failed: " + err);
-                    failGracefully();
-                });
-            }
-        });
+        var client;
+        if (LLM_TRANSPORT === "proxy") {
+            client = await createProxyLlmClient(function(ev) { onLlmSocketClosed(client, ev); });
+        } else {
+            client = await OpenAI.createChatCompletionsAPIClient({
+                apiKey: CONFIG.api_key,
+                storeContext: false,
+                onWebSocketClose: function(ev) { onLlmSocketClosed(client, ev); }
+            });
+        }
         attachLlmListeners(client);
         llm = client;
+    }
+
+    function onLlmSocketClosed(client, ev) {
+        if (client !== llm) return;          // закрылся уже заменённый клиент
+        Logger.write("[LLM] WS closed: " + JSON.stringify(ev && { code: ev.code, reason: ev.reason }));
+        llm = null;
+        if (isHangingUp || llmFailedHard) return;
+        if (llmBusy) onLlmError("сокет закрылся посреди ответа");
+        if (llmFailedHard) return;
+        Logger.write("[LLM] переподключение");
+        connectLlm().then(function() {
+            Logger.write("[LLM] ✅ переподключено");
+            maybeContinue();
+        }).catch(function(err) {
+            Logger.write("❌ [LLM] reconnect failed: " + err);
+            failGracefully();
+        });
+    }
+
+    // Клиент нашего прокси /ws/fish/llm/{id} с тем же интерфейсом, что у
+    // коннектора Voximplant: createChatCompletions(params) + события
+    // ContentDelta / Chunk / ChatCompletionsAPIError. Плюс cancel(): прокси
+    // обрывает запрос к OpenAI. Сообщения чужого (оборванного) запроса
+    // отбрасываются по id.
+    function createProxyLlmClient(onClose) {
+        var url = String(CONFIG.fish_tts_url || "").replace("/ws/fish/tts/", "/ws/fish/llm/");
+        var E = OpenAI.ChatCompletionsAPIEvents;
+        var handlers = {};
+        var seq = 0;
+        var curId = null;
+        var opened = false;
+        var closed = false;
+        var ws = VoxEngine.createWebSocket(url);
+        var client = {
+            addEventListener: function(name, cb) { (handlers[name] = handlers[name] || []).push(cb); },
+            createChatCompletions: function(params) {
+                if (closed) throw new Error("proxy socket closed");
+                curId = ++seq;
+                ws.send(JSON.stringify({ event: "request", id: curId, payload: params }));
+            },
+            cancel: function() {
+                if (curId === null) return;
+                try { ws.send(JSON.stringify({ event: "cancel", id: curId })); } catch (err) {}
+                curId = null;
+            },
+            close: function() { closed = true; try { ws.close(); } catch (err) {} }
+        };
+        function fire(name, payload) {
+            var list = handlers[name] || [];
+            for (var i = 0; i < list.length; i++) list[i]({ data: { payload: payload } });
+        }
+        return new Promise(function(resolve, reject) {
+            var openTimer = setTimeout(function() {
+                if (opened) return;
+                closed = true;
+                try { ws.close(); } catch (err) {}
+                reject(new Error("LLM proxy не открылся за " + LLM_PROXY_OPEN_MS + "ms"));
+            }, LLM_PROXY_OPEN_MS);
+            ws.addEventListener(WebSocketEvents.OPEN, function() {
+                opened = true;
+                clearTimeout(openTimer);
+                Logger.write("[LLM] ✅ proxy socket open: " + url);
+                resolve(client);
+            });
+            ws.addEventListener(WebSocketEvents.MESSAGE, function(e) {
+                var msg;
+                try { msg = JSON.parse(e.text); } catch (err) { return; }
+                if (!msg || msg.id === undefined || msg.id !== curId) return;
+                if (msg.event === "chunk") {
+                    var p = msg.payload || {};
+                    var c = p.choices && p.choices[0];
+                    if (c && c.delta && c.delta.content) fire(E.ContentDelta, { delta: c.delta.content });
+                    fire(E.Chunk, p);
+                } else if (msg.event === "error") {
+                    curId = null;
+                    fire(E.ChatCompletionsAPIError, { text: msg.message || "proxy error" });
+                } else if (msg.event === "done") {
+                    curId = null;
+                    // На случай стрима без finish_reason — закрыть ответ всё равно.
+                    fire(E.Chunk, { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+                }
+            });
+            function onEnd(ev) {
+                if (closed) return;
+                closed = true;
+                if (!opened) {
+                    clearTimeout(openTimer);
+                    reject(new Error("LLM proxy: " + JSON.stringify(ev && { code: ev.code, reason: ev.reason })));
+                    return;
+                }
+                onClose(ev);
+            }
+            ws.addEventListener(WebSocketEvents.CLOSE, onEnd);
+            ws.addEventListener(WebSocketEvents.ERROR, onEnd);
+        });
     }
 
     function attachLlmListeners(client) {
@@ -1216,7 +1257,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         isInterrupted = true;
         disarmWatchdog();
         stopSpeaking();
-        if (llmBusy) llmDiscard = true;
+        discardResponse();
         turnStarted = false;
         firstFlushDone = false;
         deltaBuffer = "";
@@ -1233,10 +1274,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (idx !== -1) dialogLog.splice(idx, 1);
         turnFinal = (submitted.text + " " + turnFinal).trim();
         retractedText = submitted.text;
-        llmDiscard = true;
-        stats.retracts++;
-        Logger.write("[TURN] ↩ абонент продолжил — объединяем с \"" + submitted.text.substring(0, 60) + "\"");
         submitted = null;
+        discardResponse();
+        stats.retracts++;
+        Logger.write("[TURN] ↩ абонент продолжил — объединяем с \"" + retractedText.substring(0, 60) + "\"");
         return true;
     }
 
@@ -1402,7 +1443,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // =========================================================================
     // ПОДКЛЮЧЕНИЕ: LLM + VAD (до ответа на звонок)
     // =========================================================================
-    Logger.write("🔌 Connecting to OpenAI Chat Completions + Silero VAD...");
+    Logger.write("🔌 Connecting to LLM (" + LLM_TRANSPORT + ") + Silero VAD...");
 
     try {
         await connectLlm();
@@ -1450,7 +1491,6 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             logDialog("assistant", phrase);
             turnFullText = phrase;
             speak(phrase, true);
-            warmupLlm();
             return;
         }
 

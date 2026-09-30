@@ -397,13 +397,16 @@ AEC). Откат виджета: env `WIDGET_OPENAI_TRANSPORT=realtime`; demo и
 
 ## Входящие Fish: каскад ASR → gpt-6-luna → Fish (ветка 2709-skills)
 
-`voximplant_scenarios/inbound_fish.js` v2.0 (имя сценария то же, бэкенд не менялся): ASR Voximplant
+`voximplant_scenarios/inbound_fish.js` v2.0 (имя сценария то же): ASR Voximplant
 (Yandex v2, interim; Deepgram — константа `ASR_PROVIDER`) + Silero VAD (тишина 500 мс, без Pipecat) →
-gpt-6-luna через клиент Chat Completions VoxEngine на `CONFIG.api_key` → Fish через прокси `/ws/fish/tts/{id}`.
+gpt-6-luna (priority) через наш прокси `/ws/fish/llm/{id}` (`backend/websockets/handler_llm_proxy.py`,
+роут в `fish_ws.py`; ключ OpenAI на сервере, `cancel` обрывает ответ) → Fish через прокси `/ws/fish/tts/{id}`.
+Коннектор Voximplant `createChatCompletionsAPIClient` (на `CONFIG.api_key`) давал первый токен 1.1–4.2 с
+против 0.5–0.65 с с Render — оставлен откатом `LLM_TRANSPORT = "connector"`. Прогрева кэша больше нет.
 Responses-клиент VoxEngine не использовать: массив сообщений в `input` он отвергает (`Missing required parameter: 'input'`).
 Модель, паузу и провайдера ASR задают константы в начале сценария; `CONFIG.model` и
 `DEFAULT_FISH_LLM_MODEL` (gpt-realtime-2.1) не трогать — их использует `outbound_fish.js`, который
-остаётся на Realtime. Во время приветствия — прогрев кэша промпта (тот же префикс, ответ выбрасывается), первый flush в Fish режется строго по знаку препинания. Тест: `node voximplant_scenarios/test_inbound_fish.js`. Подробности — README сценариев.
+остаётся на Realtime. Первый flush в Fish режется строго по знаку препинания (от 18 символов). Тест: `node voximplant_scenarios/test_inbound_fish.js` (запускает и `test_inbound_fish_proxy.js`), бэкенд прокси — `python test_llm_proxy.py`. Подробности — README сценариев.
 
 ## Описание API для ИИ-инструментов (ветка 2709-skills)
 

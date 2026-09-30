@@ -161,7 +161,11 @@ const sandbox = {
 sandbox.global = sandbox;
 
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(SCENARIO, "utf8"), sandbox, { filename: "inbound_fish.js" });
+// Основной прогон — на коннекторе Voximplant (откат); транспорт через наш
+// прокси проверяет test_inbound_fish_proxy.js (запускается в конце).
+const source = fs.readFileSync(SCENARIO, "utf8").replace(/var LLM_TRANSPORT\s*=\s*"proxy"/, 'var LLM_TRANSPORT = "connector"');
+if (source.indexOf('var LLM_TRANSPORT = "connector"') === -1) throw new Error("не нашли LLM_TRANSPORT в сценарии");
+vm.runInContext(source, sandbox, { filename: "inbound_fish.js" });
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
@@ -240,14 +244,8 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
 
     // ── приветствие ушло в очередь, пока сокет закрыт ───────────────────────
     assert(createdSocket.sent.length === 0, "текст ушёл в неоткрытый сокет");
-    // При first_phrase модель не здоровается — уходит только прогрев кэша:
-    // тот же префикс (tools + system + приветствие), ответ обрезан и выброшен.
-    assert(llm.requests.length === 1, "ожидали один прогревочный запрос, а их " + llm.requests.length);
-    const warm = llm.requests[0];
-    assert(warm.max_completion_tokens > 0 && warm.max_completion_tokens <= 16, "прогрев без ограничения ответа");
-    assert(warm.messages[0].role === "system" && warm.messages[1].content === CONFIG.first_phrase,
-           "префикс прогрева не совпадает с первым ходом");
-    assert(warm.tools && warm.tools[0].function.name === "get_price", "в прогреве нет tools — кэш не совпадёт");
+    // При first_phrase модель не здоровается (и прогрева нет) — запросов ещё нет.
+    assert(llm.requests.length === 0, "при first_phrase ушёл запрос к модели: " + llm.requests.length);
 
     createdSocket.fire("WebSocket.Open");
     await tick();
@@ -260,19 +258,15 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     console.log("✅ приветствие: накопилось до OPEN, ушло текстом + flush");
 
-    await userSays("алло, это прогрев");          // реплика во время прогрева ждёт его закрытия
-    assert(llm.requests.length === 1, "реплика ушла, пока прогрев не закрылся");
-    modelReplies("Здравствуйте");                 // ответ прогрева — выбросить
-    await tick();
-    assert(llm.requests.length === 2, "после прогрева отложенная реплика не ушла");
-    assert(!lastRequest().max_completion_tokens, "настоящий ход ушёл с ограничением прогрева");
-    // этот ход нам не нужен дальше — выбрасываем его из сценария теста
+    await userSays("алло, это первый ход");
+    assert(llm.requests.length === 1, "первая реплика не ушла в модель");
+    assert(lastRequest().messages[1].content === CONFIG.first_phrase, "приветствия нет в истории первого хода");
     modelReplies("Слушаю.");
     await tick();
     createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     await tick();
     llm.requests.splice(0);
-    console.log("✅ прогрев: префикс промпта уходит в модель во время приветствия, ответ выброшен");
+    console.log("✅ первый ход: приветствие в истории, прогрева нет");
 
     // ── шум без текста не становится репликой ──────────────────────────────
     speechStart();
@@ -292,7 +286,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(req.messages[0].content.indexOf("Не здоровайся повторно") !== -1, "в system нет пометки о приветствии");
     assert(req.messages[1].role === "assistant" && req.messages[1].content === CONFIG.first_phrase,
            "приветствие не попало в историю первым");
-    assert(JSON.stringify(userItems(req)) === JSON.stringify(["алло, это прогрев", "сколько стоит"]),
+    assert(JSON.stringify(userItems(req)) === JSON.stringify(["алло, это первый ход", "сколько стоит"]),
            "реплика абонента искажена: " + JSON.stringify(req.messages));
     assert(req.tools && req.tools[0].function.name === "get_price", "функции не переданы модели");
     assert(req.reasoning_effort === "none", "reasoning_effort не передан");
@@ -348,7 +342,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     await tick(250);
     assert(llm.requests.length === 2, "реплика после перебивания не ушла в модель");
     req = lastRequest();
-    assert(JSON.stringify(userItems(req)) === JSON.stringify(["алло, это прогрев", "сколько стоит доставка", "а для юрлиц"]),
+    assert(JSON.stringify(userItems(req)) === JSON.stringify(["алло, это первый ход", "сколько стоит доставка", "а для юрлиц"]),
            "история после уточнения неверна: " + JSON.stringify(userItems(req)));
     assert(req.messages.some((i) => i.role === "assistant" && i.content === reply.trim()),
            "ответ агента не попал в историю");
@@ -500,9 +494,6 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     createdSocket.fire("WebSocket.Open");
     createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     await tick();
-    // прогрев второго звонка тоже падает — это не считается неудачей хода
-    llm.fire("C.Error", { data: { payload: { text: "Service unavailable" } } });
-    await tick(400);
     await userSays("алло");
     for (let i = 0; i < 3; i++) {
         const dying = llm;
@@ -519,5 +510,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(call2.hungup, "после извинения трубка не положена");
     console.log("✅ модель недоступна: извинение голосом, затем hangup");
 
-    console.log("\nвсе проверки inbound_fish пройдены");
+    console.log("\nвсе проверки inbound_fish пройдены\n");
+    require("child_process").execFileSync(process.execPath,
+        [require("path").join(__dirname, "test_inbound_fish_proxy.js")], { stdio: "inherit" });
 })();
