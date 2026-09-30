@@ -54,8 +54,9 @@ var SUBMIT_SETTLE_MS = 50;             // ждём хвост текста от 
 var EMPTY_TEXT_WAIT_MS = 900;          // сколько ждать текст, если ASR ещё молчит
 var BARGE_IN_MIN_MS  = 300;            // речь поверх агента короче — не перебивание
 var FIRST_FLUSH_MIN  = 25;             // ранний flush первого предложения реплики
-var FIRST_CLAUSE_MIN = 30;             // ...или первой части фразы до запятой/тире, если она не короче
-var TEXT_BATCH_MIN   = 40;             // копим дельты до этой длины перед отправкой
+var FIRST_CLAUSE_MIN = 18;             // ...или первой части фразы до запятой/тире, если она не короче
+var TEXT_BATCH_MIN   = 40;
+var WARMUP_MAX_TOKENS = 16;           // прогрев кэша промпта: ответ не нужен, режем сразу             // копим дельты до этой длины перед отправкой
 var TTS_WATCHDOG_MS  = 4000;           // нет звука после отправки текста → тревога
 var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
 var HANGUP_TAIL_MS   = 250;            // запас после remaining_ms перед hangup
@@ -109,6 +110,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var submitWaitStarted = 0;
     var bargeTimer = null;
     var submitted = null;        // последняя отправленная реплика {seg, text, item, dialogEntry}
+    var retractedText = "";      // кусок, который retract вернул в реплику (ждём его поздний финал ASR)
 
     // ── LLM ─────────────────────────────────────────────────────────────────
     var llm = null;
@@ -116,6 +118,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var llmFailedHard = false;   // модель недоступна — только прощаемся
     var llmBusy = false;         // ответ модели в процессе
     var llmDiscard = false;      // остаток текущего ответа игнорируем
+    var llmWarmup = false;       // идёт прогревочный запрос (кэш промпта)
     var llmPending = false;      // после закрытия ответа нужен новый запрос
     var llmStuckTimer = null;
     var llmReasoning = LLM_REASONING;
@@ -156,6 +159,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
     // ── Метрики ─────────────────────────────────────────────────────────────
     var mVadStop = 0, mReqSent = 0, mFirstDelta = 0, mFirstText = 0;
+    var mWarmupSent = 0;
     var stats = { turns: 0, bargeIns: 0, retracts: 0, corrections: 0, dropped: 0,
                   inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
 
@@ -578,6 +582,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         deltaBuffer  += delta;
         turnFullText += delta;
 
+        // До первого flush в Fish ничего не шлём: звука до flush всё равно
+        // нет, а текст, ушедший раньше, попадает в первый синтез целиком —
+        // так flush резал фразу на полуслове («…русская бан», «у менедж»).
+        // Отрезает по границе maybeEarlyFlush, остаток дожмёт endTurn.
+        if (!firstFlushDone) return;
+
         if (deltaBuffer.length >= TEXT_BATCH_MIN || hasSentenceEnd(deltaBuffer)) {
             var out = deltaBuffer;
             deltaBuffer = "";
@@ -614,26 +624,45 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return false;
     }
 
+    // Длина куска до первой границы, на которой можно делать ранний flush:
+    // конец предложения (от FIRST_FLUSH_MIN символов) или запятая/тире/
+    // двоеточие (от FIRST_CLAUSE_MIN). Точка или запятая сразу после цифры
+    // в конце текста — ещё не граница: следом может прийти «12.30» / «1,5».
+    function firstFlushCut(s) {
+        for (var i = 0; i < s.length; i++) {
+            var ch = s.charAt(i);
+            var isEnd = ".!?…".indexOf(ch) !== -1;
+            var isClause = ",—;:".indexOf(ch) !== -1;
+            if (!isEnd && !isClause) continue;
+            var prev = i > 0 ? s.charAt(i - 1) : "";
+            var next = i + 1 < s.length ? s.charAt(i + 1) : "";
+            if ((ch === "." || ch === ",") && /\d/.test(prev) && (next === "" || /\d/.test(next))) continue;
+            if (ch === "." && !isSentenceDot(s, i)) continue;
+            if (i + 1 >= (isEnd ? FIRST_FLUSH_MIN : FIRST_CLAUSE_MIN)) {
+                return { len: i + 1, bySentence: isEnd };
+            }
+        }
+        return null;
+    }
+
     // Fish начинает звучать только после flush и синтезирует весь накопленный
     // кусок. Длинное первое предложение («У нас есть финская сауна, русская
     // баня…») давало ~1 с до звука против ~0.4 с у короткого, поэтому первый
-    // flush делаем уже на запятой, если кусок не слишком короткий.
+    // flush делаем уже на запятой, если кусок не слишком короткий. В синтез
+    // уходит ровно кусок до границы — хвост ждёт следующей пачки.
     function maybeEarlyFlush() {
         if (firstFlushDone || isInterrupted) return;
-        var bySentence = turnFullText.length >= FIRST_FLUSH_MIN && hasSentenceEnd(turnFullText);
-        var byClause = !bySentence && turnFullText.length >= FIRST_CLAUSE_MIN && hasClauseEnd(turnFullText);
-        if (!bySentence && !byClause) return;
+        var cut = firstFlushCut(turnFullText);
+        if (!cut) return;
         firstFlushDone = true;
-        // Всё, что копилось в пачке, должно уйти в Fish до flush — иначе он
-        // озвучит только уже отправленную часть.
-        if (deltaBuffer) {
-            var out = deltaBuffer;
-            deltaBuffer = "";
-            speak(out, false);
-        }
+        var alreadySent = turnFullText.length - deltaBuffer.length;
+        var take = Math.max(0, cut.len - alreadySent);
+        var head = deltaBuffer.substring(0, take);
+        deltaBuffer = deltaBuffer.substring(take);
+        if (head) speak(head, false);
         if (ttsOpen) sendToTts({ event: "flush" });
         else ttsFlushQueued = true;
-        Logger.write("[Fish] ⚡ early flush " + (bySentence ? "первого предложения" : "по запятой"));
+        Logger.write("[Fish] ⚡ early flush " + (cut.bySentence ? "первого предложения" : "по запятой"));
     }
 
     // Перебивание: гасим очередь Voximplant (мгновенно) и рвём генерацию у
@@ -774,6 +803,47 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return (event && event.data && event.data.payload) || (event && event.data) || {};
     }
 
+    // Прогрев: пока звучит приветствие (~3 с), шлём модели тот же префикс,
+    // что уйдёт в первый ход (tools + system + приветствие), и выбрасываем
+    // ответ. OpenAI кэширует префикс, и первый настоящий ход идёт по кэшу:
+    // без прогрева первый токен на первом ходе приходил за ~3.4 с против
+    // ~1 с на последующих. Ход абонента, пришедший раньше, ждёт закрытия
+    // прогрева через обычную очередь (llmPending).
+    function warmupLlm() {
+        if (llmBusy || !llm || isHangingUp || llmFailedHard) return;
+        var params = {
+            model: LLM_MODEL,
+            messages: [{ role: "system", content: INSTRUCTIONS }].concat(history)
+                .concat([{ role: "user", content: "Алло" }]),
+            stream: true,
+            stream_options: { include_usage: true },
+            max_completion_tokens: WARMUP_MAX_TOKENS
+        };
+        if (voximplantTools.length > 0) {
+            params.tools = voximplantTools;
+            params.tool_choice = "auto";
+        }
+        if (llmReasoning) params.reasoning_effort = llmReasoning;
+        if (llmServiceTier) params.service_tier = llmServiceTier;
+
+        llmBusy = true;
+        llmDiscard = true;
+        llmWarmup = true;
+        respFinished = false;
+        mWarmupSent = Date.now();
+        if (llmStuckTimer) clearTimeout(llmStuckTimer);
+        llmStuckTimer = setTimeout(function() {
+            llmStuckTimer = null;
+            if (llmBusy && llmWarmup) onLlmError("прогрев не закрылся за " + LLM_STUCK_MS + "ms");
+        }, LLM_STUCK_MS);
+        try {
+            llm.createChatCompletions(params);
+            Logger.write("[LLM] 🔥 прогрев кэша промпта");
+        } catch (err) {
+            onLlmError("warmup failed: " + err);
+        }
+    }
+
     // Один ответ за раз: у клиента нет отмены, поэтому новый запрос уходит
     // только после того, как текущий ответ закрылся (finish_reason / ошибка).
     // Если в этот момент ответ ещё идёт — помечаем его «выбросить» и ставим
@@ -844,6 +914,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!llmBusy) return;
         llmBusy = false;
         if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+        if (llmWarmup) {
+            llmWarmup = false;
+            Logger.write("[LLM] 🔥 прогрев готов +" + (Date.now() - mWarmupSent) + "ms");
+            maybeContinue();
+            return;
+        }
         Logger.write("[LLM] response closed (" + reason + ")" + (llmDiscard ? " [discarded]" : ""));
         maybeContinue();
     }
@@ -865,6 +941,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!llmBusy) return;
         llmBusy = false;
         if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+
+        // Прогрев не удался — не страшно: попыток не считаем и ничего не
+        // повторяем, первый настоящий ход просто пойдёт без кэша.
+        if (llmWarmup) {
+            llmWarmup = false;
+            setTimeout(maybeContinue, LLM_RETRY_DELAY_MS);
+            return;
+        }
 
         if (llmReasoning && /reasoning/i.test(text)) {
             Logger.write("[LLM] модель не приняла reasoning_effort — повтор без него");
@@ -1143,6 +1227,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         var idx = dialogLog.indexOf(submitted.dialogEntry);
         if (idx !== -1) dialogLog.splice(idx, 1);
         turnFinal = (submitted.text + " " + turnFinal).trim();
+        retractedText = submitted.text;
         llmDiscard = true;
         stats.retracts++;
         Logger.write("[TURN] ↩ абонент продолжил — объединяем с \"" + submitted.text.substring(0, 60) + "\"");
@@ -1201,6 +1286,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
 
         turnFinal = "";
         turnInterim = "";
+        retractedText = "";
         stats.turns++;
 
         Logger.write("👤 USER: \"" + text + "\"");
@@ -1242,16 +1328,42 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return text;
     }
 
+    // Retract вернул в реплику кусок, собранный из interim, а финал ASR по
+    // этому же куску приходит позже отдельным событием — без этой проверки
+    // он дописывался второй раз («а вот расскажите про А вот расскажите
+    // про…»). Совпал или короче — выбрасываем, начинается с него — берём
+    // хвост, та же длина в словах — это исправленный вариант, подменяем.
+    function stripRetracted(text, isFinal) {
+        if (!retractedText) return text;
+        var n = normText(text), r = normText(retractedText);
+        if (!n || !r) return text;
+        var out = text;
+        if (n === r || r.indexOf(n) === 0) {
+            out = "";
+        } else if (n.indexOf(r + " ") === 0) {
+            out = text.trim().split(/\s+/).slice(retractedText.trim().split(/\s+/).length).join(" ");
+        } else if (isFinal && n.split(" ").length === r.split(" ").length &&
+                   n.split(" ")[0] === r.split(" ")[0] &&
+                   turnFinal.indexOf(retractedText) === 0) {
+            turnFinal = (text.trim() + turnFinal.substring(retractedText.length)).trim();
+            out = "";
+        } else {
+            return text;
+        }
+        if (isFinal) retractedText = "";
+        return out;
+    }
+
     function onAsrInterim(text) {
         if (correctSubmitted(text)) return;
-        turnInterim = stripSubmittedPrefix(text);
+        turnInterim = stripSubmittedPrefix(stripRetracted(text, false));
         // Настоящее перебивание: агент звучит, а от абонента уже пошёл текст.
         if (userSpeaking && isAgentAudible()) bargeIn("interim");
     }
 
     function onAsrResult(text) {
         if (correctSubmitted(text)) { turnInterim = ""; return; }
-        text = stripSubmittedPrefix(text);
+        text = stripSubmittedPrefix(stripRetracted(text, true));
         if (text) turnFinal = (turnFinal + " " + text).trim();
         turnInterim = "";
         // Финал пришёл, пока ждали текст после тишины — отправляем сразу.
@@ -1329,6 +1441,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             logDialog("assistant", phrase);
             turnFullText = phrase;
             speak(phrase, true);
+            warmupLlm();
             return;
         }
 

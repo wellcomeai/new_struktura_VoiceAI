@@ -403,7 +403,7 @@ gpt-6-luna через клиент Chat Completions VoxEngine на `CONFIG.api_k
 Responses-клиент VoxEngine не использовать: массив сообщений в `input` он отвергает (`Missing required parameter: 'input'`).
 Модель, паузу и провайдера ASR задают константы в начале сценария; `CONFIG.model` и
 `DEFAULT_FISH_LLM_MODEL` (gpt-realtime-2.1) не трогать — их использует `outbound_fish.js`, который
-остаётся на Realtime. Тест: `node voximplant_scenarios/test_inbound_fish.js`. Подробности — README сценариев.
+остаётся на Realtime. Во время приветствия — прогрев кэша промпта (тот же префикс, ответ выбрасывается), первый flush в Fish режется строго по знаку препинания. Тест: `node voximplant_scenarios/test_inbound_fish.js`. Подробности — README сценариев.
 
 ## Описание API для ИИ-инструментов (ветка 2709-skills)
 

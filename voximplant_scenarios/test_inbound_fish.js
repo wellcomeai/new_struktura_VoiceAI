@@ -240,7 +240,14 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
 
     // ── приветствие ушло в очередь, пока сокет закрыт ───────────────────────
     assert(createdSocket.sent.length === 0, "текст ушёл в неоткрытый сокет");
-    assert(llm.requests.length === 0, "при first_phrase приветствие не должно идти через модель");
+    // При first_phrase модель не здоровается — уходит только прогрев кэша:
+    // тот же префикс (tools + system + приветствие), ответ обрезан и выброшен.
+    assert(llm.requests.length === 1, "ожидали один прогревочный запрос, а их " + llm.requests.length);
+    const warm = llm.requests[0];
+    assert(warm.max_completion_tokens > 0 && warm.max_completion_tokens <= 16, "прогрев без ограничения ответа");
+    assert(warm.messages[0].role === "system" && warm.messages[1].content === CONFIG.first_phrase,
+           "префикс прогрева не совпадает с первым ходом");
+    assert(warm.tools && warm.tools[0].function.name === "get_price", "в прогреве нет tools — кэш не совпадёт");
 
     createdSocket.fire("WebSocket.Open");
     await tick();
@@ -252,6 +259,20 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(msgs[1] && msgs[1].event === "flush", "приветствие не закрыто flush");
     createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     console.log("✅ приветствие: накопилось до OPEN, ушло текстом + flush");
+
+    await userSays("алло, это прогрев");          // реплика во время прогрева ждёт его закрытия
+    assert(llm.requests.length === 1, "реплика ушла, пока прогрев не закрылся");
+    modelReplies("Здравствуйте");                 // ответ прогрева — выбросить
+    await tick();
+    assert(llm.requests.length === 2, "после прогрева отложенная реплика не ушла");
+    assert(!lastRequest().max_completion_tokens, "настоящий ход ушёл с ограничением прогрева");
+    // этот ход нам не нужен дальше — выбрасываем его из сценария теста
+    modelReplies("Слушаю.");
+    await tick();
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    await tick();
+    llm.requests.splice(0);
+    console.log("✅ прогрев: префикс промпта уходит в модель во время приветствия, ответ выброшен");
 
     // ── шум без текста не становится репликой ──────────────────────────────
     speechStart();
@@ -271,7 +292,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(req.messages[0].content.indexOf("Не здоровайся повторно") !== -1, "в system нет пометки о приветствии");
     assert(req.messages[1].role === "assistant" && req.messages[1].content === CONFIG.first_phrase,
            "приветствие не попало в историю первым");
-    assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит"]),
+    assert(JSON.stringify(userItems(req)) === JSON.stringify(["алло, это прогрев", "сколько стоит"]),
            "реплика абонента искажена: " + JSON.stringify(req.messages));
     assert(req.tools && req.tools[0].function.name === "get_price", "функции не переданы модели");
     assert(req.reasoning_effort === "none", "reasoning_effort не передан");
@@ -291,7 +312,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(texts.length < 5, "батчинг не работает: " + texts.length + " кадров на 6 дельт");
     assert(flushes.length >= 1, "ответ не закрыт flush");
     const joined = texts.map((m) => m.text).join("");
-    assert(joined === reply, "текст склеился неверно:\n  ожидали: " + JSON.stringify(reply) +
+    assert(joined === reply.trim(), "текст склеился неверно:\n  ожидали: " + JSON.stringify(reply) +
                              "\n  получили: " + JSON.stringify(joined));
     console.log("✅ ответ: " + texts.length + " кадров на 6 дельт, текст склеивается побайтово");
 
@@ -317,7 +338,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     await tick(250);
     assert(llm.requests.length === 2, "реплика после перебивания не ушла в модель");
     req = lastRequest();
-    assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит доставка", "а для юрлиц"]),
+    assert(JSON.stringify(userItems(req)) === JSON.stringify(["алло, это прогрев", "сколько стоит доставка", "а для юрлиц"]),
            "история после уточнения неверна: " + JSON.stringify(userItems(req)));
     assert(req.messages.some((i) => i.role === "assistant" && i.content === reply.trim()),
            "ответ агента не попал в историю");
@@ -345,6 +366,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
            "выброшенный ответ попал в историю");
     console.log("✅ пауза посреди фразы: куски склеены, недозвучавший ответ выброшен");
 
+
     // ── вызов функции: результат уходит обратно в модель ───────────────────
     modelCallsTool("get_price", { item: "массаж" }, "call_1");
     await tick(20);
@@ -365,12 +387,34 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     await tick();
     console.log("✅ функции: вызов через /functions/execute, результат → повторный запрос");
 
+    // ── то же, но поздний финал ASR по первому куску приходит после склейки ─
+    modelReplies("Да, есть.");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    await tick();
+    await userSays("а вот расскажите про");
+    const reqBeforeRetract = llm.requests.length;
+    speechStart();                                  // продолжил до звука ответа → retract
+    final("А вот расскажите про");                  // поздний финал того же куска
+    interim("открытый бассейн");
+    speechEnd();
+    await tick(250);
+    modelReplies("Никто не услышит.");
+    await tick();
+    assert(llm.requests.length === reqBeforeRetract + 1, "склеенная реплика не ушла");
+    const merged = userItems(lastRequest()).slice(-1)[0];
+    assert(merged === "а вот расскажите про открытый бассейн",
+           "поздний финал ASR задвоил склеенную реплику: " + JSON.stringify(merged));
+    modelReplies("Бассейн с подогревом.");
+    createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    await tick();
+    console.log("✅ склейка: поздний финал ASR по вернутому куску не дублируется");
+
     // ── модель не приняла reasoning → повтор без него ──────────────────────
     await userSays("спасибо");
-    assert(llm.requests.length === 5, "реплика не ушла в модель");
+    assert(llm.requests.length === 7, "реплика не ушла в модель");
     llm.fire("C.Error", { data: { payload: { text: "Unsupported value: 'reasoning_effort' does not support 'minimal'" } } });
     await tick(400);
-    assert(llm.requests.length === 6, "после отказа по reasoning нет повтора");
+    assert(llm.requests.length === 8, "после отказа по reasoning нет повтора");
     assert(!lastRequest().reasoning_effort, "повтор снова с reasoning_effort");
     assert(userItems(lastRequest()).slice(-1)[0] === "спасибо", "повтор ушёл не с той репликой");
     console.log("✅ reasoning: при отказе модели ход повторяется без него");
@@ -382,7 +426,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     failedClient.params.onWebSocketClose({ code: 1006, reason: "closed" });
     await tick(400);
     assert(llmClients.length === clientsBefore + 1, "после обрыва сокета клиент не переподключён");
-    assert(llm.requests.length === 7, "после переподключения ход не повторён");
+    assert(llm.requests.length === 9, "после переподключения ход не повторён");
     assert(userItems(lastRequest()).slice(-1)[0] === "спасибо", "повтор после обрыва ушёл не с той репликой");
     console.log("✅ обрыв: переподключение и повтор того же хода");
 
@@ -394,8 +438,8 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(firstFlush > 0, "flush не отправлен");
     const beforeFlush = createdSocket.sent.slice(0, firstFlush)
         .filter((m) => m.event === "text").map((m) => m.text).join("");
-    assert(beforeFlush.indexOf("сауна,") !== -1 && beforeFlush.indexOf("хамам.") === -1,
-           "первый flush не по запятой: до него ушло «" + beforeFlush + "»");
+    assert(beforeFlush === "У нас есть финская сауна,",
+           "первый flush не ровно по запятой (без хвоста слова): до него ушло «" + beforeFlush + "»");
     assert(createdSocket.sent.filter((m) => m.event === "text").map((m) => m.text).join("") ===
            "У нас есть финская сауна, русская баня на дровах и турецкий хамам. Записать вас?",
            "текст с ранним flush склеился неверно");
@@ -403,7 +447,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     console.log("✅ Fish: длинное первое предложение уходит в синтез по запятой");
 
     await userSays("нет, спасибо, до свидания");
-    assert(llm.requests.length === 8, "реплика перед прощанием не ушла в модель");
+    assert(llm.requests.length === 10, "реплика перед прощанием не ушла в модель");
 
     // ── прощание и hangup по speech_done ───────────────────────────────────
     createdSocket.sent = [];
@@ -413,7 +457,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     const farewell = createdSocket.sent.filter((m) => m.event === "text");
     assert(farewell.length === 1 && farewell[0].text === "Всего доброго!",
            "прощание не ушло в синтез: " + JSON.stringify(createdSocket.sent));
-    assert(llm.requests.length === 8, "после hangup_call модель вызвана ещё раз");
+    assert(llm.requests.length === 10, "после hangup_call модель вызвана ещё раз");
 
     assert(!call.hungup, "трубка положена до окончания прощания");
     createdSocket.fire("WebSocket.Message", {
@@ -446,6 +490,9 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     createdSocket.fire("WebSocket.Open");
     createdSocket.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     await tick();
+    // прогрев второго звонка тоже падает — это не считается неудачей хода
+    llm.fire("C.Error", { data: { payload: { text: "Service unavailable" } } });
+    await tick(400);
     await userSays("алло");
     for (let i = 0; i < 3; i++) {
         const dying = llm;
