@@ -378,7 +378,7 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
 Бэкенд-модель — `LIVE_DELEGATION_MODEL` (по умолчанию `gpt-5.6-terra`). Голоса OpenAI-ассистента —
 все 22 встроенных голоса gpt-live-1 (`OPENAI_VOICES` в `backend/schemas/assistant.py`; дубли во
 фронте: `voice-assistants.html`, `agent/instructions-voice.js`); 12 из них (`OPENAI_LIVE_ONLY_VOICES`)
-Realtime не знает — звучат только во входящих, исходящие/виджет с ними пока не проверены. Шлагбаум и списание —
+Realtime не знает — звонки (входящие и исходящие) на Live их поддерживают, виджет на Realtime с ними не проверен. Шлагбаум и списание —
 тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`). Исходящие — `voximplant_scenarios/outbound_openai.js` (v5.0) по той же схеме: `/api/telephony/outbound-config`
 тоже отдаёт `live_session`, а контекст CRM из `customData` (`contact_name`, `task_title`,
 `task_description`, `task`, `custom_greeting`) сценарий дописывает в instructions обоих слоёв. Агент и публичный API

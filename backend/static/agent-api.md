@@ -717,7 +717,7 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
   `5ddd9a81cc554841a53b75e355d52628` — Сергей; или любой свой `reference_id`
   с fish.audio. Передаётся в `fish_voice_id`.
 - **cascade:** `Anna`, `Sergey` (русская речь)
-- **openai:** `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`, а также голоса GPT-Live `beacon`, `bossa`, `cinder`, `delta`, `gleam`, `meridian`, `quartz`, `ripple`, `stone`, `tempo`, `vesper`, `willow` (звучат только во входящих звонках; исходящие и виджет пока на Realtime)
+- **openai:** `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`, а также голоса GPT-Live `beacon`, `bossa`, `cinder`, `delta`, `gleam`, `meridian`, `quartz`, `ripple`, `stone`, `tempo`, `vesper`, `willow` (голоса GPT-Live для звонков; виджет пока на Realtime и с ними не проверен)
 - **gemini:** `Zephyr`, `Puck`, `Charon`, `Kore`, `Fenrir`, `Leda`, `Orus`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`, `Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`, `Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`, `Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`, `Sulafat`
 - **yandex:** `marina`, `dasha`, `alexander`, `julia`, `lera`, `masha`, `anton`, `kirill`, `filipp`, `ermil`, `jane`, `omazh`, `zahar`, `madi_ru`, `saule_ru`
 - **cartesia:** голос задаётся не именем, а `cartesia_voice_id` + опционально `voice_speed` (0.5–1.5)

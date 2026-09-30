@@ -88,7 +88,6 @@ async function saveEdit(){
 
 // ════════════════ VOICE SELECTION (shared) ════════════════
 // Все встроенные голоса gpt-live-1 (должны совпадать с OPENAI_VOICES в backend/schemas/assistant.py).
-// Двенадцать последних — только GPT-Live: звучат во входящих, исходящие пока на Realtime.
 const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','coral','sage','verse',
   'beacon','bossa','cinder','delta','gleam','meridian','quartz','ripple','stone','tempo','vesper','willow'];
 const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe','Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi','Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird','Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'];
@@ -128,7 +127,7 @@ function onFishVoiceChange(sel, ids){
   if(el) el.innerHTML = fishVoicePreviewHtml(sel.value, inp ? inp.value.trim() : '');
 }
 
-const LIVE_VOICE_DESC = 'Голос GPT-Live — только входящие звонки';
+const LIVE_VOICE_DESC = 'Голос GPT-Live';
 // Пол + краткое описание голоса: [gender('m'|'f'|'n'), описание].
 const VOICE_META = {
   gemini: {
