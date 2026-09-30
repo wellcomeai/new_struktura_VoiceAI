@@ -3,10 +3,13 @@
 Fish Assistant model for Voicyfy application.
 Fish Audio TTS provider integration — config only, call logic lives in Voximplant.
 
-Тракт звонка (сценарии inbound_fish / outbound_fish на родительском аккаунте):
+Тракт звонка (сценарии inbound_fish / outbound_fish v2.0 на родительском аккаунте):
 
-    Voximplant ⇄ OpenAI Realtime (gpt-realtime-2.1, output_modalities=["text"])
-                    │  модель сама транскрибирует речь, отдельный ASR не нужен
+    ASR Voximplant + Silero VAD → реплика абонента
+                    │
+                    ▼
+    /ws/fish/llm/{assistant_id} (наш прокси модели, LLM_MODEL в сценарии)
+                    │
                     ▼
                  текст ответа
                     │

@@ -395,7 +395,7 @@ AEC). Откат виджета: env `WIDGET_OPENAI_TRANSPORT=realtime`; demo и
 для отката. Раскатка кода со стримом: `POST /api/telephony/admin/setup-openai-scenarios-stream`
 (копирует `inbound_openai`/`outbound_openai` с родительского аккаунта на все дочерние).
 
-## Входящие Fish: каскад ASR → gpt-6-luna → Fish (ветка 2709-skills)
+## Fish (входящие и исходящие): каскад ASR → LLM → Fish (ветка 2709-skills)
 
 `voximplant_scenarios/inbound_fish.js` v2.0 (имя сценария то же): ASR Voximplant
 (Yandex v2, interim; Deepgram — константа `ASR_PROVIDER`) + Silero VAD (тишина 500 мс, без Pipecat) →
@@ -405,8 +405,14 @@ LLM через наш прокси `/ws/fish/llm/{id}` (сейчас `LLM_MODEL 
 против 0.5–0.65 с с Render — оставлен откатом `LLM_TRANSPORT = "connector"`. Первый ответ модели в звонке шёл 3.5–4.2 с (с Render даже холодный — 0.5–1.4 с), поэтому во время приветствия уходит прогрев через тот же сокет (`LLM_WARMUP`: префикс + «Алло», ответ выбрасывается, реплика абонента ждёт его закрытия). Прокси отдаёт в `done` тайминги OpenAI (`openai_first_ms`), сценарий пишет их в лог.
 Responses-клиент VoxEngine не использовать: массив сообщений в `input` он отвергает (`Missing required parameter: 'input'`).
 Модель, паузу и провайдера ASR задают константы в начале сценария; `CONFIG.model` и
-`DEFAULT_FISH_LLM_MODEL` (gpt-realtime-2.1) не трогать — их использует `outbound_fish.js`, который
-остаётся на Realtime. Первый flush в Fish режется строго по знаку препинания (от 18 символов). Тест: `node voximplant_scenarios/test_inbound_fish.js` (запускает и `test_inbound_fish_proxy.js`), бэкенд прокси — `python test_llm_proxy.py`. Подробности — README сценариев.
+`DEFAULT_FISH_LLM_MODEL` (gpt-realtime-2.1) сценарии больше не читают (поле в конфиге оставлено для отката на v1.x).
+`voximplant_scenarios/outbound_fish.js` v2.0 — тот же каскад (LLM/ASR/VAD/Fish-часть — копия входящего, правьте оба
+вместе) плюс исходящая специфика: сокеты к прокси синтеза и модели открываются до `callPSTN` (сокет модели не
+открылся — номер не набираем), прогрев уходит во время гудков (приветствие известно заранее), контекст CRM из
+`customData` (`contact_name`, `task_*`, `task`) дописывается в system-промпт, `custom_greeting` заменяет приветствие,
+мьют `mute_duration_ms` (по умолчанию 3 с) — аудио в ASR/VAD подключается после него, приветствие не перебивается
+(ответ на реплику поверх него встаёт в очередь синтеза), описание `hangup_call` усилено. Тест —
+`node voximplant_scenarios/test_outbound_fish.js`. Первый flush в Fish режется строго по знаку препинания (от 18 символов). Тест: `node voximplant_scenarios/test_inbound_fish.js` (запускает и `test_inbound_fish_proxy.js`), бэкенд прокси — `python test_llm_proxy.py`. Подробности — README сценариев.
 
 ## Описание API для ИИ-инструментов (ветка 2709-skills)
 
