@@ -47,7 +47,8 @@ require(Modules.OpenAI);
 // ============================================================================
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
 var LLM_TRANSPORT    = "proxy";        // "proxy" — наш сокет /ws/fish/llm/{id} (первый токен ~0.6 с); "connector" — клиент Chat Completions Voximplant (давал 1.1–4.2 с)
-var LLM_MODEL        = "gpt-6-luna";   // замер с Render: первый токен ~0.7 с стабильно (gpt-5.6-luna — медиана 0.6 с, но выбросы до 2.3 с), цена та же
+var LLM_MODEL        = "deepseek/deepseek-v4.1-flash"; // через OpenRouter (Together): первый токен ~0.3 с против ~0.86 с у gpt-6-luna; откат — "gpt-6-luna"
+var LLM_CONNECTOR_MODEL = "gpt-6-luna";  // коннектор Voximplant ходит только в OpenAI — модель для LLM_TRANSPORT = "connector"
 var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений (у luna: none/low/medium/high/xhigh, minimal нет); null — не передавать
 var LLM_SERVICE_TIER = "priority";     // приоритетная обработка OpenAI: первый токен ~0.57 с против ~0.88 с, цена x2 (~0.1 ₽ на звонок); null — обычная
 var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
@@ -810,6 +811,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // на массив сообщений (в примерах Voximplant input у него только строка),
     // а для Chat Completions ровно этот режим описан в документации.
 
+    // Модели с «/» (OpenRouter) доступны только через наш прокси.
+    function llmModel() {
+        return (LLM_TRANSPORT !== "proxy" && LLM_MODEL.indexOf("/") !== -1) ? LLM_CONNECTOR_MODEL : LLM_MODEL;
+    }
+
     function eventPayload(event) {
         return (event && event.data && event.data.payload) || (event && event.data) || {};
     }
@@ -824,7 +830,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     function warmupLlm() {
         if (!LLM_WARMUP || llmBusy || !llm || isHangingUp || llmFailedHard) return;
         var params = {
-            model: LLM_MODEL,
+            model: llmModel(),
             messages: [{ role: "system", content: INSTRUCTIONS }].concat(history)
                 .concat([{ role: "user", content: "Алло" }]),
             stream: true,
@@ -889,7 +895,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         var messages = [{ role: "system", content: INSTRUCTIONS }].concat(turnMessages);
 
         var params = {
-            model: LLM_MODEL,
+            model: llmModel(),
             messages: messages,
             stream: true,
             stream_options: { include_usage: true }
@@ -1098,8 +1104,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                 } else if (msg.event === "done") {
                     curId = null;
                     if (msg.openai_first_ms !== undefined) {
-                        Logger.write("[LLM] proxy: OpenAI first chunk " + msg.openai_first_ms +
-                                     "ms, total " + msg.total_ms + "ms (сервер Voicyfy → OpenAI)");
+                        Logger.write("[LLM] proxy: model first chunk " + msg.openai_first_ms +
+                                     "ms, total " + msg.total_ms + "ms (сервер Voicyfy → " + LLM_MODEL + ")");
                     }
                     // На случай стрима без finish_reason — закрыть ответ всё равно.
                     fire(E.Chunk, { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });

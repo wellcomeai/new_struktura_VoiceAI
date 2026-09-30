@@ -399,7 +399,7 @@ AEC). Откат виджета: env `WIDGET_OPENAI_TRANSPORT=realtime`; demo и
 
 `voximplant_scenarios/inbound_fish.js` v2.0 (имя сценария то же): ASR Voximplant
 (Yandex v2, interim; Deepgram — константа `ASR_PROVIDER`) + Silero VAD (тишина 500 мс, без Pipecat) →
-gpt-6-luna (priority) через наш прокси `/ws/fish/llm/{id}` (`backend/websockets/handler_llm_proxy.py`,
+LLM через наш прокси `/ws/fish/llm/{id}` (сейчас `LLM_MODEL = "deepseek/deepseek-v4.1-flash"` — модели с «/» прокси шлёт в OpenRouter на `settings.OPENROUTER_API_KEY`, провайдер из `OPENROUTER_PROVIDERS` (DeepSeek → Together), `reasoning_effort` → `reasoning.effort`; замер `scripts/bench_fast_llm.py`: первый токен ~0.3 с против ~0.86 с у gpt-6-luna priority; откат — `"gpt-6-luna"`, разрешённые модели — env `LLM_PROXY_MODELS`) (`backend/websockets/handler_llm_proxy.py`,
 роут в `fish_ws.py`; ключ OpenAI на сервере, `cancel` обрывает ответ) → Fish через прокси `/ws/fish/tts/{id}`.
 Коннектор Voximplant `createChatCompletionsAPIClient` (на `CONFIG.api_key`) давал первый токен 1.1–4.2 с
 против 0.5–0.65 с с Render — оставлен откатом `LLM_TRANSPORT = "connector"`. Первый ответ модели в звонке шёл 3.5–4.2 с (с Render даже холодный — 0.5–1.4 с), поэтому во время приветствия уходит прогрев через тот же сокет (`LLM_WARMUP`: префикс + «Алло», ответ выбрасывается, реплика абонента ждёт его закрытия). Прокси отдаёт в `done` тайминги OpenAI (`openai_first_ms`), сценарий пишет их в лог.

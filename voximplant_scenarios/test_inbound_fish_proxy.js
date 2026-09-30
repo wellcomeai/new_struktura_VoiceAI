@@ -157,7 +157,7 @@ const ttsTexts = () => tts.sent.filter((m) => m.event === "text").map((m) => m.t
     // ── ход: request с телом Chat Completions, ключа в нём нет ─────────────
     let req = lastReq();
     assert(req && req.id === 2, "запрос не ушёл в прокси: " + JSON.stringify(llm().sent));
-    assert(req.payload.model === "gpt-6-luna" && req.payload.service_tier === "priority", "тело запроса неверно");
+    assert(req.payload.model === "deepseek/deepseek-v4.1-flash" && req.payload.reasoning_effort === "none", "тело запроса неверно: " + req.payload.model);
     assert(req.payload.messages[0].role === "system" && req.payload.messages.slice(-1)[0].content === "какие у вас бани",
            "история не ушла в запрос");
     assert(JSON.stringify(req).indexOf("sk-test") === -1, "ключ OpenAI ушёл в прокси");
@@ -170,7 +170,7 @@ const ttsTexts = () => tts.sent.filter((m) => m.event === "text").map((m) => m.t
     assert(beforeFlush === "Здравствуйте, слушаю.", "первый flush не на коротком предложении: «" + beforeFlush + "»");
     assert(ttsTexts().join("") === "Здравствуйте, слушаю. У нас есть сауна, баня и хамам.", "текст склеился неверно");
     tts.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
-    assert(logs.some((l) => l.indexOf("[LLM] proxy: OpenAI first chunk 600ms, total 900ms") !== -1),
+    assert(logs.some((l) => l.indexOf("[LLM] proxy: model first chunk 600ms, total 900ms") !== -1),
            "тайминги прокси не попали в лог сценария");
     console.log("✅ ход: request → чанки → Fish, первый flush на «Здравствуйте, слушаю.»");
 

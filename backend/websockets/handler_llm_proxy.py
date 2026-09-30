@@ -23,6 +23,13 @@
 Ключ OpenAI в сценарий не уходит — берём тот же, что и для остального
 Fish-ассистента (provider_keys.resolve(user, "fish").api_key). Списание — как
 раньше, по отчёту сценария (/api/voximplant/log).
+
+Модели с «/» в имени (deepseek/deepseek-v4.1-flash и т.п.) идут через
+OpenRouter на ключе платформы settings.OPENROUTER_API_KEY: замер с Render на
+промпте ассистента дал первый токен DeepSeek V4.1 Flash (Together) ~0.3 с
+против ~0.86 с у gpt-6-luna priority. Тело запроса сценарий шлёт в формате
+OpenAI, здесь оно переводится: reasoning_effort → reasoning.effort,
+service_tier убирается, провайдер — из OPENROUTER_PROVIDERS.
 """
 
 import asyncio
@@ -36,6 +43,7 @@ import httpx
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.db.session import release_db_connection
 from backend.models.fish_assistant import FishAssistantConfig
@@ -46,11 +54,20 @@ logger = get_logger(__name__)
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
+OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+
+# Провайдер OpenRouter для модели: быстрейший по замеру, с запасными.
+OPENROUTER_PROVIDERS = {
+    "deepseek/deepseek-v4.1-flash": {"order": ["together"], "allow_fallbacks": True, "sort": "latency"},
+    "openai/gpt-oss-120b": {"order": ["groq", "cerebras"], "allow_fallbacks": True, "sort": "latency"},
+}
 
 # Ключ платформы не должен превращаться в открытый шлюз к любой модели:
 # сценарий может просить только эти.
 ALLOWED_MODELS = {
-    m.strip() for m in (os.getenv("LLM_PROXY_MODELS") or "gpt-6-luna,gpt-5.6-luna").split(",")
+    m.strip() for m in (os.getenv("LLM_PROXY_MODELS")
+                    or "gpt-6-luna,gpt-5.6-luna,deepseek/deepseek-v4.1-flash,openai/gpt-oss-120b").split(",")
     if m.strip()
 }
 MAX_COMPLETION_TOKENS = 1024
@@ -73,8 +90,26 @@ def _get_client() -> httpx.AsyncClient:
     return _client
 
 
+def is_openrouter(model) -> bool:
+    return isinstance(model, str) and "/" in model
+
+
+def to_openrouter(body: dict) -> dict:
+    """Тело OpenAI → тело OpenRouter для той же модели."""
+    out = {k: v for k, v in body.items()
+           if k not in ("service_tier", "reasoning_effort", "max_completion_tokens", "stream_options")}
+    out["max_tokens"] = body["max_completion_tokens"]
+    out["usage"] = {"include": True}
+    effort = body.get("reasoning_effort")
+    if effort:
+        out["reasoning"] = {"effort": effort, "exclude": True}
+    out["provider"] = OPENROUTER_PROVIDERS.get(body["model"], {"sort": "latency"})
+    return out
+
+
 def build_body(payload: dict) -> dict:
-    """Тело запроса к OpenAI из того, что прислал сценарий (с ограничениями)."""
+    """Тело запроса к OpenAI из того, что прислал сценарий (с ограничениями).
+    Для моделей OpenRouter — уже переведённое в его формат."""
     model = payload.get("model")
     if model not in ALLOWED_MODELS:
         raise ValueError(f"model not allowed: {model}")
@@ -87,13 +122,15 @@ def build_body(payload: dict) -> dict:
     limit = body.get("max_completion_tokens")
     if not isinstance(limit, int) or limit <= 0 or limit > MAX_COMPLETION_TOKENS:
         body["max_completion_tokens"] = MAX_COMPLETION_TOKENS
-    return body
+    return to_openrouter(body) if is_openrouter(model) else body
 
 
 class _LLMProxySession:
-    def __init__(self, websocket: WebSocket, api_key: str, assistant_id: str):
+    def __init__(self, websocket: WebSocket, api_key: str, assistant_id: str,
+                 openrouter_key: Optional[str] = None):
         self.ws = websocket
         self.api_key = api_key
+        self.openrouter_key = openrouter_key
         self.assistant_id = assistant_id
         self.send_lock = asyncio.Lock()
         self.task: Optional[asyncio.Task] = None
@@ -107,12 +144,19 @@ class _LLMProxySession:
         await self.send_json_text(json.dumps(obj, ensure_ascii=False))
 
     async def warm(self) -> None:
-        """Лёгкий запрос, чтобы в пуле было готовое TLS-соединение к OpenAI."""
-        try:
-            await _get_client().get(OPENAI_MODELS_URL,
-                                    headers={"Authorization": f"Bearer {self.api_key}"})
-        except Exception as e:
-            logger.info(f"[LLM-PROXY] warm-up failed (не критично): {e}")
+        """Лёгкие запросы, чтобы в пуле были готовые TLS-соединения к OpenAI
+        и OpenRouter (какую модель попросит сценарий, заранее неизвестно)."""
+        targets = [(OPENAI_MODELS_URL, self.api_key)]
+        if self.openrouter_key:
+            targets.append((OPENROUTER_KEY_URL, self.openrouter_key))
+
+        async def one(url, key):
+            try:
+                await _get_client().get(url, headers={"Authorization": f"Bearer {key}"})
+            except Exception as e:
+                logger.info(f"[LLM-PROXY] warm-up {url} failed (не критично): {e}")
+
+        await asyncio.gather(*(one(u, k) for u, k in targets))
 
     async def cancel(self, req_id=None) -> None:
         task = self.task
@@ -133,16 +177,24 @@ class _LLMProxySession:
         except ValueError as e:
             await self.send({"event": "error", "id": req_id, "message": str(e)})
             return
+        if is_openrouter(body["model"]) and not self.openrouter_key:
+            await self.send({"event": "error", "id": req_id, "message": "OPENROUTER_API_KEY is not configured"})
+            return
         self.task_id = req_id
         self.task = asyncio.create_task(self._stream(req_id, body))
 
     async def _stream(self, req_id, body: dict) -> None:
         t0 = time.monotonic()
         first = None
+        if is_openrouter(body["model"]):
+            url, key, extra = OPENROUTER_CHAT_URL, self.openrouter_key, {
+                "HTTP-Referer": "https://voicyfy.ru", "X-Title": "Voicyfy voice"}
+        else:
+            url, key, extra = OPENAI_CHAT_URL, self.api_key, {}
         try:
             async with _get_client().stream(
-                "POST", OPENAI_CHAT_URL, json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
+                "POST", url, json=body,
+                headers={"Authorization": f"Bearer {key}", **extra},
             ) as resp:
                 if resp.status_code != 200:
                     text = (await resp.aread()).decode("utf-8", "replace")
@@ -156,6 +208,18 @@ class _LLMProxySession:
                     data = line[6:]
                     if data == "[DONE]":
                         break
+                    # OpenRouter сообщает об ошибке провайдера посреди стрима
+                    # чанком с полем error — отдаём сценарию как ошибку хода.
+                    if data.startswith('{"error"') or '"error":{' in data[:200]:
+                        try:
+                            err = json.loads(data).get("error")
+                        except ValueError:
+                            err = None
+                        if err:
+                            logger.warning(f"[LLM-PROXY] upstream error id={req_id}: {str(err)[:300]}")
+                            await self.send({"event": "error", "id": req_id,
+                                             "message": str(err.get("message") if isinstance(err, dict) else err)[:2000]})
+                            return
                     if first is None:
                         first = time.monotonic()
                     # Чанк пересылаем как есть, без повторного разбора JSON.
@@ -168,7 +232,7 @@ class _LLMProxySession:
                              "openai_first_ms": int(((first or time.monotonic()) - t0) * 1000),
                              "total_ms": int((time.monotonic() - t0) * 1000)})
             logger.info(
-                f"[LLM-PROXY] {self.assistant_id} id={req_id} first chunk "
+                f"[LLM-PROXY] {self.assistant_id} id={req_id} {body['model']} first chunk "
                 f"{int(((first or time.monotonic()) - t0) * 1000)}ms, "
                 f"total {int((time.monotonic() - t0) * 1000)}ms"
             )
@@ -207,7 +271,8 @@ async def handle_llm_proxy_connection(
             await websocket.close(code=1008, reason="OpenAI API key is not configured")
             return
 
-        session = _LLMProxySession(websocket, api_key, assistant_id)
+        session = _LLMProxySession(websocket, api_key, assistant_id,
+                                   openrouter_key=settings.OPENROUTER_API_KEY)
         asyncio.create_task(session.warm())
         await session.send({"event": "ready"})
 

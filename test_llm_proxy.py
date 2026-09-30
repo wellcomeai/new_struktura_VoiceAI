@@ -100,8 +100,49 @@ async def test_cancel():
     print("✅ отмена: новый request и cancel обрывают стрим")
 
 
+async def test_openrouter():
+    """Модель с «/» — в OpenRouter на его ключе, тело переведено; ошибка в стриме → error."""
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers["authorization"]
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, text=": OPENROUTER PROCESSING\n\n" + sse(
+            {"choices": [{"index": 0, "delta": {"content": "Да"}}], "provider": "Together"},
+            {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+        ))
+
+    install(handler)
+    vox = FakeVoxWS()
+    s = proxy._LLMProxySession(vox, "sk-openai", "a1", openrouter_key="sk-or")
+    await s.start(3, dict(REQ, model="deepseek/deepseek-v4.1-flash", max_completion_tokens=16))
+    await s.task
+    b = seen["body"]
+    assert seen["url"] == proxy.OPENROUTER_CHAT_URL and seen["auth"] == "Bearer sk-or"
+    assert b["reasoning"] == {"effort": "none", "exclude": True} and b["max_tokens"] == 16
+    assert "service_tier" not in b and "reasoning_effort" not in b and "max_completion_tokens" not in b
+    assert b["provider"]["order"] == ["together"] and b["usage"] == {"include": True}
+    assert [m["event"] for m in vox.sent] == ["chunk", "chunk", "done"]
+
+    install(lambda r: httpx.Response(200, text=sse(
+        {"choices": [{"index": 0, "delta": {"content": "Д"}}]},
+        {"error": {"code": 502, "message": "Provider disconnected"}, "choices": [{"finish_reason": "error"}]})))
+    vox.sent.clear()
+    await s.start(4, dict(REQ, model="deepseek/deepseek-v4.1-flash"))
+    await s.task
+    assert vox.sent[-1]["event"] == "error" and "Provider disconnected" in vox.sent[-1]["message"]
+
+    vox.sent.clear()
+    s2 = proxy._LLMProxySession(vox, "sk-openai", "a1", openrouter_key=None)
+    await s2.start(5, dict(REQ, model="deepseek/deepseek-v4.1-flash"))
+    assert vox.sent[-1]["event"] == "error" and "OPENROUTER_API_KEY" in vox.sent[-1]["message"]
+    print("✅ OpenRouter: ключ и тело переведены, ошибка посреди стрима → error, нет ключа → error")
+
+
 async def main():
     await test_stream()
+    await test_openrouter()
     await test_error_and_model()
     await test_cancel()
     print("\nвсе проверки прокси LLM пройдены")
