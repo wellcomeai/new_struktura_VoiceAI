@@ -5865,6 +5865,7 @@ def get_scenario_config(
             first_phrase = assistant.greeting_message
 
         caller_contact = None
+        live_voice_prompt = None  # промпт голосового слоя GPT-Live (без карточки и правил функций)
         # 🆕 Агентский входящий: если номер привязан к агенту обзвона —
         # один раз ищем контакт звонящего и используем его для (1) карточки в
         # промпте и (2) персонализации первой фразы агента ({name}).
@@ -5888,6 +5889,7 @@ def get_scenario_config(
             if voice_instructions:
                 from backend.services.agent_prompts import VOICE_AGENT_FUNCTIONS_BLOCK
                 system_prompt = voice_instructions + "\n\n" + VOICE_AGENT_FUNCTIONS_BLOCK.strip()
+                live_voice_prompt = voice_instructions
                 logger.info(f"[TELEPHONY]   📝 Inbound agent prompt: voice instructions only ({len(voice_instructions)} chars)")
 
             # (1) Карточка звонящего → дописываем в system_prompt (знает клиента
@@ -5910,8 +5912,11 @@ def get_scenario_config(
         live_function_ids = None
         if phone_record.assistant_type == "openai":
             live_tools, live_function_ids = flatten_realtime_tools(functions)
+            # Голосовому слою — промпт без карточки звонящего и правил функций
+            # (функции вызывает бэкенд-модель, имя клиента — в voice_extra);
+            # бэкенд-модели — полный промпт входящего.
             live_session = compose_live_session(
-                system_prompt=assistant.system_prompt,
+                system_prompt=live_voice_prompt or assistant.system_prompt,
                 voice=resolve_live_voice(voice),
                 tools=live_tools,
                 backend_user_prompt=system_prompt,
