@@ -56,6 +56,7 @@ async def test_stream():
     assert b["service_tier"] == "priority" and "user" not in b
     assert b["max_completion_tokens"] == proxy.MAX_COMPLETION_TOKENS
     assert [m["event"] for m in vox.sent] == ["chunk", "chunk", "done"]
+    assert isinstance(vox.sent[-1]["openai_first_ms"], int) and isinstance(vox.sent[-1]["total_ms"], int)
     assert all(m["id"] == 7 for m in vox.sent)
     assert vox.sent[0]["payload"]["choices"][0]["delta"]["content"] == "Здрав"
     print("✅ стрим: чанки как есть + done, тело очищено")

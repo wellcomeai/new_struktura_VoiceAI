@@ -1037,6 +1037,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                     fire(E.ChatCompletionsAPIError, { text: msg.message || "proxy error" });
                 } else if (msg.event === "done") {
                     curId = null;
+                    if (msg.openai_first_ms !== undefined) {
+                        Logger.write("[LLM] proxy: OpenAI first chunk " + msg.openai_first_ms +
+                                     "ms, total " + msg.total_ms + "ms (сервер Voicyfy → OpenAI)");
+                    }
                     // На случай стрима без finish_reason — закрыть ответ всё равно.
                     fire(E.Chunk, { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
                 }

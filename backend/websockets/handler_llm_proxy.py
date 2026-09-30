@@ -15,7 +15,7 @@
     → {"event":"cancel","id":N}           оборвать ответ (перебивание)
     ← {"event":"ready"}                   сокет готов
     ← {"event":"chunk","id":N,"payload":{...chat.completion.chunk...}}
-    ← {"event":"done","id":N}             стрим закрыт
+    ← {"event":"done","id":N,"openai_first_ms":..,"total_ms":..}  стрим закрыт
     ← {"event":"error","id":N,"message":"..."}  ошибка OpenAI (текст как есть —
                                           сценарий по нему решает, что убрать)
 
@@ -162,7 +162,11 @@ class _LLMProxySession:
                     await self.send_json_text(
                         '{"event":"chunk","id":' + json.dumps(req_id) + ',"payload":' + data + "}"
                     )
-            await self.send({"event": "done", "id": req_id})
+            # Тайминги OpenAI со стороны сервера — сценарий пишет их в свой лог
+            # рядом с first token, чтобы видеть, где теряется время.
+            await self.send({"event": "done", "id": req_id,
+                             "openai_first_ms": int(((first or time.monotonic()) - t0) * 1000),
+                             "total_ms": int((time.monotonic() - t0) * 1000)})
             logger.info(
                 f"[LLM-PROXY] {self.assistant_id} id={req_id} first chunk "
                 f"{int(((first or time.monotonic()) - t0) * 1000)}ms, "

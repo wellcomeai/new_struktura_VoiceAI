@@ -1,3 +1,4 @@
+import logging
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -16,10 +17,12 @@ from backend.core.config import settings
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-if config.config_file_name is not None:
-    # disable_existing_loggers=False: иначе alembic глушит логгеры app и backend.*,
-    # и всё, что приложение пишет после миграций, пропадает из логов Render.
+# Interpret the config file for Python logging — только при запуске alembic из
+# командной строки. Когда миграции гоняет app.py на старте, логирование уже
+# настроено (backend/core/logging.py): fileConfig переставил бы корневой логгер
+# на WARN с форматом alembic.ini («WARNI [имя]…»), и все INFO-логи приложения
+# пропадали бы из Render до перезапуска.
+if config.config_file_name is not None and not logging.getLogger().handlers:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here

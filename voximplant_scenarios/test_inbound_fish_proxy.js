@@ -113,7 +113,7 @@ function reply(id, text) {
     for (const part of text.match(/.{1,4}/g)) chunk(id, { content: part });
     chunk(id, {}, "stop");
     server({ event: "chunk", id, payload: { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5 } } });
-    server({ event: "done", id });
+    server({ event: "done", id, openai_first_ms: 600, total_ms: 900 });
 }
 async function userSays(text) {
     vad.fire("Silero.VAD.Result", { speechStartAt: 1 });
@@ -159,6 +159,8 @@ const ttsTexts = () => tts.sent.filter((m) => m.event === "text").map((m) => m.t
     assert(beforeFlush === "Здравствуйте, слушаю.", "первый flush не на коротком предложении: «" + beforeFlush + "»");
     assert(ttsTexts().join("") === "Здравствуйте, слушаю. У нас есть сауна, баня и хамам.", "текст склеился неверно");
     tts.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
+    assert(logs.some((l) => l.indexOf("[LLM] proxy: OpenAI first chunk 600ms, total 900ms") !== -1),
+           "тайминги прокси не попали в лог сценария");
     console.log("✅ ход: request → чанки → Fish, первый flush на «Здравствуйте, слушаю.»");
 
     // ── перебивание: ответ обрывается cancel, поздние чанки не звучат ─────
