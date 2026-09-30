@@ -7,6 +7,14 @@ from pydantic import BaseModel, Field, validator
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
+# Голоса OpenAI-ассистента = встроенные голоса gpt-live-1 (session.audio.output.voice
+# в справочнике Live API). Первые десять есть и в Realtime, двенадцать после них —
+# только в GPT-Live: сейчас это входящие звонки, исходящие и виджет пока на Realtime.
+OPENAI_REALTIME_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"]
+OPENAI_LIVE_ONLY_VOICES = ["beacon", "bossa", "cinder", "delta", "gleam", "meridian",
+                           "quartz", "ripple", "stone", "tempo", "vesper", "willow"]
+OPENAI_VOICES = OPENAI_REALTIME_VOICES + OPENAI_LIVE_ONLY_VOICES
+
 class FunctionParameter(BaseModel):
     """Schema for function parameter"""
     type: str
@@ -39,9 +47,8 @@ class AssistantBase(BaseModel):
     @validator('voice')
     def validate_voice(cls, v):
         """Validate voice is one of the supported voices"""
-        allowed_voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "cedar", "marin"]
-        if v not in allowed_voices:
-            raise ValueError(f'Voice must be one of {", ".join(allowed_voices)}')
+        if v not in OPENAI_VOICES:
+            raise ValueError(f'Voice must be one of {", ".join(OPENAI_VOICES)}')
         return v
 
 class AssistantCreate(AssistantBase):
@@ -69,9 +76,8 @@ class AssistantUpdate(BaseModel):
         """Validate voice is one of the supported voices"""
         if v is None:
             return v
-        allowed_voices = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "cedar", "marin"]
-        if v not in allowed_voices:
-            raise ValueError(f'Voice must be one of {", ".join(allowed_voices)}')
+        if v not in OPENAI_VOICES:
+            raise ValueError(f'Voice must be one of {", ".join(OPENAI_VOICES)}')
         return v
     
     @validator('temperature')

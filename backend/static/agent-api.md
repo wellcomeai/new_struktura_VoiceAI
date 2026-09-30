@@ -76,9 +76,13 @@ Voicyfy по ключу недоступно.
    `additional_instructions` (секция «Дополнительные инструкции от владельца»)
    + **память агента** (заметки, см. ниже).
 2. **Голосовой агент** — говорит в живом телефонном разговоре. Его промпт:
-   базовый шаблон + поле `voice_additional_instructions` (дописывается отдельной
-   секцией). Документы `doc_*` и память агента в живом разговоре НЕ
-   используются.
+   - исходящий звонок: базовый шаблон + поле `voice_additional_instructions`
+     (дописывается отдельной секцией);
+   - входящий звонок на номер агента: `voice_additional_instructions` + правила
+     вызова функций (send_sms, hangup_call), без остального шаблона, + карточка звонящего, если он есть в контактах агента.
+     Поэтому для входящих пиши в поле всё, что голос должен знать: кто он,
+     какая компания, как отвечать. Пустое поле — используется шаблон.
+   Документы `doc_*` и память агента в живом разговоре НЕ используются.
 
 ### Что писать в какое поле
 
@@ -515,6 +519,9 @@ PostCall и чата — агент «помнит» клиента между �
     новые сессии не начинаются.
   - **Fish Audio** работает только на серверном ключе — всегда по тарифу из
     кошелька.
+  - Звонки OpenAI (GPT-Live) на серверном ключе списываются по тарифу
+    **OpenAI Live** (`openai-live`) за всё время голосовой сессии: у исходящих
+    сюда входят гудки, в том числе когда клиент не ответил.
   - **Каскад** работает на внутренних ресурсах платформы, свои ключи не
     нужны.
   - Телефония (номера, минуты, SMS) — Voximplant, подключается в кабинете.
@@ -711,7 +718,7 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
   `5ddd9a81cc554841a53b75e355d52628` — Сергей; или любой свой `reference_id`
   с fish.audio. Передаётся в `fish_voice_id`.
 - **cascade:** `Anna`, `Sergey` (русская речь)
-- **openai:** `alloy`, `echo`, `marin`, `cedar`, `shimmer`, `ash`, `ballad`, `coral`, `sage`, `verse`
+- **openai:** `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`, а также голоса GPT-Live `beacon`, `bossa`, `cinder`, `delta`, `gleam`, `meridian`, `quartz`, `ripple`, `stone`, `tempo`, `vesper`, `willow` (голоса GPT-Live)
 - **gemini:** `Zephyr`, `Puck`, `Charon`, `Kore`, `Fenrir`, `Leda`, `Orus`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`, `Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`, `Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`, `Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`, `Sulafat`
 - **yandex:** `marina`, `dasha`, `alexander`, `julia`, `lera`, `masha`, `anton`, `kirill`, `filipp`, `ermil`, `jane`, `omazh`, `zahar`, `madi_ru`, `saule_ru`
 - **cartesia:** голос задаётся не именем, а `cartesia_voice_id` + опционально `voice_speed` (0.5–1.5)
@@ -719,6 +726,11 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
 Невалидное имя голоса → `400 invalid_voice` (в update) или молча дефолт (в create).
 Дефолты: fish — Светлана, cascade — `Anna`, openai — `alloy`, gemini — `Kore`,
 yandex — `marina`.
+
+Звонки (входящие и исходящие) и веб-виджет OpenAI-ассистентов (и агентов, чей голосовой
+ассистент — OpenAI) обслуживает модель **GPT-Live** (`gpt-live-1`, full-duplex) с
+бэкенд-моделью `gpt-5.6-luna` для функций. Голос ассистента используется как есть
+(все 22 голоса списка выше поддерживаются).
 
 ---
 

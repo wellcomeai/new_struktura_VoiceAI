@@ -2007,6 +2007,13 @@ def ensure_wallet_tables():
                 db.commit()
                 TariffService.invalidate()
                 logger.info("✅ Renamed voice tariff fish → «Fish Audio»")
+            # GPT-Live теперь обслуживает и входящие OpenAI: открыть тариф телефонии
+            live_row = db.query(_VMT).filter(_VMT.code == "openai-live", _VMT.channels == "widget").first()
+            if live_row:
+                live_row.channels = "widget,telephony"
+                db.commit()
+                TariffService.invalidate()
+                logger.info("✅ Voice tariff openai-live: channels → widget,telephony")
         finally:
             db.close()
 

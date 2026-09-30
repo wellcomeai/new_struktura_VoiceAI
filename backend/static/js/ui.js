@@ -648,8 +648,12 @@
     }
     return null;
   }
+  // Встраиваемые виджеты (widget.js, gemini/grok) сами грузят Font Awesome:
+  // svg поверх его глифа рисует каждую иконку дважды (крестик, микрофон).
+  var FA_SKIP = '#wellcomeai-widget-container, .bw-widget-container, .grok-widget-container, [data-vf-no-fa-shim]';
   function faRender(el) {
     if (!(el.tagName === 'I' || el.tagName === 'SPAN')) return;
+    if (el.closest && el.closest(FA_SKIP)) return;
     var n = faName(el);
     if (!n) return;
     var lucide = FA_MAP[n] || (document.getElementById('i-' + n) ? n : null);

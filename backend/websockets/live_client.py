@@ -29,25 +29,24 @@ from websockets.exceptions import ConnectionClosed
 from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.functions import execute_function, get_enabled_functions, normalize_function_name
+from backend.schemas.assistant import OPENAI_VOICES
 
 logger = get_logger(__name__)
 
 LIVE_WS_URL = "wss://api.openai.com/v1/live/sessions"
 LIVE_MODEL = "gpt-live-1"
+# Тариф кошелька для GPT-Live (виджет и входящие звонки OpenAI)
+LIVE_TARIFF_CODE = "openai-live"
 
-# Голоса GPT-Live-1: 12 встроенных голосов API + marin/cedar из примеров доков.
-# Голоса Realtime (alloy, ash, …) сюда не подходят — маппим на дефолт.
-LIVE_VOICES = [
-    "quartz", "ripple", "vesper", "willow", "stone", "gleam",
-    "meridian", "bossa", "tempo", "beacon", "delta", "cinder",
-    "marin", "cedar",
-]
+# Голоса GPT-Live-1: все 22 встроенных голоса из справочника Live API
+# (session.audio.output.voice), список общий с валидацией ассистента.
+LIVE_VOICES = list(OPENAI_VOICES)
 LIVE_VOICE_SET = set(LIVE_VOICES)
 LIVE_DEFAULT_VOICE = (getattr(settings, "LIVE_DEFAULT_VOICE", None) or "marin").lower()
 
-# Бэкенд-модель для delegation.responses: terra — качество, luna — дешевле.
-# Задаётся в env LIVE_DELEGATION_MODEL (backend/core/config.py).
-LIVE_DELEGATION_MODEL = getattr(settings, "LIVE_DELEGATION_MODEL", None) or "gpt-5.6-terra"
+# Бэкенд-модель для delegation.responses: luna — по умолчанию (в 10 раз дешевле
+# terra, на ней считается маржа тарифа openai-live). Env LIVE_DELEGATION_MODEL.
+LIVE_DELEGATION_MODEL = getattr(settings, "LIVE_DELEGATION_MODEL", None) or "gpt-5.6-luna"
 
 # У голосовой модели маленькое контекстное окно: длинный промпт ассистента
 # целиком уходит бэкенд-модели, голосовой части отдаём первые N символов.
@@ -100,6 +99,92 @@ VOICE_DELEGATION_HINT = (
 
 def _short_id(prefix: str = "") -> str:
     return f"{prefix}{uuid.uuid4().hex[:24]}"
+
+
+def resolve_live_voice(voice: Optional[str]) -> str:
+    """Голос ассистента → голос gpt-live-1 (неизвестный или пустой — голос по умолчанию)."""
+    v = (voice or "").strip().lower()
+    if v in LIVE_VOICE_SET:
+        return v
+    return LIVE_DEFAULT_VOICE if LIVE_DEFAULT_VOICE in LIVE_VOICE_SET else "marin"
+
+
+def compose_live_session(
+    system_prompt: Optional[str],
+    voice: str,
+    tools: List[Dict[str, Any]],
+    delegation_model: Optional[str] = None,
+    backend_user_prompt: Optional[str] = None,
+    voice_extra_instructions: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Объект session для session.start. Общий для нашего WS-клиента (виджет,
+    серверный мост) и сценария Voximplant inbound_openai, который открывает
+    Live сам через OpenAI.createLiveAPIClient и получает этот объект из
+    /api/telephony/config (поле live_session). Формат аудио не задаём: в
+    сценарии его выставляет коннектор Voximplant, у нас — вызывающий код.
+    """
+    system_prompt = (system_prompt or "").strip() or DEFAULT_SYSTEM_MESSAGE
+
+    voice_instructions = system_prompt
+    if len(voice_instructions) > LIVE_VOICE_INSTRUCTIONS_MAX_CHARS:
+        logger.warning(
+            f"[LIVE-CLIENT] System prompt is {len(system_prompt)} chars; voice layer gets first "
+            f"{LIVE_VOICE_INSTRUCTIONS_MAX_CHARS}, backend gets full prompt"
+        )
+        voice_instructions = voice_instructions[:LIVE_VOICE_INSTRUCTIONS_MAX_CHARS]
+    voice_instructions += VOICE_DELEGATION_HINT
+    if voice_extra_instructions:
+        voice_instructions += "\n\n" + voice_extra_instructions.strip()
+
+    responses_cfg: Dict[str, Any] = {
+        "model": delegation_model or LIVE_DELEGATION_MODEL,
+        "instructions": BACKEND_SYSTEM_PROMPT + ((backend_user_prompt or "").strip() or system_prompt),
+    }
+    if tools:
+        responses_cfg["tools"] = tools
+        responses_cfg["tool_choice"] = "auto"
+
+    return {
+        "model": LIVE_MODEL,
+        "instructions": voice_instructions,
+        "audio": {"output": {"voice": voice}},
+        "delegation": {"type": "responses", "responses": responses_cfg},
+    }
+
+
+def flatten_realtime_tools(functions: Optional[List[Dict[str, Any]]]):
+    """
+    Функции из /api/telephony/config (формат Realtime: {type, function:{...}},
+    в parameters служебный function_id с enum) → плоский формат Responses для
+    delegation.responses.tools + карта имя → function_id для
+    /api/voximplant/functions/execute. function_id из схемы убираем: сценарий
+    подставляет его сам по карте, бэкенд-модели он не нужен.
+    """
+    tools: List[Dict[str, Any]] = []
+    ids: Dict[str, str] = {}
+    for f in functions or []:
+        fn = (f or {}).get("function") if isinstance(f, dict) else None
+        if not isinstance(fn, dict) or not fn.get("name"):
+            continue
+        params = dict(fn.get("parameters") or {"type": "object", "properties": {}})
+        props = dict(params.get("properties") or {})
+        fid_enum = (props.pop("function_id", None) or {}).get("enum") or []
+        if fid_enum:
+            ids[fn["name"]] = str(fid_enum[0])
+        params["properties"] = props
+        required = [r for r in (params.get("required") or []) if r != "function_id"]
+        if required:
+            params["required"] = required
+        else:
+            params.pop("required", None)
+        tools.append({
+            "type": "function",
+            "name": fn["name"],
+            "description": fn.get("description", ""),
+            "parameters": params,
+        })
+    return tools, ids
 
 
 class OpenAILiveClient:
@@ -201,42 +286,23 @@ class OpenAILiveClient:
         if v in LIVE_VOICE_SET:
             return v
         if v:
-            logger.info(f"[LIVE-CLIENT] Voice '{v}' is a Realtime voice, using '{LIVE_DEFAULT_VOICE}' for gpt-live-1")
+            logger.info(f"[LIVE-CLIENT] Unknown voice '{v}', using '{LIVE_DEFAULT_VOICE}' for gpt-live-1")
         return LIVE_DEFAULT_VOICE if LIVE_DEFAULT_VOICE in LIVE_VOICE_SET else "marin"
 
     def build_session_config(self) -> Dict[str, Any]:
-        system_prompt = (getattr(self.assistant_config, "system_prompt", None) or "").strip() or DEFAULT_SYSTEM_MESSAGE
+        system_prompt = (getattr(self.assistant_config, "system_prompt", None) or "").strip()
         self.voice = self._resolve_voice()
         self.tools = self._build_tools()
-
-        voice_instructions = system_prompt
-        if len(voice_instructions) > LIVE_VOICE_INSTRUCTIONS_MAX_CHARS:
-            logger.warning(
-                f"[LIVE-CLIENT] System prompt is {len(system_prompt)} chars; voice layer gets first "
-                f"{LIVE_VOICE_INSTRUCTIONS_MAX_CHARS}, backend gets full prompt"
-            )
-            voice_instructions = voice_instructions[:LIVE_VOICE_INSTRUCTIONS_MAX_CHARS]
-        voice_instructions += VOICE_DELEGATION_HINT
-        if self.voice_extra_instructions:
-            voice_instructions += "\n\n" + self.voice_extra_instructions
-
-        responses_cfg: Dict[str, Any] = {
-            "model": self.delegation_model,
-            "instructions": BACKEND_SYSTEM_PROMPT + (self.backend_user_prompt or system_prompt),
-        }
-        if self.tools:
-            responses_cfg["tools"] = self.tools
-            responses_cfg["tool_choice"] = "auto"
-
-        return {
-            "model": LIVE_MODEL,
-            "instructions": voice_instructions,
-            "audio": {
-                "format": {"type": "audio/pcm", "rate": self.audio_rate},
-                "output": {"voice": self.voice},
-            },
-            "delegation": {"type": "responses", "responses": responses_cfg},
-        }
+        session = compose_live_session(
+            system_prompt=system_prompt,
+            voice=self.voice,
+            tools=self.tools,
+            delegation_model=self.delegation_model,
+            backend_user_prompt=self.backend_user_prompt,
+            voice_extra_instructions=self.voice_extra_instructions,
+        )
+        session["audio"]["format"] = {"type": "audio/pcm", "rate": self.audio_rate}
+        return session
 
     # ------------------------------------------------------------------
     # Соединение

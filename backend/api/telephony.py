@@ -110,6 +110,9 @@ from backend.services.voximplant_partner import (
     SIP_PROVIDER_PROXIES,
 )
 from backend.api.voximplant import build_functions_for_openai
+from backend.websockets.live_client import (
+    LIVE_TARIFF_CODE, compose_live_session, flatten_realtime_tools, resolve_live_voice,
+)
 from backend.services import provider_keys  # ✅ v6.0: серверные ключи
 from backend.services.wallet_service import WalletService, TELEPHONY_START_MINUTES  # ✅ v6.0: кошелёк
 
@@ -476,6 +479,11 @@ class ScenarioConfigResponse(BaseModel):
     fish_tts_url:      Optional[str] = None
     # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
+    # GPT-Live (входящие OpenAI, сценарий inbound_openai): готовый объект
+    # session для OpenAI.LiveAPIClient.sessionStart и карта имя функции →
+    # function_id для /api/voximplant/functions/execute.
+    live_session:      Optional[Dict[str, Any]] = None
+    live_function_ids: Optional[Dict[str, str]] = None
 
 
 class StartOutboundCallRequest(BaseModel):
@@ -538,6 +546,11 @@ class OutboundConfigResponse(BaseModel):
     fish_tts_url:      Optional[str] = None
     # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
+    # GPT-Live (исходящие OpenAI, сценарий outbound_openai v5): session для
+    # sessionStart без контекста CRM (его дописывает сценарий из customData)
+    # и карта имя функции → function_id.
+    live_session:      Optional[Dict[str, Any]] = None
+    live_function_ids: Optional[Dict[str, str]] = None
 
 
 class PublicCallRequest(BaseModel):
@@ -3103,9 +3116,8 @@ async def public_outbound_call(
         
         # Общий CRM-сценарий умеет не всех: у каскада и Fish свои исходящие
         # сценарии (цепочка с vox-turn-taking / прокси синтеза Fish).
-        from backend.core.task_scheduler import _outbound_rule_name
-        rule_name = _outbound_rule_name(assistant_type)
-        rule_id = child_account.vox_rule_ids.get(rule_name)
+        from backend.core.task_scheduler import _resolve_outbound_rule
+        rule_name, rule_id = _resolve_outbound_rule(child_account.vox_rule_ids, assistant_type)
 
         if not rule_id:
             logger.warning(f"[TELEPHONY-PUBLIC] Rule '{rule_name}' not found")
@@ -3260,7 +3272,8 @@ async def public_outbound_call(
 # ✅ v6.0: ЕДИНАЯ ТОЧКА ВЫДАЧИ КЛЮЧЕЙ ДЛЯ СЦЕНАРИЕВ (серверные ключи + кошелёк)
 # =============================================================================
 
-def resolve_scenario_keys(db: Session, user: User, assistant_type: str, log_prefix: str):
+def resolve_scenario_keys(db: Session, user: User, assistant_type: str, log_prefix: str,
+                          tariff_code: Optional[str] = None):
     """
     Выбрать ключи для сценария Voximplant и проверить шлагбаум кошелька.
 
@@ -3273,6 +3286,8 @@ def resolve_scenario_keys(db: Session, user: User, assistant_type: str, log_pref
     Своих ключей нет → серверные ключи Voicyfy и списание с кошелька по
     отчёту сценария (/api/voximplant/log). Свой ключ → бесплатно, по-старому.
     Каскад всегда на серверном ключе OpenAI и бесплатен (тариф 0 ₽).
+    tariff_code — тариф шлагбаума, если он не совпадает с провайдером
+    (входящие OpenAI идут на GPT-Live → openai-live).
     """
     keys = provider_keys.resolve(user, assistant_type)
     if not keys.is_server:
@@ -3280,7 +3295,7 @@ def resolve_scenario_keys(db: Session, user: User, assistant_type: str, log_pref
     if user.is_admin:
         return keys, True, "admin"
     ok, balance, required = WalletService.precheck(
-        db, user.id, assistant_type, TELEPHONY_START_MINUTES
+        db, user.id, tariff_code or assistant_type, TELEPHONY_START_MINUTES
     )
     if required <= 0:
         return keys, True, "free"
@@ -3379,7 +3394,8 @@ def get_outbound_config(
         voice_speed = None
         folder_id = None
         keys, allowed, billing_mode = resolve_scenario_keys(
-            db, user, assistant_type, "[TELEPHONY-OUTBOUND]"
+            db, user, assistant_type, "[TELEPHONY-OUTBOUND]",
+            tariff_code=LIVE_TARIFF_CODE if assistant_type == "openai" else None,
         )
         if not allowed:
             return OutboundConfigResponse(success=False)
@@ -3424,6 +3440,24 @@ def get_outbound_config(
         if hasattr(assistant, 'greeting_message'):
             first_phrase = assistant.greeting_message
         
+        # GPT-Live для исходящих OpenAI: контекст звонка (контакт, задача,
+        # номера, время) известен только сценарию — он дописывает его в
+        # instructions обоих слоёв перед sessionStart. Поле model не трогаем,
+        # пока на аккаунтах может жить старый Realtime-сценарий.
+        live_session = None
+        live_function_ids = None
+        if assistant_type == "openai":
+            live_tools, live_function_ids = flatten_realtime_tools(functions)
+            live_session = compose_live_session(
+                system_prompt=system_prompt,
+                voice=resolve_live_voice(voice),
+                tools=live_tools,
+                voice_extra_instructions=(
+                    "Это исходящий телефонный звонок: ты сам звонишь клиенту. "
+                    "Когда он ответит, начни разговор первым."
+                ),
+            )
+
         logger.info(f"[TELEPHONY-OUTBOUND] ✅ Config returned for {assistant_id}")
         logger.info(f"[TELEPHONY-OUTBOUND]    Assistant: {assistant_name} ({assistant_type})")
         logger.info(f"[TELEPHONY-OUTBOUND]    Voice: {voice}")
@@ -3471,6 +3505,8 @@ def get_outbound_config(
             sample_rate=assistant.sample_rate if assistant_type == "fish" else None,
             fish_tts_url=build_fish_tts_url(assistant.id) if assistant_type == "fish" else None,
             billing_mode=billing_mode,
+            live_session=live_session,
+            live_function_ids=live_function_ids,
         )
 
     except Exception as e:
@@ -5621,6 +5657,19 @@ def _build_caller_context(contact) -> str:
         return ""
 
 
+def _live_voice_extra(called: str, caller: Optional[str], contact) -> str:
+    """Телефонная добавка к промпту голосового слоя GPT-Live (как в серверном мосте)."""
+    msk = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%d %H:%M")
+    lines = [
+        "Это телефонный звонок, ты отвечаешь на входящий вызов.",
+        f"Номер клиента: {caller or 'неизвестен'}. Наш номер: {called}. Текущее время: {msk} (МСК).",
+    ]
+    name = _caller_first_name(contact)
+    if name:
+        lines.append(f"Звонит известный клиент, его зовут {name}. Обращайся по имени.")
+    return "\n".join(lines)
+
+
 @router.get("/config")
 def get_scenario_config(
     phone: str = Query(..., description="Номер телефона, на который звонят"),
@@ -5823,7 +5872,8 @@ def get_scenario_config(
         voice_speed = None
         folder_id = None
         keys, allowed, billing_mode = resolve_scenario_keys(
-            db, user, phone_record.assistant_type, "[TELEPHONY]"
+            db, user, phone_record.assistant_type, "[TELEPHONY]",
+            tariff_code=LIVE_TARIFF_CODE if phone_record.assistant_type == "openai" else None,
         )
         api_key = keys.api_key if allowed else None
         if phone_record.assistant_type == "cartesia":
@@ -5839,6 +5889,8 @@ def get_scenario_config(
         if not first_phrase and hasattr(assistant, 'greeting_message'):
             first_phrase = assistant.greeting_message
 
+        caller_contact = None
+        live_voice_prompt = None  # промпт голосового слоя GPT-Live (без карточки и правил функций)
         # 🆕 Агентский входящий: если номер привязан к агенту обзвона —
         # один раз ищем контакт звонящего и используем его для (1) карточки в
         # промпте и (2) персонализации первой фразы агента ({name}).
@@ -5853,6 +5905,18 @@ def get_scenario_config(
 
             caller_contact = _find_caller_contact(db, agent_config_id, caller) if caller else None
 
+            # (0) Входящий промпт агента = инструкции с вкладки «Звонки»
+            #     (voice_additional_instructions) + правила вызова функций, без
+            #     остального шаблона: он написан под исходящие (задача и стратегия
+            #     от оркестратора), во входящем их нет. Пустое поле — остаётся
+            #     промпт ассистента.
+            voice_instructions = (getattr(agent_cfg, "voice_additional_instructions", None) or "").strip()
+            if voice_instructions:
+                from backend.services.agent_prompts import VOICE_AGENT_FUNCTIONS_BLOCK
+                system_prompt = voice_instructions + "\n\n" + VOICE_AGENT_FUNCTIONS_BLOCK.strip()
+                live_voice_prompt = voice_instructions
+                logger.info(f"[TELEPHONY]   📝 Inbound agent prompt: voice instructions only ({len(voice_instructions)} chars)")
+
             # (1) Карточка звонящего → дописываем в system_prompt (знает клиента
             #     ещё ДО приветствия).
             caller_ctx = _build_caller_context(caller_contact)
@@ -5864,6 +5928,29 @@ def get_scenario_config(
             if agent_cfg and getattr(agent_cfg, "inbound_first_phrase", None):
                 first_phrase = _personalize_greeting(agent_cfg.inbound_first_phrase, caller_contact)
                 logger.info(f"[TELEPHONY]   👋 Inbound first phrase: \"{(first_phrase or '')[:60]}\"")
+
+        # GPT-Live для входящих OpenAI: сценарий inbound_openai открывает сессию
+        # сам (OpenAI.createLiveAPIClient) и берёт её настройки отсюда. Поле
+        # model ниже не трогаем — старый Realtime-сценарий читает его, пока
+        # новый не раскатан.
+        live_session = None
+        live_function_ids = None
+        if phone_record.assistant_type == "openai":
+            live_tools, live_function_ids = flatten_realtime_tools(functions)
+            # Голосовому слою — промпт без карточки звонящего и правил функций
+            # (функции вызывает бэкенд-модель, имя клиента — в voice_extra);
+            # бэкенд-модели — полный промпт входящего.
+            live_session = compose_live_session(
+                system_prompt=live_voice_prompt or assistant.system_prompt,
+                voice=resolve_live_voice(voice),
+                tools=live_tools,
+                backend_user_prompt=system_prompt,
+                voice_extra_instructions=_live_voice_extra(phone, caller, caller_contact),
+            )
+            logger.info(
+                f"[TELEPHONY]   🎙️ GPT-Live: voice={live_session['audio']['output']['voice']}, "
+                f"backend={live_session['delegation']['responses']['model']}, tools={len(live_tools)}"
+            )
 
         logger.info(f"[TELEPHONY] Config returned for {phone}")
         logger.info(f"[TELEPHONY]   Assistant: {assistant_name} ({phone_record.assistant_type})")
@@ -5915,6 +6002,8 @@ def get_scenario_config(
                 if phone_record.assistant_type == "fish" else None
             ),
             billing_mode=billing_mode,
+            live_session=live_session,
+            live_function_ids=live_function_ids,
         )
 
     except Exception as e:

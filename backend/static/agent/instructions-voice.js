@@ -87,7 +87,9 @@ async function saveEdit(){
 }
 
 // ════════════════ VOICE SELECTION (shared) ════════════════
-const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','coral','sage','verse'];
+// Все встроенные голоса gpt-live-1 (должны совпадать с OPENAI_VOICES в backend/schemas/assistant.py).
+const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','coral','sage','verse',
+  'beacon','bossa','cinder','delta','gleam','meridian','quartz','ripple','stone','tempo','vesper','willow'];
 const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe','Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi','Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird','Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'];
 // Должен совпадать с YANDEX_VOICES в backend/api/agent.py.
 const YANDEX_VOICES = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
@@ -125,6 +127,7 @@ function onFishVoiceChange(sel, ids){
   if(el) el.innerHTML = fishVoicePreviewHtml(sel.value, inp ? inp.value.trim() : '');
 }
 
+const LIVE_VOICE_DESC = 'Голос GPT-Live';
 // Пол + краткое описание голоса: [gender('m'|'f'|'n'), описание].
 const VOICE_META = {
   gemini: {
@@ -144,6 +147,10 @@ const VOICE_META = {
     cedar:['m','Глубокий, низкий'], shimmer:['f','Мягкий, светлый'], ash:['m','Спокойный, ровный'],
     ballad:['m','Выразительный, эмоциональный'], coral:['f','Дружелюбный, тёплый'], sage:['f','Спокойный, мягкий'],
     verse:['m','Живой, динамичный'],
+    // Голоса GPT-Live: OpenAI не публикует их описания
+    beacon:['n',LIVE_VOICE_DESC], bossa:['n',LIVE_VOICE_DESC], cinder:['n',LIVE_VOICE_DESC], delta:['n',LIVE_VOICE_DESC],
+    gleam:['n',LIVE_VOICE_DESC], meridian:['n',LIVE_VOICE_DESC], quartz:['n',LIVE_VOICE_DESC], ripple:['n',LIVE_VOICE_DESC],
+    stone:['n',LIVE_VOICE_DESC], tempo:['n',LIVE_VOICE_DESC], vesper:['n',LIVE_VOICE_DESC], willow:['n',LIVE_VOICE_DESC],
   },
   yandex: {
     marina:['f','Тёплый, дружелюбный'], dasha:['f','Живой, современный'], alexander:['m','Уверенный, деловой'],

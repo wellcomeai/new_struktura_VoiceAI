@@ -65,7 +65,9 @@ class Settings(BaseSettings):
     CARTESIA_API_KEY: Optional[str] = os.getenv("CARTESIA_API_KEY")
 
     # 🧪 GPT-Live (gpt-live-1), экспериментальный виджет /ws/live/{id}
-    LIVE_DELEGATION_MODEL: str = os.getenv("LIVE_DELEGATION_MODEL", "gpt-5.6-terra")   # бэкенд-модель delegation.responses
+    LIVE_DELEGATION_MODEL: str = os.getenv("LIVE_DELEGATION_MODEL", "gpt-5.6-luna")    # бэкенд-модель delegation.responses (terra в 10 раз дороже)
+    # Веб-виджет OpenAI (/ws/{id}): "live" — GPT-Live (handler_live_widget), "realtime" — откат на Realtime
+    WIDGET_OPENAI_TRANSPORT: str = os.getenv("WIDGET_OPENAI_TRANSPORT", "live").strip().lower()
     LIVE_DEFAULT_VOICE: str = os.getenv("LIVE_DEFAULT_VOICE", "marin")                # голос, если у ассистента голос Realtime
     LIVE_VOICE_INSTRUCTIONS_MAX_CHARS: int = int(os.getenv("LIVE_VOICE_INSTRUCTIONS_MAX_CHARS", "6000"))
     YANDEX_API_KEY: Optional[str] = os.getenv("YANDEX_API_KEY")

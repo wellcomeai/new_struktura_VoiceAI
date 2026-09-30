@@ -334,7 +334,9 @@
     { id: '1ac3ce2f7ba24e90ac2a08055c253fe7', name: 'Светлана', gender: 'f' },
     { id: '5ddd9a81cc554841a53b75e355d52628', name: 'Сергей', gender: 'm' },
   ];
-  const OPENAI_VOICES = ['alloy', 'echo', 'marin', 'cedar', 'shimmer', 'ash', 'ballad', 'coral', 'sage', 'verse'];
+  // Все встроенные голоса gpt-live-1 (должны совпадать с OPENAI_VOICES в backend/schemas/assistant.py).
+  const OPENAI_VOICES = ['alloy', 'echo', 'marin', 'cedar', 'shimmer', 'ash', 'ballad', 'coral', 'sage', 'verse',
+    'beacon', 'bossa', 'cinder', 'delta', 'gleam', 'meridian', 'quartz', 'ripple', 'stone', 'tempo', 'vesper', 'willow'];
   const GEMINI_VOICES = [['Puck','M'],['Charon','M'],['Kore','F'],['Fenrir','M'],['Aoede','F'],['Achernar','F'],['Achird','M'],['Algenib','M'],['Algieba','M'],['Alnilam','M'],['Autonoe','F'],['Callirrhoe','F'],['Despina','F'],['Enceladus','M'],['Erinome','F'],['Gacrux','F'],['Iapetus','M'],['Laomedeia','F'],['Leda','F'],['Orus','M'],['Pulcherrima','F'],['Rasalgethi','M'],['Sadachbia','M'],['Sadaltager','M'],['Schedar','M'],['Sulafat','F'],['Umbriel','M'],['Vindemiatrix','F'],['Zephyr','F'],['Zubenelgenubi','M']];
   const YANDEX_VOICES_FALLBACK = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
   const YANDEX_MODEL = 'speech-realtime-260528';

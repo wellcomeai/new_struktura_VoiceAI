@@ -48,17 +48,36 @@ DEFAULT_TIMEZONE = "Europe/Moscow"
 
 # Провайдеры со своим исходящим сценарием. Каскаду нужна цепочка
 # vox-turn-taking + outbound_cascade, Fish — прокси синтеза (/ws/fish/tts/…);
-# общий outbound_crm ни того, ни другого не умеет.
+# общий outbound_crm ни того, ни другого не умеет. OpenAI — outbound_openai
+# (GPT-Live, контекст CRM из customData).
 OUTBOUND_RULE_BY_TYPE = {
     "cascade": "outbound_cascade",
     "fish": "outbound_fish",
+    "openai": "outbound_openai",
 }
 DEFAULT_OUTBOUND_RULE = "outbound_crm"
+# Тип, у которого outbound_crm остаётся запасным, пока своё правило не
+# заведено на дочернем аккаунте (раскатка /admin/setup-openai-scenarios-stream).
+OUTBOUND_RULE_FALLBACK_TO_DEFAULT = {"openai"}
 
 
 def _outbound_rule_name(assistant_type: Optional[str]) -> str:
     """Имя правила Voximplant для исходящего звонка этим типом ассистента."""
     return OUTBOUND_RULE_BY_TYPE.get(assistant_type, DEFAULT_OUTBOUND_RULE)
+
+
+def _resolve_outbound_rule(rule_ids: Optional[dict], assistant_type: Optional[str]) -> Tuple[str, Optional[str]]:
+    """
+    (имя правила, id) для исходящего звонка. Если своего правила у типа нет,
+    а тип допускает запасной вариант, — общий outbound_crm.
+    """
+    rule_ids = rule_ids or {}
+    name = _outbound_rule_name(assistant_type)
+    rule_id = rule_ids.get(name)
+    if not rule_id and assistant_type in OUTBOUND_RULE_FALLBACK_TO_DEFAULT and rule_ids.get(DEFAULT_OUTBOUND_RULE):
+        logger.warning(f"[TASK-SCHEDULER] Rule '{name}' not found, falling back to '{DEFAULT_OUTBOUND_RULE}'")
+        return DEFAULT_OUTBOUND_RULE, rule_ids.get(DEFAULT_OUTBOUND_RULE)
+    return name, rule_id
 
 
 class TaskScheduler:
@@ -620,8 +639,7 @@ class TaskScheduler:
     ) -> Tuple[Optional[str], bool]:
         """Initiate agent call via partner API. Returns (session_id, success)."""
         try:
-            outbound_rule_name = _outbound_rule_name(assistant_type)
-            rule_id = child_account.get_rule_id(outbound_rule_name)
+            outbound_rule_name, rule_id = _resolve_outbound_rule(child_account.vox_rule_ids, assistant_type)
             if not rule_id:
                 task.call_result = f"Outbound rule '{outbound_rule_name}' not configured"
                 return None, False
@@ -867,8 +885,7 @@ class TaskScheduler:
             
             # Сценарий исходящего: общий outbound_crm для провайдеров, которые он
             # умеет, и свой сценарий у каскада и Fish (см. _outbound_rule_name).
-            rule_name = _outbound_rule_name(assistant_type)
-            rule_id = child_account.get_rule_id(rule_name)
+            rule_name, rule_id = _resolve_outbound_rule(child_account.vox_rule_ids, assistant_type)
 
             if not rule_id:
                 logger.error(f"[TASK-SCHEDULER] ❌ Rule '{rule_name}' not found in child account")

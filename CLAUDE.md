@@ -367,6 +367,34 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
   меньше 12 мин, если есть контакты без переписки (лимит 5 новых диалогов в час), иначе не
   меньше 2 мин.
 
+## Входящие OpenAI на GPT-Live (ветка 2709-skills)
+
+Все входящие звонки на OpenAI-ассистентов и агентов идут через сценарий
+`voximplant_scenarios/inbound_openai.js` (v5.0): Voximplant сам открывает `gpt-live-1`
+(`OpenAI.createLiveAPIClient`), без нашего сервера на пути аудио. Настройки сессии отдаёт
+`/api/telephony/config` полями `live_session` (собирает `compose_live_session` в
+`backend/websockets/live_client.py` — общий с виджетом и серверным мостом) и
+`live_function_ids`; поле `model` осталось Realtime для старого сценария до раскатки.
+Бэкенд-модель — `LIVE_DELEGATION_MODEL` (по умолчанию `gpt-5.6-luna`: terra в 10 раз дороже и съедает маржу тарифа). Голоса OpenAI-ассистента —
+все 22 встроенных голоса gpt-live-1 (`OPENAI_VOICES` в `backend/schemas/assistant.py`; дубли во
+фронте: `voice-assistants.html`, `agent/instructions-voice.js`); 12 из них (`OPENAI_LIVE_ONLY_VOICES`)
+Realtime не знает — на Live (звонки и виджет) работают все; при откате виджета на Realtime их не выбирать. Шлагбаум и списание —
+тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`); секунды списания — `max(call_duration,
+data.live_usage_seconds)`: OpenAI берёт деньги за всю сессию Live, включая гудки исходящего, прогрев и недозвоны. Исходящие — `voximplant_scenarios/outbound_openai.js` (v5.0) по той же схеме: `/api/telephony/outbound-config`
+тоже отдаёт `live_session`, а контекст CRM из `customData` (`contact_name`, `task_title`,
+`task_description`, `task`, `custom_greeting`) сценарий дописывает в instructions обоих слоёв. Агент и публичный API
+звонят OpenAI через правило `outbound_openai` (`OUTBOUND_RULE_BY_TYPE` в `task_scheduler.py`, раньше — общий
+`outbound_crm`); пока правила нет на дочернем аккаунте, `_resolve_outbound_rule` откатывается на `outbound_crm`. Веб-виджет OpenAI
+(`/ws/{assistant_id}`, `widget.js`) тоже на Live: `backend/websockets/handler_live_widget.py` говорит на
+прежнем протоколе виджета (`response.audio.delta` и т.д.), сессию открывает `OpenAILiveClient` (24 кГц), функции
+выполняет сам клиент, в паузы досылает тишину (таймлайн Live идёт только при входящем звуке), тариф
+`openai-live` посекундно (`VoiceBillingSession`), диалог в conversations/Sheets в конце сессии. `connection_status`
+несёт `full_duplex: true` — `widget.js` тогда не глушит микрофон во время ответа (перебивания, эхо на браузерном
+AEC). Откат виджета: env `WIDGET_OPENAI_TRANSPORT=realtime`; demo и ElevenLabs всегда идут в Realtime-хендлер.
+Серверный мост `inbound_live.js` + `handler_live_telephony.py` оставлен
+для отката. Раскатка кода со стримом: `POST /api/telephony/admin/setup-openai-scenarios-stream`
+(копирует `inbound_openai`/`outbound_openai` с родительского аккаунта на все дочерние).
+
 ## Входящие Fish: каскад ASR → gpt-5.6-luna → Fish (ветка 2709-skills)
 
 `voximplant_scenarios/inbound_fish.js` v2.0 (имя сценария то же, бэкенд не менялся): ASR Voximplant
@@ -437,3 +465,12 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 - **Task scheduler:** Background scheduler (`core/task_scheduler.py`) polls for scheduled call tasks every 30 seconds and executes them automatically.
 - **Trailing slash:** маршруты вида `@router.get("/")` с префиксом (`/api/contacts/`) доступны и без слэша: `TrailingSlashRewriteMiddleware` в `backend/core/http_optimizations.py` подменяет путь вместо 307-редиректа Starlette, потому что за прокси Render Location редиректа собирался с внутренним хостом `*.onrender.com` и фронт получал 403.
 - **Static pages:** App pages (agents, dashboard, CRM, etc.) are vanilla HTML/JS served by FastAPI's `StaticFiles`. The React app is only used for the landing page.
+
+## Промпт голосового агента во входящих (ветка 2709-skills)
+
+`GET /api/telephony/config` (входящие): если номер привязан к агенту (`agent_config_id`) и у агента
+заполнено `voice_additional_instructions` (вкладка «Звонки» → «Инструкции для голосового агента»),
+в сценарий уходит **этот текст** + `VOICE_AGENT_FUNCTIONS_BLOCK` (правила send_sms / hangup_call) +
+карточка звонящего, без остального `VOICE_AGENT_PROMPT_BASE` (он написан под исходящие со стратегией
+оркестратора; блок функций вынесен из него отдельной константой, текст шаблона не изменился). Пустое поле — прежний `system_prompt`
+ассистента (шаблон + блок владельца). Исходящие не менялись.

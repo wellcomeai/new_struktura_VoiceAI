@@ -1268,6 +1268,73 @@
       }
     }
     
+    // GPT-Live (full-duplex): звук приходит мелкими кусками в темпе речи. Играть их
+    // по очереди через decodeAudioData нельзя — между кусками паузы (треск) и
+    // каждый раз «ассистент замолчал» (мигают иконки). Поэтому кладём куски встык
+    // по часам AudioContext с небольшим запасом на джиттер сети.
+    const LIVE_PLAYBACK_LEAD_S = 0.12;   // запас перед первым куском реплики
+    const LIVE_SPEAKING_HANGOVER_MS = 300; // держим «говорит» после последнего куска
+    let livePlayNextTime = 0;
+    let livePlayEndTimer = null;
+
+    function playLiveAudioChunk(audioBase64) {
+      const ctx = window.globalAudioContext;
+      if (!ctx || !audioBase64) return;
+      const bytes = base64ToArrayBuffer(audioBase64);
+      if (!bytes || bytes.byteLength < 2) return;
+      const pcm = new Int16Array(bytes, 0, Math.floor(bytes.byteLength / 2));
+      const buffer = ctx.createBuffer(1, pcm.length, 24000);
+      const channel = buffer.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      interruptionState.current_audio_sources = interruptionState.current_audio_sources || [];
+      interruptionState.current_audio_sources.push(source);
+      source.onended = function() {
+        const idx = interruptionState.current_audio_sources.indexOf(source);
+        if (idx > -1) interruptionState.current_audio_sources.splice(idx, 1);
+      };
+
+      const now = ctx.currentTime;
+      if (livePlayNextTime < now + 0.02) livePlayNextTime = now + LIVE_PLAYBACK_LEAD_S;
+      const startAt = livePlayNextTime;
+      livePlayNextTime += buffer.duration;
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(() => source.start(startAt));
+      } else {
+        source.start(startAt);
+      }
+
+      if (!isPlayingAudio) {
+        isPlayingAudio = true;
+        interruptionState.is_assistant_speaking = true;
+        mainCircle.classList.add('speaking');
+        mainCircle.classList.remove('listening');
+      }
+      scheduleLivePlaybackEnd();
+    }
+
+    function scheduleLivePlaybackEnd() {
+      if (livePlayEndTimer) clearTimeout(livePlayEndTimer);
+      const ctx = window.globalAudioContext;
+      const leftMs = Math.max(0, (livePlayNextTime - ctx.currentTime) * 1000);
+      livePlayEndTimer = setTimeout(function() {
+        livePlayEndTimer = null;
+        if (window.globalAudioContext.currentTime < livePlayNextTime) {
+          scheduleLivePlaybackEnd();
+          return;
+        }
+        isPlayingAudio = false;
+        lastPlaybackEndTime = Date.now();
+        interruptionState.is_assistant_speaking = false;
+        mainCircle.classList.remove('speaking');
+        if (isWidgetOpen && isListening) mainCircle.classList.add('listening');
+        if (!isWidgetOpen) widgetButton.classList.add('wellcomeai-pulse-animation');
+      }, leftMs + LIVE_SPEAKING_HANGOVER_MS);
+    }
+
     // Добавить аудио в очередь воспроизведения
     function addAudioToPlaybackQueue(audioBase64) {
       if (!audioBase64 || typeof audioBase64 !== 'string') return;
@@ -1336,6 +1403,8 @@
       audioPlaybackQueue = [];
       audioChunksBuffer = [];
       firstAudioChunkReceived = false;
+      livePlayNextTime = 0;
+      if (livePlayEndTimer) { clearTimeout(livePlayEndTimer); livePlayEndTimer = null; }
 
       if (websocket && websocket.readyState === WebSocket.OPEN) {
         try {
@@ -1715,9 +1784,12 @@
         
         // v4.0: Simplified audio handler — server VAD manages commits
         audioProcessor.onaudioprocess = function(e) {
-          // ПАУЗА: не стримим пока ассистент говорит — иначе его голос попадает в микрофон
+          // ПАУЗА: не стримим пока ассистент говорит — иначе его голос попадает в микрофон.
+          // GPT-Live (full-duplex) слушает всегда: эхо убирает браузерный AEC, а модель
+          // сама решает, перебили её или нет.
           const echoTailActive = (Date.now() - lastPlaybackEndTime) < PLAYBACK_ECHO_TAIL_MS;
-          if (!isListening || isPlayingAudio || isReconnecting || echoTailActive) return;
+          if (!isListening || isReconnecting) return;
+          if (!window._fullDuplex && (isPlayingAudio || echoTailActive)) return;
           if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
 
           const inputBuffer = e.inputBuffer;
@@ -2090,6 +2162,8 @@
                   connectionFailedPermanently = false;
                   // ✅ Читаем флаги от сервера
                   window._visionEnabled = data.enable_vision === true;
+                  // GPT-Live: full-duplex — микрофон не глушим, пока ассистент говорит
+                  window._fullDuplex = data.full_duplex === true;
                   widgetLog(`[v4.0] Vision AI: ${window._visionEnabled ? 'включен' : 'выключен'}`);
 
                   hideConnectionError();
@@ -2138,6 +2212,10 @@
               // 🚀 v3.2.0 STREAMING AUDIO OPTIMIZATION
               // Start playback on FIRST audio delta instead of waiting for done!
               if (data.type === 'response.audio.delta') {
+                if (data.delta && window._fullDuplex) {
+                  playLiveAudioChunk(data.delta);
+                  return;
+                }
                 if (data.delta) {
                   addAudioToPlaybackQueue(data.delta);
                   if (!interruptionState.is_assistant_speaking) {
@@ -2382,6 +2460,12 @@
 
   // Инициализируем виджет
   function initializeWidget() {
+    // Скрипт мог попасть на страницу дважды до DOMContentLoaded — второй экземпляр
+    // иначе рисует вторую кнопку поверх первой
+    if (document.getElementById('wellcomeai-widget-container')) {
+      widgetLog('[v4.0] Widget already exists on the page, skipping initialization');
+      return;
+    }
     widgetLog('[v4.0] Starting clean UI initialization');
     
     widgetLog(`[v4.0] Device type: ${isIOS ? 'iOS' : (isAndroid ? 'Android' : (isMobile ? 'Mobile' : 'Desktop'))}`);
