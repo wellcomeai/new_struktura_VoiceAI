@@ -44,9 +44,9 @@ LIVE_VOICES = list(OPENAI_VOICES)
 LIVE_VOICE_SET = set(LIVE_VOICES)
 LIVE_DEFAULT_VOICE = (getattr(settings, "LIVE_DEFAULT_VOICE", None) or "marin").lower()
 
-# Бэкенд-модель для delegation.responses: terra — качество, luna — дешевле.
-# Задаётся в env LIVE_DELEGATION_MODEL (backend/core/config.py).
-LIVE_DELEGATION_MODEL = getattr(settings, "LIVE_DELEGATION_MODEL", None) or "gpt-5.6-terra"
+# Бэкенд-модель для delegation.responses: luna — по умолчанию (в 10 раз дешевле
+# terra, на ней считается маржа тарифа openai-live). Env LIVE_DELEGATION_MODEL.
+LIVE_DELEGATION_MODEL = getattr(settings, "LIVE_DELEGATION_MODEL", None) or "gpt-5.6-luna"
 
 # У голосовой модели маленькое контекстное окно: длинный промпт ассистента
 # целиком уходит бэкенд-модели, голосовой части отдаём первые N символов.

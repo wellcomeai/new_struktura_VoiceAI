@@ -16,6 +16,8 @@ from backend.db.session import get_db
 
 # ✅ PRODUCTION HANDLER - NEW GA API
 from backend.websockets.handler_realtime_new import handle_websocket_connection_new
+from backend.websockets.handler_live_widget import handle_live_widget_connection, is_live_widget_assistant
+from backend.core.config import settings
 
 # 📦 BACKUP - Old handler kept for emergency rollback only
 # from backend.websockets.handler import handle_websocket_connection as handle_websocket_connection_old
@@ -64,9 +66,16 @@ async def websocket_endpoint(
     logger.info(f"[GA-API] New WebSocket connection from client {client_id} for assistant {assistant_id}")
     if assistant_id == "llm-stream":
         logger.error(f"[GA-API] ⚠️ ROUTE COLLISION: /ws/llm-stream caught by /ws/{{assistant_id}} handler! Router order fix not deployed?")
-    logger.info(f"[GA-API] Using Realtime GA API (model: gpt-realtime-mini)")
-    
     try:
+        # OpenAI-ассистенты — на GPT-Live (откат: WIDGET_OPENAI_TRANSPORT=realtime).
+        # demo, ElevenLabs и не найденные идут в Realtime-хендлер, как раньше.
+        if settings.WIDGET_OPENAI_TRANSPORT == "live":
+            live_assistant = is_live_widget_assistant(db, assistant_id)
+            if live_assistant is not None:
+                logger.info(f"[GA-API] Using GPT-Live widget bridge for assistant {assistant_id}")
+                await handle_live_widget_connection(websocket, live_assistant, db)
+                return
+        logger.info(f"[GA-API] Using Realtime GA API (model: gpt-realtime-mini)")
         await handle_websocket_connection_new(websocket, assistant_id, db)
     except WebSocketDisconnect:
         logger.info(f"[GA-API] Client {client_id} disconnected normally")

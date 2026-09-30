@@ -1715,9 +1715,12 @@
         
         // v4.0: Simplified audio handler — server VAD manages commits
         audioProcessor.onaudioprocess = function(e) {
-          // ПАУЗА: не стримим пока ассистент говорит — иначе его голос попадает в микрофон
+          // ПАУЗА: не стримим пока ассистент говорит — иначе его голос попадает в микрофон.
+          // GPT-Live (full-duplex) слушает всегда: эхо убирает браузерный AEC, а модель
+          // сама решает, перебили её или нет.
           const echoTailActive = (Date.now() - lastPlaybackEndTime) < PLAYBACK_ECHO_TAIL_MS;
-          if (!isListening || isPlayingAudio || isReconnecting || echoTailActive) return;
+          if (!isListening || isReconnecting) return;
+          if (!window._fullDuplex && (isPlayingAudio || echoTailActive)) return;
           if (!websocket || websocket.readyState !== WebSocket.OPEN) return;
 
           const inputBuffer = e.inputBuffer;
@@ -2090,6 +2093,8 @@
                   connectionFailedPermanently = false;
                   // ✅ Читаем флаги от сервера
                   window._visionEnabled = data.enable_vision === true;
+                  // GPT-Live: full-duplex — микрофон не глушим, пока ассистент говорит
+                  window._fullDuplex = data.full_duplex === true;
                   widgetLog(`[v4.0] Vision AI: ${window._visionEnabled ? 'включен' : 'выключен'}`);
 
                   hideConnectionError();
