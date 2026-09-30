@@ -402,7 +402,7 @@ AEC). Откат виджета: env `WIDGET_OPENAI_TRANSPORT=realtime`; demo и
 gpt-6-luna (priority) через наш прокси `/ws/fish/llm/{id}` (`backend/websockets/handler_llm_proxy.py`,
 роут в `fish_ws.py`; ключ OpenAI на сервере, `cancel` обрывает ответ) → Fish через прокси `/ws/fish/tts/{id}`.
 Коннектор Voximplant `createChatCompletionsAPIClient` (на `CONFIG.api_key`) давал первый токен 1.1–4.2 с
-против 0.5–0.65 с с Render — оставлен откатом `LLM_TRANSPORT = "connector"`. Прогрева кэша больше нет.
+против 0.5–0.65 с с Render — оставлен откатом `LLM_TRANSPORT = "connector"`. Первый ответ модели в звонке шёл 3.5–4.2 с (с Render даже холодный — 0.5–1.4 с), поэтому во время приветствия уходит прогрев через тот же сокет (`LLM_WARMUP`: префикс + «Алло», ответ выбрасывается, реплика абонента ждёт его закрытия). Прокси отдаёт в `done` тайминги OpenAI (`openai_first_ms`), сценарий пишет их в лог.
 Responses-клиент VoxEngine не использовать: массив сообщений в `input` он отвергает (`Missing required parameter: 'input'`).
 Модель, паузу и провайдера ASR задают константы в начале сценария; `CONFIG.model` и
 `DEFAULT_FISH_LLM_MODEL` (gpt-realtime-2.1) не трогать — их использует `outbound_fish.js`, который

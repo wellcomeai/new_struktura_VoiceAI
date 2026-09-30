@@ -163,7 +163,10 @@ sandbox.global = sandbox;
 vm.createContext(sandbox);
 // Основной прогон — на коннекторе Voximplant (откат); транспорт через наш
 // прокси проверяет test_inbound_fish_proxy.js (запускается в конце).
-const source = fs.readFileSync(SCENARIO, "utf8").replace(/var LLM_TRANSPORT\s*=\s*"proxy"/, 'var LLM_TRANSPORT = "connector"');
+// Прогрев проверяет тест прокси; здесь он выключен, чтобы не сдвигать счёт запросов.
+const source = fs.readFileSync(SCENARIO, "utf8")
+    .replace(/var LLM_TRANSPORT\s*=\s*"proxy"/, 'var LLM_TRANSPORT = "connector"')
+    .replace(/var LLM_WARMUP\s*=\s*true/, "var LLM_WARMUP = false");
 if (source.indexOf('var LLM_TRANSPORT = "connector"') === -1) throw new Error("не нашли LLM_TRANSPORT в сценарии");
 vm.runInContext(source, sandbox, { filename: "inbound_fish.js" });
 

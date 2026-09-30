@@ -139,20 +139,31 @@ const ttsTexts = () => tts.sent.filter((m) => m.event === "text").map((m) => m.t
     tts.fire("WebSocket.Open");
     await tick();
     tts.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
-    assert(requests().length === 0, "при first_phrase ушёл запрос (прогрева больше нет)");
-    console.log("✅ подключение: /ws/fish/llm/{id}, звонок ждёт сокет модели, прогрева нет");
+    // Прогрев: во время приветствия — тот же префикс + «Алло», ответ обрезан.
+    assert(requests().length === 1, "ожидали один прогревочный запрос, а их " + requests().length);
+    const warm = requests()[0];
+    assert(warm.id === 1 && warm.payload.max_completion_tokens <= 16, "прогрев без ограничения ответа");
+    assert(warm.payload.messages[1].content === CONFIG.first_phrase &&
+           warm.payload.messages.slice(-1)[0].content === "Алло", "префикс прогрева не совпадает с первым ходом");
+    await userSays("какие у вас бани");                 // реплика во время прогрева ждёт его закрытия
+    assert(requests().length === 1, "реплика ушла, не дождавшись прогрева (прогрев оборван?)");
+    assert(!llm().sent.some((m) => m.event === "cancel"), "прогрев отменён");
+    tts.sent = [];
+    reply(1, "Здравствуйте");
+    await tick();
+    assert(ttsTexts().length === 0, "ответ прогрева ушёл в синтез");
+    console.log("✅ подключение: /ws/fish/llm/{id}, прогрев во время приветствия, реплика ждёт его");
 
     // ── ход: request с телом Chat Completions, ключа в нём нет ─────────────
-    await userSays("какие у вас бани");
     let req = lastReq();
-    assert(req && req.id === 1, "запрос не ушёл в прокси: " + JSON.stringify(llm().sent));
+    assert(req && req.id === 2, "запрос не ушёл в прокси: " + JSON.stringify(llm().sent));
     assert(req.payload.model === "gpt-6-luna" && req.payload.service_tier === "priority", "тело запроса неверно");
     assert(req.payload.messages[0].role === "system" && req.payload.messages.slice(-1)[0].content === "какие у вас бани",
            "история не ушла в запрос");
     assert(JSON.stringify(req).indexOf("sk-test") === -1, "ключ OpenAI ушёл в прокси");
 
     tts.sent = [];
-    reply(1, "Здравствуйте, слушаю. У нас есть сауна, баня и хамам.");
+    reply(2, "Здравствуйте, слушаю. У нас есть сауна, баня и хамам.");
     await tick();
     const flushAt = tts.sent.findIndex((m) => m.event === "flush");
     const beforeFlush = tts.sent.slice(0, flushAt).filter((m) => m.event === "text").map((m) => m.text).join("");
@@ -165,49 +176,49 @@ const ttsTexts = () => tts.sent.filter((m) => m.event === "text").map((m) => m.t
 
     // ── перебивание: ответ обрывается cancel, поздние чанки не звучат ─────
     await userSays("а цены");
-    assert(lastReq().id === 2, "второй ход не ушёл");
-    chunk(2, { content: "Цены такие: сауна от тысячи рублей, " });
+    assert(lastReq().id === 3, "второй ход не ушёл");
+    chunk(3, { content: "Цены такие: сауна от тысячи рублей, " });
     await tick();
     vad.fire("Silero.VAD.Result", { speechStartAt: 3 });
     await tick(400);                                     // > BARGE_IN_MIN_MS
-    assert(llm().sent.some((m) => m.event === "cancel" && m.id === 2), "перебивание не отменило ответ в прокси");
+    assert(llm().sent.some((m) => m.event === "cancel" && m.id === 3), "перебивание не отменило ответ в прокси");
     tts.sent = [];
-    chunk(2, { content: "баня от двух тысяч." });
-    chunk(2, {}, "stop");
+    chunk(3, { content: "баня от двух тысяч." });
+    chunk(3, {}, "stop");
     await tick();
     assert(ttsTexts().length === 0, "остаток оборванного ответа ушёл в синтез");
     asr.fire("ASR.InterimResult", { text: "а для детей" });
     vad.fire("Silero.VAD.Result", { speechEndAt: 4 });
     await tick(250);
-    assert(lastReq().id === 3, "реплика после перебивания не ушла сразу");
-    reply(3, "Для детей скидка.");
+    assert(lastReq().id === 4, "реплика после перебивания не ушла сразу");
+    reply(4, "Для детей скидка.");
     await tick();
     tts.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     console.log("✅ перебивание: cancel в прокси, остаток ответа не звучит, новый ход сразу");
 
     // ── продолжение фразы до звука: старый запрос отменён, новый — сразу ──
     await userSays("запишите меня");
-    assert(lastReq().id === 4, "реплика не ушла");
+    assert(lastReq().id === 5, "реплика не ушла");
     vad.fire("Silero.VAD.Result", { speechStartAt: 5 });
     asr.fire("ASR.InterimResult", { text: "на завтра" });
     vad.fire("Silero.VAD.Result", { speechEndAt: 6 });
     await tick(250);
-    assert(llm().sent.some((m) => m.event === "cancel" && m.id === 4), "склейка не отменила прошлый запрос");
+    assert(llm().sent.some((m) => m.event === "cancel" && m.id === 5), "склейка не отменила прошлый запрос");
     req = lastReq();
-    assert(req.id === 5 && req.payload.messages.slice(-1)[0].content === "запишите меня на завтра",
+    assert(req.id === 6 && req.payload.messages.slice(-1)[0].content === "запишите меня на завтра",
            "склеенная реплика не ушла сразу: " + JSON.stringify(req.payload.messages.slice(-1)));
-    reply(5, "Записала.");
+    reply(6, "Записала.");
     await tick();
     tts.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     console.log("✅ склейка: прошлый запрос отменён, склеенная реплика ушла без ожидания");
 
     // ── ошибка OpenAI через прокси: reasoning убираем, ход повторяем ───────
     await userSays("спасибо");
-    server({ event: "error", id: 6, message: "HTTP 400: Unsupported value: 'reasoning_effort'" });
+    server({ event: "error", id: 7, message: "HTTP 400: Unsupported value: 'reasoning_effort'" });
     await tick(400);
     req = lastReq();
-    assert(req.id === 7 && !req.payload.reasoning_effort, "после ошибки reasoning ход не повторён без него");
-    reply(7, "Пожалуйста.");
+    assert(req.id === 8 && !req.payload.reasoning_effort, "после ошибки reasoning ход не повторён без него");
+    reply(8, "Пожалуйста.");
     await tick();
     tts.fire("WebSocket.Message", { text: JSON.stringify({ event: "speech_done", remaining_ms: 0 }) });
     console.log("✅ ошибка: текст OpenAI из прокси, повтор без reasoning_effort");

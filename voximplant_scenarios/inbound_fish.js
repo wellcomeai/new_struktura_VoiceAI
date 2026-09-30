@@ -60,6 +60,8 @@ var BARGE_IN_MIN_MS  = 300;            // речь поверх агента к�
 var FIRST_FLUSH_MIN  = 18;             // ранний flush первого предложения реплики («Здравствуйте, слушаю.» — уже отдельным куском)
 var FIRST_CLAUSE_MIN = 18;             // ...или первой части фразы до запятой/тире, если она не короче
 var TEXT_BATCH_MIN   = 40;             // копим дельты до этой длины перед отправкой
+var LLM_WARMUP       = true;           // прогрев: пока звучит приветствие, шлём модели «Алло» с тем же промптом и выбрасываем ответ
+var WARMUP_MAX_TOKENS = 16;            // ответ прогрева не нужен — режем сразу
 var TTS_WATCHDOG_MS  = 4000;           // нет звука после отправки текста → тревога
 var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
 var HANGUP_TAIL_MS   = 250;            // запас после remaining_ms перед hangup
@@ -122,8 +124,10 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var llmFailedHard = false;   // модель недоступна — только прощаемся
     var llmBusy = false;         // ответ модели в процессе
     var llmDiscard = false;      // остаток текущего ответа игнорируем
+    var llmWarmup = false;       // идёт прогревочный запрос
     var llmPending = false;      // после закрытия ответа нужен новый запрос
     var llmStuckTimer = null;
+    var mWarmupSent = 0;
     var llmReasoning = LLM_REASONING;
     var llmServiceTier = LLM_SERVICE_TIER;
     var toolsInFlight = 0;
@@ -810,6 +814,48 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return (event && event.data && event.data.payload) || (event && event.data) || {};
     }
 
+    // Прогрев. Первый ответ модели в каждом звонке шёл 3.5–4.2 с при 0.9–1.2 с
+    // на следующих, хотя с Render и холодный кэш, и настоящий промпт дают
+    // 0.5–1.4 с — дорого именно первое обращение за звонок. Пока звучит
+    // приветствие, шлём тот же префикс (tools + system + приветствие) с
+    // репликой «Алло» и выбрасываем ответ: первая настоящая реплика абонента
+    // идёт уже вторым запросом. Реплика, пришедшая раньше, ждёт закрытия
+    // прогрева (не обрываем его — иначе разгон пришлось бы платить заново).
+    function warmupLlm() {
+        if (!LLM_WARMUP || llmBusy || !llm || isHangingUp || llmFailedHard) return;
+        var params = {
+            model: LLM_MODEL,
+            messages: [{ role: "system", content: INSTRUCTIONS }].concat(history)
+                .concat([{ role: "user", content: "Алло" }]),
+            stream: true,
+            stream_options: { include_usage: true },
+            max_completion_tokens: WARMUP_MAX_TOKENS
+        };
+        if (voximplantTools.length > 0) {
+            params.tools = voximplantTools;
+            params.tool_choice = "auto";
+        }
+        if (llmReasoning) params.reasoning_effort = llmReasoning;
+        if (llmServiceTier) params.service_tier = llmServiceTier;
+
+        llmBusy = true;
+        llmDiscard = true;
+        llmWarmup = true;
+        respFinished = false;
+        mWarmupSent = Date.now();
+        if (llmStuckTimer) clearTimeout(llmStuckTimer);
+        llmStuckTimer = setTimeout(function() {
+            llmStuckTimer = null;
+            if (llmBusy && llmWarmup) onLlmError("прогрев не закрылся за " + LLM_STUCK_MS + "ms");
+        }, LLM_STUCK_MS);
+        try {
+            llm.createChatCompletions(params);
+            Logger.write("[LLM] 🔥 прогрев");
+        } catch (err) {
+            onLlmError("warmup failed: " + err);
+        }
+    }
+
     // Один ответ за раз. Если ответ ещё идёт — выбрасываем его: прокси
     // обрывает запрос сразу, а у коннектора отмены нет, и новый запрос уйдёт,
     // когда текущий закроется (finish_reason / ошибка).
@@ -817,6 +863,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (isHangingUp) return;
         if (llmBusy) {
             llmPending = true;
+            if (llmWarmup) { Logger.write("[LLM] ждём закрытия прогрева"); return; }
             if (!discardResponse()) Logger.write("[LLM] ответ ещё идёт — новый запрос после его закрытия");
             return;
         }
@@ -826,7 +873,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // Выбросить текущий ответ. true — оборван сразу (прокси), дальше
     // onResponseClosed → maybeContinue; false — дочитываем и игнорируем.
     function discardResponse() {
-        if (!llmBusy) return false;
+        if (!llmBusy || llmWarmup) return false;
         llmDiscard = true;
         if (!llm || !llm.cancel) return false;
         llm.cancel();
@@ -889,6 +936,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!llmBusy) return;
         llmBusy = false;
         if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+        if (llmWarmup) {
+            llmWarmup = false;
+            Logger.write("[LLM] 🔥 прогрев готов +" + (Date.now() - mWarmupSent) + "ms");
+            maybeContinue();
+            return;
+        }
         Logger.write("[LLM] response closed (" + reason + ")" + (llmDiscard ? " [discarded]" : ""));
         maybeContinue();
     }
@@ -910,6 +963,13 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         if (!llmBusy) return;
         llmBusy = false;
         if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+
+        // Прогрев не удался — не страшно: попыток не считаем и не повторяем.
+        if (llmWarmup) {
+            llmWarmup = false;
+            setTimeout(maybeContinue, LLM_RETRY_DELAY_MS);
+            return;
+        }
 
         if (llmReasoning && /reasoning/i.test(text)) {
             Logger.write("[LLM] модель не приняла reasoning_effort — повтор без него");
@@ -1495,6 +1555,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             logDialog("assistant", phrase);
             turnFullText = phrase;
             speak(phrase, true);
+            warmupLlm();
             return;
         }
 
