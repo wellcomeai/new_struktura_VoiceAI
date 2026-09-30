@@ -264,7 +264,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     await userSays("сколько стоит");
     assert(llm.requests.length === 1, "реплика не ушла в модель после тишины");
     let req = lastRequest();
-    assert(req.model === "gpt-5.6-luna", "не та модель: " + req.model);
+    assert(req.model === "gpt-6-luna", "не та модель: " + req.model);
     assert(req.stream === true, "запрос не стримовый");
     assert(req.messages[0].role === "system" && req.messages[0].content.indexOf("Ты ассистент.") === 0,
            "первым сообщением не system_prompt");
@@ -276,7 +276,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(req.tools && req.tools[0].function.name === "get_price", "функции не переданы модели");
     assert(req.reasoning_effort === "none", "reasoning_effort не передан");
     assert(llm.params.storeContext === false, "storeContext должен быть false — историю ведёт сценарий");
-    console.log("✅ ход: тишина VAD → запрос в gpt-5.6-luna (Chat Completions) с историей и функциями");
+    console.log("✅ ход: тишина VAD → запрос в gpt-6-luna (Chat Completions) с историей и функциями");
 
     // ── ответ модели дельтами → Fish ───────────────────────────────────────
     createdSocket.sent = [];

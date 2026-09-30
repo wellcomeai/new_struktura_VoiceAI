@@ -11,7 +11,7 @@ require(Modules.OpenAI);
  *           └─► Silero VAD (тишина VAD_SILENCE_MS) ────────────── конец реплики
  *                        │
  *                        ▼  реплика целиком
- *        OpenAI Chat Completions (gpt-5.6-luna, стрим текста)
+ *        OpenAI Chat Completions (gpt-6-luna, стрим текста)
  *                        │  дельты текста
  *                        ▼
  *     /ws/fish/tts/{id} (прокси Voicyfy) ──► Fish Audio ──► PCM в звонок
@@ -43,7 +43,7 @@ require(Modules.OpenAI);
 // КОНСТАНТЫ (крутить здесь, логику не трогать)
 // ============================================================================
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
-var LLM_MODEL        = "gpt-5.6-luna";
+var LLM_MODEL        = "gpt-6-luna";   // замер с Render: первый токен ~0.7 с стабильно (gpt-5.6-luna — медиана 0.6 с, но выбросы до 2.3 с), цена та же
 var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений (у luna: none/low/medium/high/xhigh, minimal нет); null — не передавать
 var LLM_SERVICE_TIER = null;           // "priority" — приоритетная обработка OpenAI (быстрее, дороже); null — обычная
 var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
@@ -762,7 +762,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
 
     // =========================================================================
-    // LLM: CHAT COMPLETIONS (gpt-5.6-luna)
+    // LLM: CHAT COMPLETIONS (gpt-6-luna)
     // =========================================================================
     // Клиент Chat Completions VoxEngine: история сообщений ведётся здесь и
     // уходит целиком в каждый запрос (storeContext: false), ответ — стримом.
