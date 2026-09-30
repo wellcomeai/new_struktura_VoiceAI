@@ -717,7 +717,7 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
   `5ddd9a81cc554841a53b75e355d52628` — Сергей; или любой свой `reference_id`
   с fish.audio. Передаётся в `fish_voice_id`.
 - **cascade:** `Anna`, `Sergey` (русская речь)
-- **openai:** `alloy`, `echo`, `marin`, `cedar`, `shimmer`, `ash`, `ballad`, `coral`, `sage`, `verse`
+- **openai:** `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`, а также голоса GPT-Live `beacon`, `bossa`, `cinder`, `delta`, `gleam`, `meridian`, `quartz`, `ripple`, `stone`, `tempo`, `vesper`, `willow` (звучат только во входящих звонках; исходящие и виджет пока на Realtime)
 - **gemini:** `Zephyr`, `Puck`, `Charon`, `Kore`, `Fenrir`, `Leda`, `Orus`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`, `Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`, `Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`, `Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`, `Sulafat`
 - **yandex:** `marina`, `dasha`, `alexander`, `julia`, `lera`, `masha`, `anton`, `kirill`, `filipp`, `ermil`, `jane`, `omazh`, `zahar`, `madi_ru`, `saule_ru`
 - **cartesia:** голос задаётся не именем, а `cartesia_voice_id` + опционально `voice_speed` (0.5–1.5)
@@ -728,10 +728,8 @@ yandex — `marina`.
 
 Входящие звонки на OpenAI-ассистентов (и агентов, чей голосовой ассистент — OpenAI)
 обслуживает модель **GPT-Live** (`gpt-live-1`, full-duplex) с бэкенд-моделью
-`gpt-5.6-terra` для функций. У неё свой набор голосов: `marin`, `cedar`, `quartz`,
-`ripple`, `vesper`, `willow`, `stone`, `gleam`, `meridian`, `bossa`, `tempo`,
-`beacon`, `delta`, `cinder`; голоса Realtime (`alloy` и др.) на входящих звучат
-как `marin`. Исходящие и виджет OpenAI — по-прежнему Realtime.
+`gpt-5.6-terra` для функций. Голос ассистента используется как есть (все 22 голоса
+списка выше поддерживаются). Исходящие и виджет OpenAI — по-прежнему Realtime.
 
 ---
 

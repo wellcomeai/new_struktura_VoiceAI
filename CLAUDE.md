@@ -375,7 +375,10 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
 `/api/telephony/config` полями `live_session` (собирает `compose_live_session` в
 `backend/websockets/live_client.py` — общий с виджетом и серверным мостом) и
 `live_function_ids`; поле `model` осталось Realtime для старого сценария до раскатки.
-Бэкенд-модель — `LIVE_DELEGATION_MODEL` (по умолчанию `gpt-5.6-terra`). Шлагбаум и списание —
+Бэкенд-модель — `LIVE_DELEGATION_MODEL` (по умолчанию `gpt-5.6-terra`). Голоса OpenAI-ассистента —
+все 22 встроенных голоса gpt-live-1 (`OPENAI_VOICES` в `backend/schemas/assistant.py`; дубли во
+фронте: `voice-assistants.html`, `agent/instructions-voice.js`); 12 из них (`OPENAI_LIVE_ONLY_VOICES`)
+Realtime не знает — звучат только во входящих, исходящие/виджет с ними пока не проверены. Шлагбаум и списание —
 тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`). Исходящие и виджет OpenAI —
 по-прежнему Realtime. Серверный мост `inbound_live.js` + `handler_live_telephony.py` оставлен
 для отката. Раскатка кода со стримом: `POST /api/telephony/admin/setup-openai-scenarios-stream`

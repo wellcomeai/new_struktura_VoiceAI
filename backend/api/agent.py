@@ -74,10 +74,8 @@ router = APIRouter()
 VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex", "cascade", "fish")
 
 # Доступные голоса по провайдерам (должны совпадать со списками в agent.html).
-OPENAI_VOICES = [
-    "alloy", "echo", "marin", "cedar", "shimmer",
-    "ash", "ballad", "coral", "sage", "verse",
-]
+# OpenAI — общий список из схем ассистента (все голоса gpt-live-1).
+from backend.schemas.assistant import OPENAI_VOICES
 # Голоса Yandex SpeechKit (должны совпадать с YANDEX_VOICES в yandex_assistants.py).
 YANDEX_VOICES = [
     "marina", "dasha", "alexander", "julia", "lera",

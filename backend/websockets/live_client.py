@@ -29,6 +29,7 @@ from websockets.exceptions import ConnectionClosed
 from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.functions import execute_function, get_enabled_functions, normalize_function_name
+from backend.schemas.assistant import OPENAI_VOICES
 
 logger = get_logger(__name__)
 
@@ -37,13 +38,9 @@ LIVE_MODEL = "gpt-live-1"
 # Тариф кошелька для GPT-Live (виджет и входящие звонки OpenAI)
 LIVE_TARIFF_CODE = "openai-live"
 
-# Голоса GPT-Live-1: 12 встроенных голосов API + marin/cedar из примеров доков.
-# Голоса Realtime (alloy, ash, …) сюда не подходят — маппим на дефолт.
-LIVE_VOICES = [
-    "quartz", "ripple", "vesper", "willow", "stone", "gleam",
-    "meridian", "bossa", "tempo", "beacon", "delta", "cinder",
-    "marin", "cedar",
-]
+# Голоса GPT-Live-1: все 22 встроенных голоса из справочника Live API
+# (session.audio.output.voice), список общий с валидацией ассистента.
+LIVE_VOICES = list(OPENAI_VOICES)
 LIVE_VOICE_SET = set(LIVE_VOICES)
 LIVE_DEFAULT_VOICE = (getattr(settings, "LIVE_DEFAULT_VOICE", None) or "marin").lower()
 
@@ -105,7 +102,7 @@ def _short_id(prefix: str = "") -> str:
 
 
 def resolve_live_voice(voice: Optional[str]) -> str:
-    """Голос ассистента → голос gpt-live-1 (голоса Realtime вроде alloy маппим на дефолт)."""
+    """Голос ассистента → голос gpt-live-1 (неизвестный или пустой — голос по умолчанию)."""
     v = (voice or "").strip().lower()
     if v in LIVE_VOICE_SET:
         return v
@@ -289,7 +286,7 @@ class OpenAILiveClient:
         if v in LIVE_VOICE_SET:
             return v
         if v:
-            logger.info(f"[LIVE-CLIENT] Voice '{v}' is a Realtime voice, using '{LIVE_DEFAULT_VOICE}' for gpt-live-1")
+            logger.info(f"[LIVE-CLIENT] Unknown voice '{v}', using '{LIVE_DEFAULT_VOICE}' for gpt-live-1")
         return LIVE_DEFAULT_VOICE if LIVE_DEFAULT_VOICE in LIVE_VOICE_SET else "marin"
 
     def build_session_config(self) -> Dict[str, Any]:
