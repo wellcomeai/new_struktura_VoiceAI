@@ -274,7 +274,7 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     assert(JSON.stringify(userItems(req)) === JSON.stringify(["сколько стоит"]),
            "реплика абонента искажена: " + JSON.stringify(req.messages));
     assert(req.tools && req.tools[0].function.name === "get_price", "функции не переданы модели");
-    assert(req.reasoning_effort === "minimal", "reasoning_effort не передан");
+    assert(req.reasoning_effort === "none", "reasoning_effort не передан");
     assert(llm.params.storeContext === false, "storeContext должен быть false — историю ведёт сценарий");
     console.log("✅ ход: тишина VAD → запрос в gpt-5.6-luna (Chat Completions) с историей и функциями");
 

@@ -44,7 +44,7 @@ require(Modules.OpenAI);
 // ============================================================================
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
 var LLM_MODEL        = "gpt-5.6-luna";
-var LLM_REASONING    = "minimal";      // reasoning_effort; null — не передавать
+var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений (у luna: none/low/medium/high/xhigh, minimal нет); null — не передавать
 var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
 var VAD_SILENCE_MS   = 500;            // тишина, после которой реплика закончена
 var VAD_THRESHOLD    = 0.5;
