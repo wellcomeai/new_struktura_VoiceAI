@@ -12,7 +12,9 @@
  *   → callPSTN → Connected → запись + sendMediaBetween + приветствие
  * Поток в Live к моменту ответа уже поднят, поэтому указание с приветствием
  * принимается сразу и первое слово звучит ~0.7-1 с после «Алло».
- * Цена прогрева: секунды гудков тарифицируются OpenAI как время сессии Live.
+ * Цена прогрева: секунды гудков тарифицируются OpenAI как время сессии Live —
+ * /log списывает кошелёк по live_usage_seconds (сессия целиком, с гудками и
+ * недозвонами), а не по длительности разговора.
  *
  * Контекст звонка из customData (voximplant_partner.start_outbound_call):
  * contact_name / task_title / task_description / task — дописываются в
@@ -96,6 +98,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     var sessionClosedResolve = null;
     var liveSessionId = null;
     var usageSeconds = null;
+    var liveStartedAt = 0;       // запасной замер длительности сессии, если SessionClosed не пришёл
     var backendUsage = { prompt_tokens: 0, cached_prompt_tokens: 0, completion_tokens: 0 };
 
     var isConnected = false;
@@ -243,7 +246,9 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
                     dialog:             dialog,
                     transport:          "gpt-live-1",
                     live_session_id:    liveSessionId,
-                    live_usage_seconds: usageSeconds
+                    // По нему /log списывает кошелёк: сессия Live платная целиком, с гудками
+                    live_usage_seconds: usageSeconds !== null ? usageSeconds
+                        : (liveStartedAt ? Math.round((Date.now() - liveStartedAt) / 1000) : null)
                 },
                 usage:         backendUsage,
                 call_cost:     call_cost,
@@ -560,6 +565,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         liveClient.addEventListener(OpenAI.LiveAPIEvents.SessionStarted, function(event) {
             var p = payloadOf(event);
             sessionStarted = true;
+            liveStartedAt = Date.now();
             if (startTimer) { clearTimeout(startTimer); startTimer = null; }
             liveSessionId = (p.session && p.session.id) || p.session_id || null;
             Logger.write("✅ Live session started: " + liveSessionId);

@@ -379,7 +379,8 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
 все 22 встроенных голоса gpt-live-1 (`OPENAI_VOICES` в `backend/schemas/assistant.py`; дубли во
 фронте: `voice-assistants.html`, `agent/instructions-voice.js`); 12 из них (`OPENAI_LIVE_ONLY_VOICES`)
 Realtime не знает — звонки (входящие и исходящие) на Live их поддерживают, виджет на Realtime с ними не проверен. Шлагбаум и списание —
-тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`). Исходящие — `voximplant_scenarios/outbound_openai.js` (v5.0) по той же схеме: `/api/telephony/outbound-config`
+тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`); секунды списания — `max(call_duration,
+data.live_usage_seconds)`: OpenAI берёт деньги за всю сессию Live, включая гудки исходящего, прогрев и недозвоны. Исходящие — `voximplant_scenarios/outbound_openai.js` (v5.0) по той же схеме: `/api/telephony/outbound-config`
 тоже отдаёт `live_session`, а контекст CRM из `customData` (`contact_name`, `task_title`,
 `task_description`, `task`, `custom_greeting`) сценарий дописывает в instructions обоих слоёв. Агент и публичный API
 звонят OpenAI через правило `outbound_openai` (`OUTBOUND_RULE_BY_TYPE` в `task_scheduler.py`, раньше — общий

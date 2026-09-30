@@ -1266,6 +1266,17 @@ async def log_conversation_data(
             try:
                 _owner = db.query(User).filter(User.id == assistant.user_id).first()
                 _seconds = int(float(call_duration_from_script or 0))
+                # GPT-Live тарифицируется OpenAI за всё время сессии, включая гудки
+                # исходящего и прогрев до ответа, — столько же списываем с клиента.
+                # Недозвон тоже платный: сессия шла, пока звонил телефон.
+                if request_data.get("voice_model") == "gpt-live-1":
+                    try:
+                        _live_seconds = int(float((data or {}).get("live_usage_seconds") or 0))
+                    except (TypeError, ValueError):
+                        _live_seconds = 0
+                    if _live_seconds > _seconds:
+                        logger.info(f"[VOXIMPLANT-v3.9] 💳 GPT-Live billed by session: {_live_seconds}s (call {_seconds}s)")
+                        _seconds = _live_seconds
                 if _owner and _seconds > 0 and provider_keys.is_billable(_owner, assistant_type):
                     from backend.services.wallet_service import WalletService
                     _usage = request_data.get("cascade_usage") or request_data.get("usage") or {}
@@ -1274,7 +1285,7 @@ async def log_conversation_data(
                         ConversationService._normalize_phone(caller_number)
                         if caller_number else None
                     )
-                    # Входящие OpenAI на GPT-Live (сценарий inbound_openai) — свой тариф
+                    # Звонки OpenAI на GPT-Live (inbound_openai / outbound_openai) — свой тариф
                     _tariff = assistant_type
                     if assistant_type == "openai" and request_data.get("voice_model") == "gpt-live-1":
                         from backend.websockets.live_client import LIVE_TARIFF_CODE

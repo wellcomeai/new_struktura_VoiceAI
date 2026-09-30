@@ -85,6 +85,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var sessionClosedResolve = null;
     var liveSessionId = null;
     var usageSeconds = null;
+    var liveStartedAt = 0;       // запасной замер длительности сессии, если SessionClosed не пришёл
     var backendUsage = { prompt_tokens: 0, cached_prompt_tokens: 0, completion_tokens: 0 };
 
     var isCallAnswered = false;
@@ -195,7 +196,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
                     dialog:             dialog,
                     transport:          "gpt-live-1",
                     live_session_id:    liveSessionId,
-                    live_usage_seconds: usageSeconds
+                    // По нему /log списывает кошелёк: сессия Live платная целиком, с гудками
+                    live_usage_seconds: usageSeconds !== null ? usageSeconds
+                        : (liveStartedAt ? Math.round((Date.now() - liveStartedAt) / 1000) : null)
                 },
                 usage:         backendUsage,
                 call_cost:     call_cost,
@@ -520,6 +523,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         liveClient.addEventListener(OpenAI.LiveAPIEvents.SessionStarted, function(event) {
             var p = payloadOf(event);
             sessionStarted = true;
+            liveStartedAt = Date.now();
             liveSessionId = (p.session && p.session.id) || p.session_id || null;
             Logger.write("✅ Live session started: " + liveSessionId);
             warmupAndGreet();
