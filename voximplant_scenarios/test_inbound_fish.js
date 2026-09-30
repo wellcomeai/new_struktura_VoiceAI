@@ -320,6 +320,16 @@ const userItems = (req) => req.messages.filter((i) => i.role === "user").map((i)
     final("сколько стоит доставка");
     await tick(50);
     assert(llm.requests.length === 1, "поздний финал ASR вызвал лишний запрос к модели");
+    interim("сколько");
+    await tick(10);
+    assert(!logs.some((l) => l.indexOf("→ \"сколько\"") !== -1), "короткий interim подменил реплику");
+    final("сколько стоит почта");   // короче по буквам, столько же слов — исправленное слово
+    await tick(10);
+    assert(logs.some((l) => l.indexOf("→ \"сколько стоит почта\"") !== -1),
+           "финал ASR с исправленным словом (короче по буквам) отброшен");
+    final("сколько стоит доставка");
+    await tick(50);
+    assert(llm.requests.length === 1, "поправки ASR вызвали лишний запрос к модели");
 
     // ── перебивание: речь поверх агента дольше BARGE_IN_MIN_MS ─────────────
     createdSocket.sent = [];

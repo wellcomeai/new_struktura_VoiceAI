@@ -45,7 +45,7 @@ require(Modules.OpenAI);
 var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
 var LLM_MODEL        = "gpt-6-luna";   // замер с Render: первый токен ~0.7 с стабильно (gpt-5.6-luna — медиана 0.6 с, но выбросы до 2.3 с), цена та же
 var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений (у luna: none/low/medium/high/xhigh, minimal нет); null — не передавать
-var LLM_SERVICE_TIER = null;           // "priority" — приоритетная обработка OpenAI (быстрее, дороже); null — обычная
+var LLM_SERVICE_TIER = "priority";     // приоритетная обработка OpenAI: первый токен ~0.57 с против ~0.88 с, цена x2 (~0.1 ₽ на звонок); null — обычная
 var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
 var VAD_SILENCE_MS   = 500;            // тишина, после которой реплика закончена
 var VAD_THRESHOLD    = 0.5;
@@ -790,6 +790,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             .replace(/\s+/g, " ").trim();
     }
 
+    function wordCount(s) {
+        var n = normText(s);
+        return n ? n.split(" ").length : 0;
+    }
+
     // =========================================================================
     // LLM: CHAT COMPLETIONS (gpt-6-luna)
     // =========================================================================
@@ -1304,12 +1309,16 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // Поздний текст от ASR по уже отправленной реплике (Yandex досылает
     // финал через несколько секунд). Историю правим на месте — модель увидит
     // полный текст в следующем запросе, отдельный запрос не нужен.
-    function correctSubmitted(text) {
+    // Короче по буквам, но не по словам финал — это исправленное слово
+    // («баня уфимская» → «баня финская»), его берём; interim или меньше
+    // слов — недослушанный кусок, не лучше.
+    function correctSubmitted(text, isFinal) {
         if (!submitted) return false;
         if (userSpeaking || speechSeg !== submitted.seg) return false;
         if (currentTurnText()) return false;
         if (normText(text) === normText(submitted.text)) return true;
-        if (text.length < submitted.text.length) return true;   // короче — не лучше
+        if (text.length < submitted.text.length &&
+            (!isFinal || wordCount(text) < wordCount(submitted.text))) return true;
         Logger.write("[TURN] ✏️ уточнение: \"" + submitted.text + "\" → \"" + text + "\"");
         submitted.text = text;
         submitted.item.content = text;
@@ -1355,14 +1364,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     }
 
     function onAsrInterim(text) {
-        if (correctSubmitted(text)) return;
+        if (correctSubmitted(text, false)) return;
         turnInterim = stripSubmittedPrefix(stripRetracted(text, false));
         // Настоящее перебивание: агент звучит, а от абонента уже пошёл текст.
         if (userSpeaking && isAgentAudible()) bargeIn("interim");
     }
 
     function onAsrResult(text) {
-        if (correctSubmitted(text)) { turnInterim = ""; return; }
+        if (correctSubmitted(text, true)) { turnInterim = ""; return; }
         text = stripSubmittedPrefix(stripRetracted(text, true));
         if (text) turnFinal = (turnFinal + " " + text).trim();
         turnInterim = "";
