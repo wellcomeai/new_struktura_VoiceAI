@@ -774,7 +774,7 @@
 
   async function migrateModel(newType) {
     const old = state.current, oldType = old.type;
-    const ok = await VF.confirm({ title: 'Сменить голосовую модель?', html: `Ассистент будет пересоздан на модели <b>${esc(modelLabel(newType))}</b> с новым ID. Привязанные номера телефонии и тестовый номер перепривяжутся автоматически.`, confirmText: 'Сменить модель' });
+    const ok = await VF.confirm({ title: 'Сменить голосовую модель?', html: `Ассистент будет пересоздан на модели <b>${esc(modelLabel(newType))}</b> с новым ID. Привязанные номера телефонии и тестовый номер перепривяжутся автоматически, история диалогов перейдёт к новому ассистенту.`, confirmText: 'Сменить модель' });
     if (!ok) return;
     const p = PROVIDERS[newType];
     const payload = JSON.stringify(stripUndefined(buildPayload(newType, true)));
@@ -794,19 +794,15 @@
       if (tr && tr.ok && tr.data && tr.data.state === 'active' && tr.data.lease && String(tr.data.lease.assistant_id || '') === old.id) testLease = tr.data.lease;
     } catch (e) { testLease = null; }
 
-    let r = await api(p.create, { method: 'POST', body: payload });
-    let oldDeleted = false;
+    // Новый ассистент создаётся ДО удаления старого: X-Replaces-Assistant говорит
+    // серверу не считать старого в лимит тарифа. Раньше на пределе лимита старого
+    // удаляли первым — и вместе с ним пропадала история диалогов.
+    const r = await api(p.create, { method: 'POST', body: payload, headers: { 'X-Replaces-Assistant': old.id } });
     if (r && !r.ok && errCode(r) === 'assistant_limit_reached') {
       const ur = await api('/api/subscriptions/assistants-usage'); const usage = (ur && ur.ok && ur.data) || {};
-      if (!usage.unlimited && usage.max != null && (usage.used - 1) >= usage.max) throw new Error(`Достигнут лимит ассистентов по тарифу (${usage.used} из ${usage.max}). Удалите лишних или обновите тариф.`);
-      const ok2 = await VF.confirm({ title: 'Достигнут лимит ассистентов', message: 'Удалить текущего ассистента перед созданием на новой модели? Настройки перенесутся, номера перепривяжутся.', confirmText: 'Удалить и создать', danger: true });
-      if (!ok2) return;
-      const dr = await api(PROVIDERS[oldType].item(old.id), { method: 'DELETE' });
-      if (!dr || !dr.ok) throw new Error(errText(dr, 'Не удалось удалить старого ассистента'));
-      oldDeleted = true;
-      r = await api(p.create, { method: 'POST', body: payload });
+      throw new Error(`Достигнут лимит ассистентов по тарифу${usage.max != null ? ` (${usage.used} из ${usage.max})` : ''}. Удалите лишних или обновите тариф.`);
     }
-    if (!r || !r.ok) { if (oldDeleted) { await loadAssistants(); await loadUsage(); hideEditor(); } throw new Error(errText(r, 'Не удалось создать ассистента на новой модели')); }
+    if (!r || !r.ok) throw new Error(errText(r, 'Не удалось создать ассистента на новой модели'));
     const newId = String(r.data.id);
 
     let rebound = 0, failed = 0;
@@ -822,12 +818,18 @@
         if (br && br.ok) rebound++; else failed++;
       } catch (e) { failed++; }
     }
-    if (failed) toast(`Новый ассистент создан, но ${failed} номер(ов) не удалось перепривязать${oldDeleted ? '' : ', старый ассистент сохранён'}. Проверьте Телефонию.`, 'error');
-    else if (!oldDeleted) {
-      const dr = await api(PROVIDERS[oldType].item(old.id), { method: 'DELETE' });
-      if (!dr || !dr.ok) toast('Новый ассистент создан, старый удалить не удалось. Удалите вручную.', 'error');
-      else toast(rebound ? `Модель изменена, перепривязано номеров: ${rebound}` : 'Модель изменена', 'success');
-    } else toast(rebound ? `Модель изменена, перепривязано номеров: ${rebound}` : 'Модель изменена', 'success');
+    if (failed) toast(`Новый ассистент создан, но ${failed} номер(ов) не удалось перепривязать, старый ассистент и его диалоги сохранены. Проверьте Телефонию.`, 'error');
+    else {
+      // История диалогов переезжает к новому ассистенту до удаления старого.
+      // Не перенеслась — старого не удаляем, иначе диалоги пропадут.
+      const tr = await api('/api/conversations/transfer', { method: 'POST', body: JSON.stringify({ from_assistant_id: old.id, to_assistant_id: newId }) });
+      if (!tr || !tr.ok) toast('Новый ассистент создан, но историю диалогов перенести не удалось — старый ассистент сохранён. Не удаляйте его, напишите в поддержку.', 'error');
+      else {
+        const dr = await api(PROVIDERS[oldType].item(old.id), { method: 'DELETE' });
+        if (!dr || !dr.ok) toast('Новый ассистент создан, старый удалить не удалось. Удалите вручную.', 'error');
+        else toast(rebound ? `Модель изменена, перепривязано номеров: ${rebound}` : 'Модель изменена', 'success');
+      }
+    }
     state.dirty = false;
     await loadAssistants(); await loadUsage();
     await selectAssistant(newId, newType);

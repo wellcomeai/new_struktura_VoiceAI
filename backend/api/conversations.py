@@ -19,6 +19,7 @@ Version: 3.6 - Yandex assistants + call log/record links in session cards
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, case, or_, text, select, literal, union_all
 from sqlalchemy.dialects.postgresql import JSONB
@@ -295,6 +296,54 @@ def attach_functions_to_messages(messages: List[dict], function_calls: List[dict
 # =============================================================================
 # API Endpoints
 # =============================================================================
+
+class ConversationTransferRequest(BaseModel):
+    from_assistant_id: str
+    to_assistant_id: str
+
+
+@router.post("/transfer")
+def transfer_conversations(
+    payload: ConversationTransferRequest,
+    current_user: User = Depends(AuthService.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Перенести все диалоги с одного ассистента пользователя на другого.
+
+    Нужен смене модели на странице ассистентов: она пересоздаёт ассистента
+    с новым ID в таблице другого провайдера и удаляет старого. Без переноса
+    история пропадала: у OpenAI диалоги удалялись ORM-каскадом, у остальных
+    оставались в базе, но страница диалогов показывает только диалоги
+    существующих ассистентов. Оба ассистента должны существовать и
+    принадлежать пользователю; переносить нужно ДО удаления старого.
+    FunctionLog привязаны к id сообщений, а не к ассистенту, — их не трогаем.
+    """
+    try:
+        from_id = UUID(payload.from_assistant_id)
+        to_id = UUID(payload.to_assistant_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid assistant id")
+    if from_id == to_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assistants must differ")
+
+    ids_by_type = get_user_assistant_ids_by_type(db, current_user.id)
+    owned = {aid for ids in ids_by_type.values() for aid in ids}
+    if from_id not in owned or to_id not in owned:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant not found")
+
+    sessions = db.query(func.count(func.distinct(Conversation.session_id))).filter(
+        Conversation.assistant_id == from_id
+    ).scalar() or 0
+    moved = ConversationService.transfer_assistant_conversations(db, [from_id], to_id)
+    db.commit()
+
+    logger.info(
+        f"[CONVERSATIONS] Transferred {moved} messages ({sessions} sessions) "
+        f"{from_id} -> {to_id} for user {current_user.id}"
+    )
+    return {"moved_messages": moved, "moved_sessions": sessions}
+
 
 @router.get("/sessions")
 def get_conversation_sessions(

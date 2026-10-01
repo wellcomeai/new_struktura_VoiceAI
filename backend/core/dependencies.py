@@ -5,7 +5,7 @@ Contains reusable dependency functions that can be used across API endpoints.
 ✅ UPDATED: Added special assistant limits for specific users
 """
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 import hashlib
 import uuid
@@ -302,7 +302,7 @@ def check_subscription_active_for_assistants(
     return current_user
 
 
-def enforce_assistant_limit(db: Session, current_user: User) -> User:
+def enforce_assistant_limit(db: Session, current_user: User, replaces_assistant_id: Optional[str] = None) -> User:
     """
     Проверить, что пользователь может создать ещё одного ассистента.
 
@@ -313,6 +313,8 @@ def enforce_assistant_limit(db: Session, current_user: User) -> User:
     Args:
         db: Database session
         current_user: Current authenticated user
+        replaces_assistant_id: смена модели — ассистент, который удалят сразу после
+            создания нового (заголовок X-Replaces-Assistant); в лимит не считается
 
     Returns:
         Current user if they haven't reached their assistant limit
@@ -357,6 +359,10 @@ def enforce_assistant_limit(db: Session, current_user: User) -> User:
     # Cascade, Cartesia, Yandex, Translate). Голосовые ассистенты мастера
     # Voicyfy Agent в лимит не входят.
     assistant_count = count_user_assistants(db, current_user.id)
+    if replaces_assistant_id:
+        from backend.services.assistant_limit_service import is_counted_assistant
+        if is_counted_assistant(db, current_user.id, replaces_assistant_id):
+            assistant_count -= 1
     
     # ✅ НОВОЕ: Проверяем специальные лимиты для отдельных пользователей
     if current_user.email in SPECIAL_ASSISTANT_LIMITS:
@@ -382,21 +388,23 @@ def enforce_assistant_limit(db: Session, current_user: User) -> User:
 
 def check_assistant_limit(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    replaces_assistant: Optional[str] = Header(None, alias="X-Replaces-Assistant"),
 ) -> User:
     """Лимит ассистентов для эндпоинтов кабинета (авторизация только по JWT)."""
-    return enforce_assistant_limit(db, current_user)
+    return enforce_assistant_limit(db, current_user, replaces_assistant)
 
 
 def check_assistant_limit_flexible(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user_flexible)
+    current_user: User = Depends(get_current_user_flexible),
+    replaces_assistant: Optional[str] = Header(None, alias="X-Replaces-Assistant"),
 ) -> User:
     """
     Лимит ассистентов для эндпоинтов, открытых во внешний API: авторизация
     по персональному API-ключу (`X-Api-Key`) ИЛИ по JWT кабинета.
     """
-    return enforce_assistant_limit(db, current_user)
+    return enforce_assistant_limit(db, current_user, replaces_assistant)
 
 
 def check_subscription_or_show_popup(

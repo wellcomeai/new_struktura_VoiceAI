@@ -34,6 +34,24 @@ logger = get_logger(__name__)
 
 class ConversationService:
     """Service for conversation operations"""
+
+    @staticmethod
+    def transfer_assistant_conversations(db: Session, from_ids, to_id) -> int:
+        """
+        Переписать conversations.assistant_id со старых ассистентов на нового (без commit).
+
+        Смена модели пересоздаёт ассистента с новым ID в таблице другого провайдера.
+        Диалоги всех провайдеров лежат в conversations и видны на странице диалогов
+        только у существующих ассистентов, а у OpenAI удаляются вместе с ним, —
+        поэтому их переносят на нового ассистента ДО удаления старого.
+        Внешнего ключа на assistant_id в базе нет: id может быть любого провайдера.
+        """
+        ids = [i for i in (from_ids or []) if i and str(i) != str(to_id)]
+        if not ids or not to_id:
+            return 0
+        return db.query(Conversation).filter(
+            Conversation.assistant_id.in_(ids)
+        ).update({Conversation.assistant_id: to_id}, synchronize_session=False)
     
     # ==================================================================================
     # 🆕 v3.2: HELPER METHOD - Find assistant in both tables

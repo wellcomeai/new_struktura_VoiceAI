@@ -54,6 +54,7 @@ from backend.services.agent_models import (
 )
 from backend.services.agent_tools import assistant_task_kwargs
 from backend.services import agent_memory
+from backend.services.conversation_service import ConversationService
 from backend.services.credit_service import (
     CreditService,
     activate_agent_trial,
@@ -989,13 +990,20 @@ async def update_agent(
         # нового провайдера), иначе входящие ушли бы к удалённому ассистенту.
         rebound = await _rebind_agent_phone_numbers(db, agent, new_type, new_voice.id)
 
+        # История звонков (conversations) переезжает к новому голосу до удаления
+        # старого: иначе OpenAI-диалоги удалялись, а остальные пропадали со
+        # страницы диалогов (она показывает только существующих ассистентов).
+        moved_convs = ConversationService.transfer_assistant_conversations(
+            db, [_va_id for _model_cls, _va_id in old_voice_targets], new_voice.id
+        )
+
         for _model_cls, _va_id in old_voice_targets:
             _delete_voice_assistant(db, _model_cls, _va_id, current_user.id)
 
         logger.info(
             f"[AGENT] Switched assistant_type to {new_type} for user {current_user.id} "
             f"(old voice assistants removed: {len(old_voice_targets)}, "
-            f"tasks moved: {moved_tasks}, phones rebound: {rebound})"
+            f"tasks moved: {moved_tasks}, phones rebound: {rebound}, conversations moved: {moved_convs})"
         )
 
     # ── Смена модели оркестратора ──

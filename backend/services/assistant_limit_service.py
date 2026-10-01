@@ -135,6 +135,30 @@ def count_user_assistants(db: Session, user_id: Any) -> int:
     return get_assistants_breakdown(db, user_id)["total"]
 
 
+def is_counted_assistant(db: Session, user_id: Any, assistant_id: Any) -> bool:
+    """
+    Ассистент пользователя, который входит в лимит (любой провайдер, не голос агента).
+
+    Нужен смене модели: новый ассистент создаётся с заголовком
+    X-Replaces-Assistant, и заменяемый в лимит не считается — иначе на
+    пределе тарифа старого пришлось бы удалять до создания нового.
+    """
+    try:
+        aid = assistant_id if isinstance(assistant_id, UUID) else UUID(str(assistant_id))
+    except (ValueError, TypeError):
+        return False
+    if aid in get_agent_owned_assistant_ids(db, user_id):
+        return False
+    for model in (
+        AssistantConfig, GeminiAssistantConfig, GrokAssistantConfig, CartesiaAssistantConfig,
+        YandexAssistantConfig, FishAssistantConfig, TranslateAssistantConfig,
+    ):
+        found = db.query(model.id).filter(model.id == aid, model.user_id == user_id).first()
+        if found:
+            return True
+    return False
+
+
 def get_assistants_usage(db: Session, user) -> Dict[str, Any]:
     """
     Расход лимита ассистентов для UI: сколько занято, сколько доступно,
