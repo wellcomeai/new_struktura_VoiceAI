@@ -39,6 +39,7 @@ from backend.services.agent_tools import (
 )
 from backend.services.agent_reply_check import cancel_pending_reply_checks
 from backend.services.agent_prompts import build_orchestrator_prompt, build_time_block, build_agent_memory_block
+from backend.services.agent_contact_refs import build_recent_contacts_block, collect_contact_refs, refs_for_history
 from backend.services.openrouter_client import get_openrouter_client
 from backend.core.pipeline_stages import stage_from_decision
 from backend.services.credit_service import (
@@ -295,6 +296,7 @@ CHAT_META_PROMPT = """# РОЛЬ
   → Удаление необратимо: после него задача исчезает из календаря и не будет выполнена
 - update_contact_info — когда просят обновить данные контакта (имя/компания/должность/заметки),
   например «запиши что Иванов просил перезвонить в среду» или «у него новая должность»
+- find_contact — найти конкретного человека по имени/телефону/компании (порядок слов, падежи, опечатки; нет точного — похожие)
 - search_contacts — поиск, отбор и подсчёт контактов по фильтрам; total — точное число, постраничный вывод (limit до 200, offset)
 - get_contact_details — полная карточка одного контакта (память, заметки, факты, попытки)
 - get_contacts_by_stage — разбивка контактов по стадиям воронки (счётчики + примеры)
@@ -1828,11 +1830,19 @@ class ChatOrchestrator:
             return await self._run_telegram_v3(message, agent_config, user, db, telegram_history_row)
         return await self._run_telegram_v2(message, agent_config, user, db, telegram_history_row)
 
-    def _persist_telegram_history(self, telegram_history_row, message: str, final_text: str, db):
+    @staticmethod
+    def _assistant_history_entry(final_text: str, contact_refs: Optional[Dict[str, dict]] = None) -> Dict[str, Any]:
+        """Ответ для истории чата; contacts — найденные контакты (id) для следующих сообщений."""
+        entry = {"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()}
+        if contact_refs:
+            entry["contacts"] = refs_for_history(contact_refs)
+        return entry
+
+    def _persist_telegram_history(self, telegram_history_row, message: str, final_text: str, db, contact_refs=None):
         """Дописать пару user/assistant в telegram_history_row.history, обрезать до 20, commit."""
         history = list(telegram_history_row.history or [])
         history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
-        history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})
+        history.append(self._assistant_history_entry(final_text, contact_refs))
         telegram_history_row.history = history[-20:]
         flag_modified(telegram_history_row, "history")
         db.commit()
@@ -1853,6 +1863,8 @@ class ChatOrchestrator:
 
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False) + TELEGRAM_RICH_FORMAT_HINT
         history = telegram_history_row.history or []
+        # Контакты из результатов инструментов — сохранятся у ответа в истории.
+        contact_refs: Dict[str, dict] = {}
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         for msg in history[-20:]:
@@ -1862,7 +1874,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_recent_contacts_block(history) + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
 
@@ -1916,6 +1928,7 @@ class ChatOrchestrator:
                 except Exception as e:
                     result_str = json.dumps({"ok": False, "error": str(e)})
 
+                collect_contact_refs(result_str, contact_refs)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id"),
@@ -1939,7 +1952,7 @@ class ChatOrchestrator:
                 logger.error(f"[AGENT-TG-CHAT] (v3) Charge failed: {ce}", exc_info=True)
                 safe_rollback(db)
 
-        self._persist_telegram_history(telegram_history_row, message, final_text, db)
+        self._persist_telegram_history(telegram_history_row, message, final_text, db, contact_refs)
         return {"reply": final_text}
 
     async def run_telegram_stream(
@@ -1967,6 +1980,8 @@ class ChatOrchestrator:
 
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False) + TELEGRAM_RICH_FORMAT_HINT
         history = telegram_history_row.history or []
+        # Контакты из результатов инструментов — сохранятся у ответа в истории.
+        contact_refs: Dict[str, dict] = {}
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         for msg in history[-20:]:
@@ -1976,7 +1991,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_recent_contacts_block(history) + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         context = {
@@ -2075,6 +2090,7 @@ class ChatOrchestrator:
                     except Exception as e:
                         result_str = json.dumps({"ok": False, "error": str(e)})
 
+                    collect_contact_refs(result_str, contact_refs)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": acc["id"],
@@ -2097,7 +2113,7 @@ class ChatOrchestrator:
                     logger.error(f"[AGENT-TG-CHAT] (stream) Charge failed: {ce}", exc_info=True)
                     safe_rollback(db)
 
-            self._persist_telegram_history(telegram_history_row, message, final_text, db)
+            self._persist_telegram_history(telegram_history_row, message, final_text, db, contact_refs)
             yield {"type": "done", "reply": final_text}
 
         except Exception as e:
@@ -2210,6 +2226,8 @@ class ChatOrchestrator:
 
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         history = agent_config.chat_history or []
+        # Контакты из результатов инструментов — сохранятся у ответа в истории.
+        contact_refs: Dict[str, dict] = {}
 
         # Build messages from stored chat history (role/content only)
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -2220,7 +2238,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_recent_contacts_block(history) + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         debug_log.append({
@@ -2287,6 +2305,7 @@ class ChatOrchestrator:
                     result_str = json.dumps({"ok": False, "error": str(e)})
                     debug_log.append({"ts": self._now_ts(), "type": "tool_error", "data": {"tool": tool_name, "error": str(e)}})
 
+                collect_contact_refs(result_str, contact_refs)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.get("id"),
@@ -2314,7 +2333,7 @@ class ChatOrchestrator:
 
         new_history = list(history)
         new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
-        new_history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})
+        new_history.append(self._assistant_history_entry(final_text, contact_refs))
         agent_config.chat_history = new_history[-20:]
         db.commit()
 
@@ -2458,6 +2477,8 @@ class ChatOrchestrator:
 
         system_prompt = build_orchestrator_prompt(agent_config, include_time_block=False)
         history = agent_config.chat_history or []
+        # Контакты из результатов инструментов — сохранятся у ответа в истории.
+        contact_refs: Dict[str, dict] = {}
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         for msg in history[-20:]:
@@ -2467,7 +2488,7 @@ class ChatOrchestrator:
                 messages.append({"role": role, "content": content})
         # Время приклеивается к отправляемому сообщению, но в историю
         # сохраняется исходный «чистый» message (см. persist ниже).
-        messages.append({"role": "user", "content": message + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
+        messages.append({"role": "user", "content": message + build_recent_contacts_block(history) + build_agent_memory_block(agent_config) + build_time_block(round_to_minutes=0)})
 
         tools = await build_chat_tools(agent_config, db)
         debug_log.append({
@@ -2594,6 +2615,7 @@ class ChatOrchestrator:
                         debug_log.append({"ts": self._now_ts(), "type": "tool_error", "data": {"tool": tool_name, "error": str(e)}})
                         yield {"type": "tool_error", "tool": tool_name, "error": str(e)}
 
+                    collect_contact_refs(result_str, contact_refs)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": acc["id"],
@@ -2623,7 +2645,7 @@ class ChatOrchestrator:
 
             new_history = list(history)
             new_history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
-            new_history.append({"role": "assistant", "content": final_text, "ts": datetime.utcnow().isoformat()})
+            new_history.append(self._assistant_history_entry(final_text, contact_refs))
             agent_config.chat_history = new_history[-20:]
             db.commit()
 

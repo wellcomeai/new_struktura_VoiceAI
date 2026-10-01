@@ -25,6 +25,7 @@ from backend.models.agent_connector import AgentConnector
 from backend.services import composio_service
 from backend.services import agent_memory
 from backend.services import agent_files
+from backend.services import contact_search
 from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL
 from backend.services import telegram_user_service
 from backend.services import max_user_service
@@ -1078,7 +1079,10 @@ CONTACT_SORT_KEYS = [
 ]
 
 CONTACT_FILTER_PROPERTIES = {
-    "query": {"type": "string", "description": "Подстрока имени, телефона или компании"},
+    "query": {
+        "type": "string",
+        "description": "Имя, фамилия, телефон (в любом формате) или компания; слова в любом порядке, ё = е",
+    },
     "stage": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS, "description": "Одна стадия воронки"},
     "stages": {
         "type": "array", "items": {"type": "string", "enum": AGENT_CONTACT_STAGE_KEYS},
@@ -1306,15 +1310,13 @@ def _contact_filter_query(db: Session, user_id: str, agent_config_id: str, f: di
         q = q.filter(or_(*[_stage_condition(s) for s in stages]))
 
     if f.get("company"):
-        q = q.filter(AgentContact.company.ilike(f"%{f['company']}%"))
+        q = q.filter(contact_search.text_ilike(AgentContact.company, contact_search.normalize_text(f["company"])))
 
     if f.get("query"):
-        like = f"%{f['query']}%"
-        q = q.filter(or_(
-            AgentContact.name.ilike(like),
-            AgentContact.phone.ilike(like),
-            AgentContact.company.ilike(like),
-        ))
+        # Слова в любом порядке, ё = е, телефон в любом формате (contact_search).
+        cond = contact_search.query_condition(f["query"])
+        if cond is not None:
+            q = q.filter(cond)
 
     attempts_min = _as_int(f.get("attempts_min"))
     if attempts_min is not None:
@@ -2048,6 +2050,25 @@ AGENT_CHAT_TOOLS = [
                 },
             },
             "required": ["task_id"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "find_contact",
+        "description": (
+            "Найти КОНКРЕТНОГО человека в базе: имя и/или фамилия (в любом порядке и падеже), "
+            "телефон в любом формате (+7, 8, со скобками и пробелами) или компания. Используй "
+            "ПЕРВЫМ, когда владелец называет человека, — а не листай список. match=exact — точные "
+            "совпадения; match=fuzzy — точных нет, did_you_mean — похожие (опечатка, падеж); "
+            "match=none — такого контакта нет. Для отбора групп по условиям — search_contacts."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Имя, фамилия, телефон или компания"},
+                "limit": {"type": "integer", "description": "Сколько вариантов вернуть (по умолчанию 5, максимум 20)"},
+            },
+            "required": ["query"],
         },
     },
     {
@@ -3108,6 +3129,14 @@ async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db:
                     "владелец не просил — повтори вызов без него."
                 ),
             }
+            if filter_args.get("query"):
+                # Точного совпадения нет — ищем похожих (падеж, опечатка, другой номер)
+                # среди тех, кто подходит под остальные условия фильтра.
+                rest = {k: v for k, v in filter_args.items() if k != "query"}
+                similar = await _fuzzy_contacts(db, user_id, agent_config_id, filter_args["query"], rest)
+                if similar:
+                    diagnostics["did_you_mean"] = similar
+                    diagnostics["hint"] = FUZZY_HINT
 
     if args.get("count_only"):
         return {"ok": True, "total": total, "filter": filter_args, **diagnostics}
@@ -3133,6 +3162,86 @@ async def fn_search_contacts(args: dict, user_id: str, agent_config_id: str, db:
             "подходящими контактами передай этот же фильтр в bulk_*, а не листай список."
         )
     return result
+
+
+FUZZY_HINT = (
+    "Точного совпадения нет; did_you_mean — похожие контакты (score 1.0 — полное совпадение). "
+    "Если это явно тот же человек (другой падеж, опечатка, формат номера) — бери его id. "
+    "Если вариантов несколько или сомневаешься — спроси владельца. Не выдумывай id."
+)
+
+
+async def _fuzzy_contacts(
+    db: Session, user_id: str, agent_config_id: str, query: str, rest_filter: Optional[dict] = None, limit: int = 5,
+) -> list:
+    """Нечёткий поиск по контактам агента (contact_search.fuzzy_candidates), счёт в потоке."""
+    q, err = _contact_filter_query(db, user_id, agent_config_id, rest_filter or {})
+    if err:
+        return []
+    rows = (
+        q.with_entities(AgentContact.id, AgentContact.name, AgentContact.phone,
+                        AgentContact.company, AgentContact.status)
+        .limit(contact_search.FUZZY_SCAN_LIMIT)
+        .all()
+    )
+    if not rows:
+        return []
+    rows = [tuple(r) for r in rows]
+    return await asyncio.to_thread(contact_search.fuzzy_candidates, rows, query, limit)
+
+
+FIND_CONTACT_DEFAULT = 5
+FIND_CONTACT_MAX = 20
+
+
+async def fn_find_contact(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
+    """
+    Найти конкретного человека: имя/фамилия в любом порядке, телефон в любом формате,
+    компания. Нет точного совпадения — похожие варианты; ошибкой не отвечает.
+    """
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return {"ok": False, "error": "query_required", "hint": "Передай имя, телефон или компанию в query."}
+    limit = max(1, min(_as_int(args.get("limit"), FIND_CONTACT_DEFAULT) or FIND_CONTACT_DEFAULT, FIND_CONTACT_MAX))
+
+    base_q, _ = _contact_filter_query(db, user_id, agent_config_id, {})
+    cond = contact_search.query_condition(query)
+    if cond is not None:
+        exact_q = base_q.filter(cond)
+        total = exact_q.count()
+        if total:
+            contacts = _sort_contacts(exact_q, "newest").limit(limit).all()
+            result = {
+                "ok": True,
+                "match": "exact",
+                "total": total,
+                "contacts": [_compact_contact(c) for c in contacts],
+            }
+            if total == 1:
+                result["hint"] = "Найден ровно один контакт — используй его id."
+            elif total > limit:
+                result["hint"] = (
+                    f"Совпадений {total}, показаны {limit}. Уточни у владельца (фамилия, телефон, "
+                    "компания) или сузь поиск через search_contacts с фильтрами."
+                )
+            else:
+                result["hint"] = "Совпадений несколько — если из контекста неясно, кто нужен, спроси владельца."
+            return result
+
+    similar = await _fuzzy_contacts(db, user_id, agent_config_id, query, limit=limit)
+    if similar:
+        return {"ok": True, "match": "fuzzy", "total": 0, "did_you_mean": similar, "hint": FUZZY_HINT}
+
+    return {
+        "ok": True,
+        "match": "none",
+        "total": 0,
+        "total_in_base": base_q.count(),
+        "hint": (
+            "Такого контакта в базе нет, похожих тоже. Не выдумывай id и не листай базу — "
+            "скажи владельцу и при необходимости предложи создать контакт."
+        ),
+    }
 
 
 async def fn_get_contact_details(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -3935,6 +4044,11 @@ async def fn_send_webhook(args: dict, agent_config, db: Session) -> dict:
 # DISPATCHER
 # ============================================================================
 
+CONTACT_NOT_FOUND_HINT = (
+    "Контакта с таким id нет у этого агента. Не угадывай id: найди человека через "
+    "find_contact (имя или телефон) и возьми id из ответа."
+)
+
 _TOOL_MAP = {
     "search_knowledge_base": "fn_search_knowledge_base",
     "create_agent_contact": "fn_create_agent_contact",
@@ -3951,6 +4065,7 @@ _TOOL_MAP = {
     "send_telegram_notification": "fn_send_telegram_notification",
     "send_sms": "fn_send_sms",
     "send_webhook": "fn_send_webhook",
+    "find_contact": "fn_find_contact",
     "search_contacts": "fn_search_contacts",
     "get_contact_details": "fn_get_contact_details",
     "get_contacts_by_stage": "fn_get_contacts_by_stage",
@@ -4025,6 +4140,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             if agent_config is None and agent_config_id:
                 agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
             result = await fn_send_sms(tool_args, user_id, agent_config, db)
+        elif tool_name == "find_contact":
+            result = await fn_find_contact(tool_args, user_id, agent_config_id, db)
         elif tool_name == "search_contacts":
             result = await fn_search_contacts(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_contact_details":
@@ -4111,6 +4228,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         else:
             result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
 
+        if isinstance(result, dict) and result.get("error") == "Contact not found" and "hint" not in result:
+            result["hint"] = CONTACT_NOT_FOUND_HINT
         return json.dumps(result, ensure_ascii=False, default=str)
 
     except Exception as e:
@@ -4119,4 +4238,8 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
             # Упавший SQL внутри тулзы оставляет транзакцию прерванной; без rollback
             # следующий запрос оркестратора упадёт с InFailedSqlTransaction и анализ звонка пропадёт.
             safe_rollback(db)
-        return json.dumps({"ok": False, "error": str(e)})
+        error = {"ok": False, "error": str(e)}
+        if "invalid input syntax for type uuid" in str(e):
+            # Модель передала выдуманный или обрезанный id.
+            error = {"ok": False, "error": "invalid_id", "hint": CONTACT_NOT_FOUND_HINT}
+        return json.dumps(error, ensure_ascii=False)
