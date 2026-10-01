@@ -140,11 +140,93 @@ async def test_openrouter():
     print("✅ OpenRouter: ключ и тело переведены, ошибка посреди стрима → error, нет ключа → error")
 
 
+async def test_connection_kinds():
+    """/ws/fish/llm ищет Fish-ассистента, /ws/cascade/llm — каскадного; ключ
+    берётся у своего провайдера, чужой id сокет закрывает."""
+    from fastapi import WebSocketDisconnect
+
+    class Assistant:
+        is_active = True
+        user_id = "u1"
+
+    class Query:
+        def __init__(self, model):
+            self.model = model
+        def filter(self, *conds):
+            self.conds = [str(c) for c in conds]
+            return self
+        def first(self):
+            if self.model is proxy.User:
+                return object()
+            return Assistant() if self.model is wanted["model"] else None
+
+    class DB:
+        def __init__(self):
+            self.queries = []
+        def query(self, model):
+            q = Query(model)
+            self.queries.append(q)
+            return q
+        def close(self):
+            pass
+
+    class WS(FakeVoxWS):
+        def __init__(self):
+            super().__init__()
+            self.closed = None
+        async def accept(self):
+            pass
+        async def receive_text(self):
+            raise WebSocketDisconnect()
+        async def close(self, code=1000, reason=""):
+            self.closed = self.closed or (code, reason)
+
+    resolved = []
+    orig_resolve, orig_release = proxy.provider_keys.resolve, proxy.release_db_connection
+    proxy.provider_keys.resolve = lambda user, kind: resolved.append(kind) or types.SimpleNamespace(api_key="sk-" + kind)
+    proxy.release_db_connection = lambda db: None
+    orig_warm = proxy._LLMProxySession.warm
+    async def no_warm(self):
+        return None
+    proxy._LLMProxySession.warm = no_warm
+    wanted = {}
+    try:
+        wanted["model"] = proxy.GrokAssistantConfig
+        db, ws = DB(), WS()
+        await proxy.handle_llm_proxy_connection(ws, "a1", db, kind="cascade")
+        assert ws.sent and ws.sent[0]["event"] == "ready", ws.sent
+        assert resolved == ["cascade"], resolved
+        assert db.queries[0].model is proxy.GrokAssistantConfig
+        assert any("assistant_type" in c for c in db.queries[0].conds), db.queries[0].conds
+
+        resolved.clear()
+        db, ws = DB(), WS()
+        await proxy.handle_llm_proxy_connection(ws, "a1", db, kind="cascade")
+        assert ws.sent[0]["event"] == "ready"
+
+        # Fish-эндпоинт каскадного ассистента не находит и наоборот
+        resolved.clear()
+        db, ws = DB(), WS()
+        await proxy.handle_llm_proxy_connection(ws, "a1", db)
+        assert ws.closed and ws.closed[0] == 1008 and not ws.sent, (ws.closed, ws.sent)
+        assert db.queries[0].model is proxy.FishAssistantConfig and not resolved
+
+        wanted["model"] = proxy.FishAssistantConfig
+        db, ws = DB(), WS()
+        await proxy.handle_llm_proxy_connection(ws, "a1", db)
+        assert ws.sent[0]["event"] == "ready" and resolved == ["fish"], resolved
+    finally:
+        proxy.provider_keys.resolve, proxy.release_db_connection = orig_resolve, orig_release
+        proxy._LLMProxySession.warm = orig_warm
+    print("✅ эндпоинты: fish → FishAssistantConfig + ключ fish, cascade → grok_assistant_configs (cascade) + ключ cascade")
+
+
 async def main():
     await test_stream()
     await test_openrouter()
     await test_error_and_model()
     await test_cancel()
+    await test_connection_kinds()
     print("\nвсе проверки прокси LLM пройдены")
 
 

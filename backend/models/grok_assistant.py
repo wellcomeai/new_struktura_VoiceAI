@@ -99,8 +99,8 @@ class GrokAssistantConfig(Base):
     asr_lang          = Column(String(10),  default="ru", nullable=False)
     # Пауза перед ответом (пресет на странице агента): сколько тишины ждёт
     # Silero, прежде чем счесть, что собеседник договорил. 300 — быстрый ответ,
-    # 650 — сбалансированный, 1000 — терпеливый. Сценарий кладёт это значение в
-    # VoxTurnTaking (minSilenceDurationMs), страховочный таймаут = значение+250.
+    # 650 — сбалансированный, 1000 — терпеливый. Сценарии inbound/outbound_cascade
+    # v4.0 кладут его в Silero VAD (minSilenceDurationMs).
     silence_duration_ms = Column(Integer, default=300, nullable=True)
 
     # Relationships

@@ -164,7 +164,9 @@ async def rebind_inbound_rule(child_account, phone_record, effective_type: str,
         logger.warning(f"{log_prefix} ⚠️ Scenario '{scenario_name}' not found in account")
         return False
 
-    # Для cascade — добавляем vox-turn-taking первым в цепочке
+    # Для cascade — добавляем vox-turn-taking первым в цепочке (сценарии
+    # cascade v4.0 самодостаточны и VoxTurnTaking не используют; цепочка
+    # оставлена, чтобы не трогать правила на дочерних аккаунтах)
     # VoxEngine выполняет sequenced-сценарии по порядку:
     # vox-turn-taking объявляет глобальный VoxTurnTaking,
     # inbound_cascade его использует
@@ -218,6 +220,15 @@ def build_fish_tts_url(assistant_id: any) -> str:
     elif host.startswith("http://"):
         host = "ws://" + host[len("http://"):]
     return f"{host}/ws/fish/tts/{assistant_id}"
+
+
+def build_cascade_llm_url(assistant_id: any) -> str:
+    """
+    URL прокси модели для каскада VoxTTS (inbound_cascade / outbound_cascade):
+    сценарий шлёт туда запросы Chat Completions, ключи остаются на сервере
+    (backend/websockets/handler_llm_proxy.py).
+    """
+    return build_fish_tts_url(assistant_id).replace("/ws/fish/tts/", "/ws/cascade/llm/")
 
 
 def validate_phone_id(phone_id: any) -> Optional[str]:
@@ -477,6 +488,7 @@ class ScenarioConfigResponse(BaseModel):
     sample_rate:       Optional[int] = None
     # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
     fish_tts_url:      Optional[str] = None
+    llm_proxy_url:     Optional[str] = None   # cascade: прокси модели /ws/cascade/llm/{id}
     # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
     # GPT-Live (входящие OpenAI, сценарий inbound_openai): готовый объект
@@ -544,6 +556,7 @@ class OutboundConfigResponse(BaseModel):
     sample_rate:       Optional[int] = None
     # URL прокси синтеза: сценарий открывает его через VoxEngine.createWebSocket
     fish_tts_url:      Optional[str] = None
+    llm_proxy_url:     Optional[str] = None   # cascade: прокси модели /ws/cascade/llm/{id}
     # ✅ v6.0: режим оплаты (own_key | wallet | free | admin) — информационно
     billing_mode:      Optional[str] = None
     # GPT-Live (исходящие OpenAI, сценарий outbound_openai v5): session для
@@ -3504,6 +3517,7 @@ def get_outbound_config(
             fish_latency=assistant.fish_latency if assistant_type == "fish" else None,
             sample_rate=assistant.sample_rate if assistant_type == "fish" else None,
             fish_tts_url=build_fish_tts_url(assistant.id) if assistant_type == "fish" else None,
+            llm_proxy_url=build_cascade_llm_url(assistant.id) if assistant_type == "cascade" else None,
             billing_mode=billing_mode,
             live_session=live_session,
             live_function_ids=live_function_ids,
@@ -6000,6 +6014,10 @@ def get_scenario_config(
             fish_tts_url=(
                 build_fish_tts_url(assistant.id)
                 if phone_record.assistant_type == "fish" else None
+            ),
+            llm_proxy_url=(
+                build_cascade_llm_url(assistant.id)
+                if phone_record.assistant_type == "cascade" else None
             ),
             billing_mode=billing_mode,
             live_session=live_session,

@@ -1,1301 +1,464 @@
-/**
- * outbound_cascade — ИСХОДЯЩИЙ full-cascade Voice AI сценарий Voicyfy.
- *
- *   STT:  встроенный ASR (Yandex v2, streaming + interim), язык из конфига
- *   LLM:  OpenAI gpt-realtime-2.1-mini — Realtime API (WebSocket), режим ТОЛЬКО ТЕКСТ
- *   TTS:  VoxTTS (realtime-стриминг, голоса Anna/Sergey)
- *   Turn-taking: Silero VAD + Pipecat Smart Turn через VoxTurnTaking
- *
- * ПОЧЕМУ Realtime, а не Chat Completions (переход v2 -> v3):
- *  WS открыт с начала звонка (нет установки соединения на каждый ход), контекст
- *  диалога живёт на стороне OpenAI (шлём только новую реплику, старое идёт как
- *  cached-токены), сама модель дистиллирована под низкую задержку. TTFT падает
- *  с ~600мс до ~250мс. Прогрев (warmup) за ненадобностью удалён.
- *
- * ВАЖНО — TURN DETECTION У МОДЕЛИ ВЫКЛЮЧЕН:
- *  Realtime — чистый ТЕКСТОВЫЙ мозг: аудио в него не заводится вообще, в сессии
- *  audio.input.turn_detection = null. Момент «пора отвечать» определяет НАШ
- *  VoxTurnTaking и явно дёргает responseCreate().
- *
- * ОТЛИЧИЯ ОТ inbound_cascade:
- *  1. Точка входа — AppEvents.Started + VoxEngine.customData() (не CallAlerting).
- *  2. Мы САМИ звоним: VoxEngine.callPSTN(phone, caller_id).
- *  3. Конфиг — /api/telephony/outbound-config?assistant_id=...&assistant_type=cascade.
- *  4. Контекст звонка (задача + CRM) инжектится в system-промпт.
- *  5. READINESS-BEFORE-DIAL: WS к OpenAI / TTS / ASR готовим ДО дозвона — если
- *     что-то не поднялось, PSTN не набираем (0₽ телефонии).
- *  6. MUTE-окно: первые mute_duration_ms после ответа мик абонента закрыт
- *     (флаг micOpen) — «Алло»/шум при поднятии трубки не обрывают приветствие.
- *  7. TOOL CALLING: ассистент может вызывать функции (в т.ч. hangup_call, чтобы
- *     самому завершить звонок). Вызов приходит целиком в ResponseOutputItemDone.
- *  8. Silence hard-timeout ~180с (защита от автоответчика/тишины). У Realtime-
- *     сессии есть TTL, поэтому обрыв WS переживаем реконнектом (см. ниже).
- *
- * СПЕКУЛЯЦИЯ здесь не используется (как и в inbound после перехода на Realtime):
- * при TTFT ~250мс выигрыш копеечный, а с серверным контекстом спекулятивная
- * реплика отравляет историю диалога.
- *
- * ТРЕБОВАНИЯ:
- * 1. Правило outbound_cascade — цепочка [vox-turn-taking, outbound_cascade].
- * 2. Запуск: StartScenarios с script_custom_data (phone_number, assistant_id,
- *    caller_id, contact_name, task_title, task_description, custom_greeting, task).
- */
-
 require(Modules.ASR);
+require(Modules.Silero);
 require(Modules.OpenAI);
 require(Modules.VoxTTS);
-require(Modules.Recorder);
-require(Modules.Silero);
-require(Modules.Pipecat);
 
-// ────────────────────────────────────────────────────────────────────────────
-// ВСТРОЕННЫЙ VoxTurnTaking (самодостаточность).
-// Идемпотентно: если правило — цепочка [vox-turn-taking, outbound_cascade], то
-// vox-turn-taking.js уже объявил глобальный VoxTurnTaking (const) → typeof !==
-// "undefined" → это определение ПРОПУСКАЕТСЯ (никакого переобъявления). Если же
-// правило одиночное — объявляем VoxTurnTaking здесь. Так сценарий работает при
-// любой конфигурации правила. Присваивание без const/var — чтобы не конфликтовать
-// с const-объявлением в цепочечном режиме.
-// ВАЖНО: держать в синхроне с voximplant_scenarios/vox-turn-taking.js.
-// ────────────────────────────────────────────────────────────────────────────
-if (typeof VoxTurnTaking === "undefined") {
-    // eslint-disable-next-line no-global-assign, no-undef
-    VoxTurnTaking = {
-
-        DEFAULTS: {
-            vadOptions: {
-                // Для русской разговорной речи паузы 0.3-0.5с внутри фразы — норма
-                // («пока не знаю... машина у вас»). 200-300мс дробили одну фразу на
-                // сегменты: отсюда лишние barge-in и закрытие хода на границе
-                // ложного сегмента.
-                threshold: 0.5,
-                minSilenceDurationMs: 650,
-                // 10мс срезало края сегментов. 200мс — слышимый запас по краям.
-                speechPadMs: 200,
-            },
-            turnDetectorOptions: {
-                threshold: 0.5,
-            },
-            policy: {
-                // ── Закрытие хода по вердикту детектора ────────────────────────
-                //  - p >= confidentEouProbability: фраза уверенно закончена ->
-                //    быстрый settle;
-                //  - серая зона -> осторожный settle.
-                confidentEouProbability: 0.95,
-                transcriptSettleFastMs: 120,
-                transcriptSettleMs: 350,
-
-                // ── Страховочный таймаут (фолбэк) ──────────────────────────────
-                // Взводится на speechEnd. Больше НЕ является основным механизмом
-                // закрытия: детектор может его отодвинуть (см. вето ниже).
-                userSpeechTimeoutMs: 900,
-
-                // ── Вето детектора (лечение причины №3) ────────────────────────
-                // endOfTurn=false -> отодвигаем закрытие тем сильнее, чем увереннее
-                // детектор в том, что фраза не закончена.
-                vetoStrongProbability: 0.15, // p < 0.15 — «точно не договорил»
-                vetoSoftProbability: 0.4,    // p < 0.40 — «скорее не договорил»
-                vetoHoldStrongMs: 2000,
-                vetoHoldSoftMs: 1400,
-                maxVetoHolds: 3,
-                // Абсолютный потолок удержания одного хода от первого speechEnd —
-                // чтобы вето не подвесило разговор.
-                maxTurnHoldMs: 4000,
-
-                // ── Стабильность транскрипта (лечение причины №1, часть 2) ─────
-                // Не закрываем ход, пока ASR ещё дописывает текст. Признак по
-                // факту, а не по таймеру: сколько прошло с последнего изменения.
-                interimStableMs: 400,
-                maxInterimWaitMs: 1500,
-
-                // Перепроверка «клиент всё ещё говорит?».
-                userSpeakingRecheckMs: 250,
-                // Аварийный потолок: если VAD залип в speech, через столько мс
-                // закрываем ход принудительно, иначе агент немой до конца звонка.
-                userSpeakingMaxHoldMs: 15000,
-
-                // ── Реконсиляция позднего финала ───────────────────────────────
-                reconcileWindowMs: 5000,
-
-                // ── Barge-in ───────────────────────────────────────────────────
-                bargeInMinSpeechMs: 150,
-
-                // ── Эвристики коротких реплик (из v1) ──────────────────────────
-                shortUtteranceExtensionMs: 900,
-                fastShortUtteranceTimeoutMs: 500,
-                shortUtteranceMaxChars: 12,
-                shortUtteranceMaxWords: 2,
-                lowConfidenceShortUtteranceThreshold: 0.75,
-                continuationTokens: ["and", "but", "so", "well", "then", "uh", "um"],
-                trailingContinuationTokens: [],
-                completeShortAnswers: [],
-
-                // Порог вероятности EOU, при котором ход считается ГОТОВЫМ к ранней
-                // (спекулятивной) подаче через onSpeculativeTurn.
-                speculativeEouProbability: 0.7,
-            },
-        },
-
-        async create(options) {
-            const {
-                call,
-                stt,
-                onUserTurn,
-                onInterrupt,
-                // Ранний сигнал для спекулятивной генерации. Опционален.
-                onSpeculativeTurn,
-                // Поздний ASR-финал уточнил уже отправленный текст. Опционален.
-                // (fullText, turnId, { sentText, lagMs, reason })
-                onTurnCorrection,
-                // Звучит ли агент прямо сейчас. Нужен, чтобы barge-in считался
-                // только настоящим перебиванием, а не любым сегментом VAD.
-                isAgentSpeaking,
-                enableLogging = false,
-                logger = (line) => Logger.write(line),
-            } = options;
-            const vadOptions = Object.assign({}, this.DEFAULTS.vadOptions, options.vadOptions);
-            const turnDetectorOptions = Object.assign(
-                {},
-                this.DEFAULTS.turnDetectorOptions,
-                options.turnDetectorOptions
-            );
-            const policy = Object.assign({}, this.DEFAULTS.policy, options.policy);
-
-            const vad = await Silero.createVAD(vadOptions);
-            const turnDetector = await Pipecat.createTurnDetector(turnDetectorOptions);
-
-            call.sendMediaTo(vad);
-            call.sendMediaTo(turnDetector);
-
-            const log = (line) => {
-                if (enableLogging) logger(line);
-            };
-            const emitModuleEvent = (eventName, event) => {
-                logger(`===${eventName}===`);
-                if (event) logger(JSON.stringify(event));
-            };
-
-            // ── Таймеры ────────────────────────────────────────────────────────
-            let closeTimer = null;   // фолбэк / отложенное закрытие
-            let settleTimer = null;  // окно ожидания после вердикта детектора
-            let bargeInTimer = null; // дебаунс перебивания
-            let stuckTimer = null;   // сторож залипшего VAD
-
-            // ── Транскрипт ─────────────────────────────────────────────────────
-            let finalTranscript = "";
-            let interimTranscript = "";
-            let transcriptSeparator = "";
-            let lastTranscriptChangeAt = 0;
-            let stabilityWaitStartedAt = 0;
-            let lastFinalConfidence = 1;
-            let replaceableShortFinal = false;
-            let shortExtensionApplied = false;
-            let acceptingTranscript = false;
-
-            // ── Счётчики поколений (лечение причины №2) ────────────────────────
-            // turnId    — растёт ТОЛЬКО при сабмите. Отдаётся сценарию как version.
-            // segmentId — растёт на каждом speechStart. Гейтит таймеры/предсказания.
-            let turnId = 0;
-            let segmentId = 0;
-
-            // ── Состояние речи клиента (лечение причины №1) ────────────────────
-            let userSpeaking = false;
-            let userSpeakingSince = 0;
-            let turnHoldStartedAt = 0; // первый speechEnd текущего хода
-            let vetoHolds = 0;
-
-            // ── Состояние детектора ────────────────────────────────────────────
-            let smartTurnComplete = false;
-            let predictSegment = -1;   // segmentId в момент predict()
-            let speculativeFiredForSegment = -1;
-
-            // ── Прочее ─────────────────────────────────────────────────────────
-            let allowAgentAudio = true;
-            // { turnId, norm, raw, at, seg } — для реконсиляции. seg — сегмент VAD,
-            // в котором ход был закрыт: если он не сменился, поздний финал физически
-            // относится к тому же куску аудио.
-            let submitted = null;
-
-            const stats = {
-                segments: 0,
-                closes: {},
-                holdsUserSpeaking: 0,
-                holdsUnstable: 0,
-                holdsVeto: 0,
-                stalePredictions: 0,
-                bargeIns: 0,
-                bargeInsSuppressed: 0,
-                corrections: 0,
-                correctionCharsGained: 0,
-                forcedCloses: 0,
-            };
-
-            const clearTimers = () => {
-                if (closeTimer) clearTimeout(closeTimer);
-                if (settleTimer) clearTimeout(settleTimer);
-                closeTimer = null;
-                settleTimer = null;
-            };
-
-            const normalize = (text) =>
-                (text || "")
-                    .trim()
-                    .toLowerCase()
-                    .replace(/[.,!?;:…—-]+/gu, " ")
-                    .replace(/\s+/gu, " ")
-                    .trim();
-
-            const normalizeConfidence = (value) => {
-                if (typeof value !== "number" || Number.isNaN(value)) return null;
-                return value > 1 ? value / 100 : value;
-            };
-
-            const isShortUtterance = (text) => {
-                if (!text) return false;
-                const words = text.trim().split(/\s+/).filter(Boolean);
-                return (
-                    text.length <= policy.shortUtteranceMaxChars &&
-                    words.length <= policy.shortUtteranceMaxWords
-                );
-            };
-
-            const startsWithContinuationToken = (text) => {
-                if (!text) return false;
-                const firstWord = text.trim().split(/\s+/)[0]?.toLowerCase();
-                return policy.continuationTokens.includes(firstWord);
-            };
-
-            // Завершённый короткий ответ из вайтлиста («да», «нет», «ок»...).
-            const isCompleteShortAnswer = (text) => {
-                const list = policy.completeShortAnswers || [];
-                if (!list.length || !text) return false;
-                const norm = text.trim().toLowerCase().replace(/[.,!?;:…]+$/u, "");
-                return list.includes(norm);
-            };
-
-            // Фраза выглядит оборванной, если её последнее слово — предлог/союз/
-            // вопросительное слово, после которого обычно следует продолжение.
-            const endsWithContinuationToken = (text) => {
-                if (!text) return false;
-                const tokens = policy.trailingContinuationTokens || [];
-                if (!tokens.length) return false;
-                const words = text.trim().split(/\s+/);
-                const lastWord = words[words.length - 1]
-                    ?.toLowerCase()
-                    .replace(/[.,!?;:…]+$/u, "");
-                return tokens.includes(lastWord);
-            };
-
-            const buildInput = () => {
-                let input = finalTranscript;
-                if (interimTranscript) {
-                    if (input) input += transcriptSeparator;
-                    input += interimTranscript;
-                }
-                return input.trim();
-            };
-
-            const noteTranscriptChange = () => {
-                lastTranscriptChangeAt = Date.now();
-            };
-
-            // Решение опирается на частичный результат, если финала ещё нет вовсе
-            // либо поверх финала уже течёт новый interim (клиент продолжает).
-            const leaningOnPartial = () => !finalTranscript || !!interimTranscript;
-
-            // Отложить закрытие хода, сохранив исходную причину для логов/статистики.
-            const deferClose = (delayMs, reason) => {
-                if (closeTimer) clearTimeout(closeTimer);
-                if (settleTimer) clearTimeout(settleTimer);
-                settleTimer = null;
-                const seg = segmentId;
-                closeTimer = setTimeout(() => {
-                    if (seg !== segmentId) return;
-                    submitCurrentTurn(reason);
-                }, delayMs);
-            };
-
-            const bumpClose = (reason, count) => {
-                stats.closes[reason] = (stats.closes[reason] || 0) + (count || 1);
-            };
-
-            function submitCurrentTurn(reason) {
-                const input = buildInput();
-                if (!input) return false;
-
-                const forced = reason === "FORCED_CLOSE";
-
-                // ── ИНВАРИАНТ 1. Пока клиент говорит — ход не закрывается. ─────
-                // Ровно этой проверки не было в v1, и именно её отсутствие давало
-                // перебивание на микропаузе внутри фразы.
-                if (!forced && userSpeaking) {
-                    const held = userSpeakingSince ? Date.now() - userSpeakingSince : 0;
-                    if (held < policy.userSpeakingMaxHoldMs) {
-                        stats.holdsUserSpeaking += 1;
-                        log(`===HOLD_USER_SPEAKING=== (${reason}) held=${held}ms :: ${input}`);
-                        deferClose(policy.userSpeakingRecheckMs, reason);
-                        return false;
-                    }
-                    // Аварийный выход: VAD, похоже, залип в speech.
-                    log(`===VAD_STUCK=== speech активен ${held}ms, закрываем принудительно`);
-                }
-
-                // ── ИНВАРИАНТ 2. Текст ещё дописывается — ждём. ────────────────
-                // Признак по факту («ASR дописал слово N мс назад»), а не по слепому
-                // таймеру: это то, что реально отличает «фраза кончилась» от
-                // «человек ещё говорит, а мы просто быстрее ASR».
-                if (!forced && leaningOnPartial()) {
-                    const sinceChange = Date.now() - (lastTranscriptChangeAt || 0);
-                    if (sinceChange < policy.interimStableMs) {
-                        if (!stabilityWaitStartedAt) stabilityWaitStartedAt = Date.now();
-                        if (Date.now() - stabilityWaitStartedAt < policy.maxInterimWaitMs) {
-                            stats.holdsUnstable += 1;
-                            const wait = Math.max(60, policy.interimStableMs - sinceChange);
-                            log(`===HOLD_TRANSCRIPT_UNSTABLE=== (${reason}) +${wait}ms :: ${input}`);
-                            deferClose(wait, reason);
-                            return false;
-                        }
-                        log(`===STABILITY_CAP=== ${policy.maxInterimWaitMs}ms исчерпаны, закрываем`);
-                    }
-                }
-
-                // ── Эвристики коротких/оборванных реплик (из v1) ───────────────
-                const isWhitelisted = isCompleteShortAnswer(input);
-
-                if (
-                    !forced &&
-                    !isWhitelisted &&
-                    reason !== "FALLBACK_END_OF_TURN" &&
-                    endsWithContinuationToken(input) &&
-                    !shortExtensionApplied
-                ) {
-                    shortExtensionApplied = true;
-                    log(`===HOLD_TRAILING=== ${input}`);
-                    deferClose(policy.shortUtteranceExtensionMs, reason);
-                    return false;
-                }
-
-                if (!forced && !isWhitelisted && replaceableShortFinal && !shortExtensionApplied) {
-                    shortExtensionApplied = true;
-                    log(`===HOLD_SHORT_FINAL=== ${input}`);
-                    deferClose(policy.shortUtteranceExtensionMs, reason);
-                    return false;
-                }
-
-                // ── Закрываем ход ─────────────────────────────────────────────
-                if (forced) stats.forcedCloses += 1;
-                bumpClose(reason);
-                log(`===${reason}===`);
-                log(`===USER=== ${input}`);
-
-                const closedTurnId = turnId;
-                submitted = {
-                    turnId: closedTurnId,
-                    norm: normalize(input),
-                    raw: input,
-                    at: Date.now(),
-                    seg: segmentId,
-                };
-
-                allowAgentAudio = true;
-                onUserTurn(input, closedTurnId, reason);
-
-                finalTranscript = "";
-                interimTranscript = "";
-                transcriptSeparator = "";
-                smartTurnComplete = false;
-                acceptingTranscript = false;
-                lastFinalConfidence = 1;
-                replaceableShortFinal = false;
-                shortExtensionApplied = false;
-                stabilityWaitStartedAt = 0;
-                turnHoldStartedAt = 0;
-                vetoHolds = 0;
-                predictSegment = -1;
-                turnId += 1;
-                clearTimers();
-                if (stuckTimer) { clearTimeout(stuckTimer); stuckTimer = null; }
-                return true;
-            }
-
-            const startHardTimeout = (delay = policy.userSpeechTimeoutMs) => {
-                clearTimers();
-                const seg = segmentId;
-                closeTimer = setTimeout(() => {
-                    if (seg !== segmentId) return;
-                    if (!buildInput()) {
-                        // Сегмент речи закончился, а текста в нём не оказалось —
-                        // кашель, шум линии, эхо. Возвращаем агенту право говорить:
-                        // иначе allowAgentAudio, снятый на speechStart, останется
-                        // снятым до следующего настоящего хода, и агент онемеет.
-                        if (!allowAgentAudio && !userSpeaking) {
-                            allowAgentAudio = true;
-                            log("===EMPTY_SEGMENT=== текста нет, агенту возвращён голос");
-                        }
-                        return;
-                    }
-                    submitCurrentTurn("FALLBACK_END_OF_TURN");
-                }, delay);
-            };
-
-            [
-                Silero.VADEvents.ConnectorInformation,
-                Silero.VADEvents.Error,
-            ].forEach((eventName) => {
-                vad.addEventListener(eventName, (event) => emitModuleEvent(eventName, event));
-            });
-
-            [
-                Pipecat.TurnEvents.ConnectorInformation,
-                Pipecat.TurnEvents.Error,
-            ].forEach((eventName) => {
-                turnDetector.addEventListener(eventName, (event) =>
-                    emitModuleEvent(eventName, event)
-                );
-            });
-
-            // ── ASR: промежуточные результаты ──────────────────────────────────
-            stt.addEventListener(ASREvents.InterimResult, (event) => {
-                if (!acceptingTranscript) return;
-                const text = event?.text?.trim();
-                if (!text) return;
-                if (text === interimTranscript) return; // текст не изменился
-                if (!transcriptSeparator && finalTranscript) transcriptSeparator = " ";
-                interimTranscript = text;
-                noteTranscriptChange();
-
-                // Настоящее перебивание: агент звучит, а от клиента уже пошёл текст.
-                // Это надёжнее таймера дебаунса — есть подтверждённая речь.
-                if (userSpeaking && agentIsSpeaking()) fireBargeIn("interim");
-            });
-
-            // ── ASR: финальные результаты (+ реконсиляция) ─────────────────────
-            stt.addEventListener(ASREvents.Result, (event) => {
-                const text = event?.text?.trim();
-                if (!text) return;
-                const norm = normalize(text);
-
-                // РЕКОНСИЛЯЦИЯ. Ход уже закрыт по interim, а полный текст пришёл
-                // только сейчас (в проде — в среднем +4.6с). Отдаём его сценарию как
-                // исправление вместо того, чтобы открыть новый ход (клиент задавал
-                // один вопрос — он не должен получить два ответа).
-                if (submitted && Date.now() - submitted.at <= policy.reconcileWindowMs) {
-                    if (norm === submitted.norm) return; // дубль отправленного
-
-                    // Путь 1 (v2.1, основной): VAD не фиксировал новой речи после
-                    // сабмита -> финал физически относится к тому же куску аудио.
-                    // Ловит правки В СЕРЕДИНЕ фразы, которые префиксная проверка
-                    // пропускала («может ___ в моей» -> «может быть в моей»).
-                    const sameSegment = submitted.seg === segmentId && !userSpeaking;
-
-                    // Путь 2 (из v2): сегмент уже сменился, но текст дословно
-                    // продолжает отправленный. Сверка по границе слова — иначе «да»
-                    // ложно совпадёт с «дальше» и мы починим ход чужим текстом.
-                    const extendsSent =
-                        submitted.norm &&
-                        norm.length > submitted.norm.length &&
-                        norm.indexOf(submitted.norm) === 0 &&
-                        norm.charAt(submitted.norm.length) === " ";
-
-                    if (sameSegment || extendsSent) {
-                        const lagMs = Date.now() - submitted.at;
-                        const gained = text.length - submitted.raw.length;
-                        stats.corrections += 1;
-                        stats.correctionCharsGained += Math.max(0, gained);
-                        log(
-                            `===TURN_TRUNCATED=== lag=${lagMs}ms ` +
-                            `via=${sameSegment ? "same_segment" : "prefix"} ` +
-                            `sent="${submitted.raw}" full="${text}"`
-                        );
-                        const sentText = submitted.raw;
-                        const correctedTurnId = submitted.turnId;
-                        submitted = {
-                            turnId: correctedTurnId,
-                            norm,
-                            raw: text,
-                            at: submitted.at,
-                            seg: submitted.seg,
-                        };
-                        if (onTurnCorrection) {
-                            onTurnCorrection(text, correctedTurnId, {
-                                sentText,
-                                lagMs,
-                                reason: sameSegment ? "same_segment" : "prefix",
-                            });
-                        }
-                        return;
-                    }
-                }
-
-                // Финал пришёл раньше, чем VAD доложил о начале речи (Silero
-                // отстаёт ~1с). Не теряем его — открываем ход этим текстом.
-                let asrLedTurn = false;
-                if (!acceptingTranscript) {
-                    acceptingTranscript = true;
-                    asrLedTurn = true;
-                    finalTranscript = "";
-                    interimTranscript = "";
-                    transcriptSeparator = "";
-                    log(`===ASR_LED_TURN=== финал раньше VAD :: ${text}`);
-                }
-
-                const confidence = normalizeConfidence(event?.confidence);
-                const hadCommittedPrefix = !!finalTranscript;
-
-                if (replaceableShortFinal) {
-                    finalTranscript = text;
-                } else {
-                    if (finalTranscript) finalTranscript += transcriptSeparator || " ";
-                    finalTranscript += text;
-                }
-
-                interimTranscript = "";
-                transcriptSeparator = " ";
-                noteTranscriptChange();
-                lastFinalConfidence = confidence === null ? 1 : confidence;
-                replaceableShortFinal =
-                    isShortUtterance(text) &&
-                    (
-                        hadCommittedPrefix ||
-                        lastFinalConfidence < policy.lowConfidenceShortUtteranceThreshold ||
-                        startsWithContinuationToken(text)
-                    );
-                shortExtensionApplied = false;
-
-                log(`===STT Final: ${event.text}`);
-
-                if (
-                    isShortUtterance(text) &&
-                    !replaceableShortFinal &&
-                    !smartTurnComplete &&
-                    !userSpeaking
-                ) {
-                    startHardTimeout(
-                        Math.min(policy.userSpeechTimeoutMs, policy.fastShortUtteranceTimeoutMs)
-                    );
-                } else if (asrLedTurn) {
-                    // Ход открыт финалом ASR, а не VAD — значит speechEnd по нему не
-                    // придёт и взводить закрытие некому. Без своего таймера такой ход
-                    // повиснет навсегда (речь уже распознана, но в LLM не уходит).
-                    startHardTimeout();
-                }
-                if (smartTurnComplete) submitCurrentTurn("TURN_DETECT: FINAL_TRANSCRIPT");
-            });
-
-            // ── Barge-in: только настоящее перебивание ─────────────────────────
-            const agentIsSpeaking = () => {
-                if (typeof isAgentSpeaking !== "function") return true;
-                try {
-                    return !!isAgentSpeaking();
-                } catch (e) {
-                    return true;
-                }
-            };
-
-            let bargeInFiredForSegment = -1;
-            const fireBargeIn = (why) => {
-                if (bargeInFiredForSegment === segmentId) return;
-                bargeInFiredForSegment = segmentId;
-                if (bargeInTimer) { clearTimeout(bargeInTimer); bargeInTimer = null; }
-                stats.bargeIns += 1;
-                log(`===BARGE-IN=== (${why})`);
-                if (onInterrupt) onInterrupt();
-            };
-
-            // Сторож залипшего VAD. Аварийная проверка внутри submitCurrentTurn
-            // недостижима сама по себе: если speechEnd не пришёл, закрывать ход
-            // просто некому — все таймеры взводятся именно на speechEnd. Поэтому
-            // сторож взводится на speechStart и работает независимо.
-            const armStuckWatchdog = () => {
-                if (stuckTimer) clearTimeout(stuckTimer);
-                const seg = segmentId;
-                stuckTimer = setTimeout(() => {
-                    stuckTimer = null;
-                    if (seg !== segmentId || !userSpeaking) return;
-                    if (!buildInput()) return;
-                    log(`===VAD_WATCHDOG=== speech активен ${policy.userSpeakingMaxHoldMs}ms без speechEnd`);
-                    submitCurrentTurn("FORCED_CLOSE");
-                }, policy.userSpeakingMaxHoldMs);
-            };
-
-            vad.addEventListener(Silero.VADEvents.Result, (event) => {
-                // Именно «поле присутствует», а не «истинно»: speechStartAt === 0
-                // (начало сессии) — валидное значение и не должно теряться.
-                const hasStart = event.speechStartAt !== undefined && event.speechStartAt !== null;
-                const hasEnd = event.speechEndAt !== undefined && event.speechEndAt !== null;
-
-                if (hasStart) {
-                    segmentId += 1;
-                    stats.segments += 1;
-                    userSpeaking = true;
-                    if (!userSpeakingSince) userSpeakingSince = Date.now();
-                    clearTimers();
-                    smartTurnComplete = false;
-                    acceptingTranscript = true;
-                    allowAgentAudio = false;
-                    stabilityWaitStartedAt = 0;
-                    armStuckWatchdog();
-                    if (finalTranscript || interimTranscript) transcriptSeparator = " ... ";
-
-                    // Раньше onInterrupt звался на КАЖДЫЙ speechStart — то есть был
-                    // счётчиком сегментов VAD, а не перебиваний (184 за 22 минуты).
-                    // Теперь: агент должен реально звучать, а речь — продержаться.
-                    if (!agentIsSpeaking()) {
-                        stats.bargeInsSuppressed += 1;
-                    } else if (policy.bargeInMinSpeechMs > 0) {
-                        if (bargeInTimer) clearTimeout(bargeInTimer);
-                        const seg = segmentId;
-                        bargeInTimer = setTimeout(() => {
-                            bargeInTimer = null;
-                            if (seg !== segmentId) return;
-                            if (!userSpeaking) { stats.bargeInsSuppressed += 1; return; }
-                            if (!agentIsSpeaking()) { stats.bargeInsSuppressed += 1; return; }
-                            fireBargeIn("vad");
-                        }, policy.bargeInMinSpeechMs);
-                    } else {
-                        fireBargeIn("vad");
-                    }
-                }
-
-                if (hasEnd) {
-                    userSpeaking = false;
-                    userSpeakingSince = 0;
-                    if (stuckTimer) { clearTimeout(stuckTimer); stuckTimer = null; }
-                    if (!turnHoldStartedAt) turnHoldStartedAt = Date.now();
-                    startHardTimeout();
-                    // Штампуем предсказание текущим сегментом: результат, пришедший
-                    // уже после начала следующего сегмента, будет отброшен.
-                    predictSegment = segmentId;
-                    turnDetector.predict();
-                }
-            });
-
-            // ── Turn detector ─────────────────────────────────────────────────
-            turnDetector.addEventListener(Pipecat.TurnEvents.Result, (event) => {
-                const probability = event?.probability;
-                log(
-                    `===Pipecat.TurnEvents.Result=== p=${JSON.stringify(probability)} ` +
-                    `eot=${!!event.endOfTurn} seg=${segmentId}/${predictSegment}`
-                );
-
-                // Ранний сигнал для спекуляции — не решение о закрытии, гейтим мягко.
-                if (
-                    !event.endOfTurn &&
-                    typeof probability === "number" &&
-                    probability >= policy.speculativeEouProbability &&
-                    speculativeFiredForSegment !== segmentId
-                ) {
-                    const speculativeInput = buildInput();
-                    if (speculativeInput) {
-                        speculativeFiredForSegment = segmentId;
-                        log(`===SPECULATIVE_READY=== p=${probability} :: ${speculativeInput}`);
-                        if (onSpeculativeTurn) onSpeculativeTurn(speculativeInput, turnId);
-                    }
-                }
-
-                // ЛЕЧЕНИЕ ПРИЧИНЫ №2. Вердикт относится к сегменту, который уже
-                // закончился и сменился новым — клиент продолжил говорить, пока
-                // детектор думал. Применять такой вердикт к текущей речи нельзя.
-                if (predictSegment !== -1 && predictSegment !== segmentId) {
-                    stats.stalePredictions += 1;
-                    log(`===STALE_PREDICTION=== вердикт для сегмента ${predictSegment}, сейчас ${segmentId}`);
-                    return;
-                }
-
-                // ЛЕЧЕНИЕ ПРИЧИНЫ №3. Детектор говорит «фраза не закончена» —
-                // раньше это игнорировалось и фолбэк всё равно закрывал ход через
-                // 700мс. Теперь вердикт отодвигает закрытие.
-                if (!event.endOfTurn) {
-                    if (typeof probability !== "number") return;
-                    if (probability >= policy.vetoSoftProbability) return; // серая зона
-                    const heldFor = turnHoldStartedAt ? Date.now() - turnHoldStartedAt : 0;
-                    if (vetoHolds >= policy.maxVetoHolds || heldFor >= policy.maxTurnHoldMs) {
-                        log(`===VETO_EXHAUSTED=== holds=${vetoHolds} held=${heldFor}ms`);
-                        return;
-                    }
-                    vetoHolds += 1;
-                    stats.holdsVeto += 1;
-                    const hold =
-                        probability < policy.vetoStrongProbability
-                            ? policy.vetoHoldStrongMs
-                            : policy.vetoHoldSoftMs;
-                    log(`===VETO_NOT_EOT=== p=${probability} -> ждём ещё ${hold}ms (#${vetoHolds})`);
-                    startHardTimeout(hold);
-                    return;
-                }
-
-                smartTurnComplete = true;
-
-                // Двухскоростной выбор окна ожидания.
-                const confident =
-                    (typeof probability === "number" &&
-                        probability >= policy.confidentEouProbability) ||
-                    isCompleteShortAnswer(buildInput());
-                const settleMs = confident
-                    ? policy.transcriptSettleFastMs
-                    : policy.transcriptSettleMs;
-
-                if (settleTimer) clearTimeout(settleTimer);
-
-                if (finalTranscript && !interimTranscript && confident) {
-                    submitCurrentTurn("TURN_DETECT: END_OF_TURN");
-                    return;
-                }
-
-                const seg = segmentId;
-                const reason = finalTranscript
-                    ? "TURN_DETECT: END_OF_TURN_SETTLED"
-                    : "TURN_DETECT: ASR_GRACE";
-                settleTimer = setTimeout(() => {
-                    if (seg !== segmentId) return;
-                    submitCurrentTurn(reason);
-                }, settleMs);
-            });
-
-            return {
-                vad,
-                turnDetector,
-                canPlayAgentAudio() {
-                    return allowAgentAudio;
-                },
-                currentVersion() {
-                    return turnId;
-                },
-                isUserSpeaking() {
-                    return userSpeaking;
-                },
-                stats() {
-                    return stats;
-                },
-                statsSummary() {
-                    const closes = Object.keys(stats.closes)
-                        .map((k) => `${k}=${stats.closes[k]}`)
-                        .join(" ");
-                    return (
-                        `segments=${stats.segments} | closes: ${closes || "none"} | ` +
-                        `holds: speaking=${stats.holdsUserSpeaking} unstable=${stats.holdsUnstable} ` +
-                        `veto=${stats.holdsVeto} | stale_predictions=${stats.stalePredictions} | ` +
-                        `barge-in: real=${stats.bargeIns} suppressed=${stats.bargeInsSuppressed} | ` +
-                        `truncations=${stats.corrections} (+${stats.correctionCharsGained} chars) | ` +
-                        `forced=${stats.forcedCloses}`
-                    );
-                },
-                close() {
-                    clearTimers();
-                    if (bargeInTimer) clearTimeout(bargeInTimer);
-                    if (stuckTimer) clearTimeout(stuckTimer);
-                    bargeInTimer = null;
-                    stuckTimer = null;
-                    vad?.close();
-                    turnDetector?.close();
-                },
-            };
-        },
-    };
-}
-
-const BACKEND_URL = "https://voicyfy.ru";
-const LOG_URL = BACKEND_URL + "/api/voximplant/log";
-const FUNCTIONS_URL = BACKEND_URL + "/api/voximplant/functions/execute";
-const LLM_MODEL = "gpt-realtime-2.1-mini";
-// У 2.1-mini есть reasoning-токены (тарифицируются как output). "low" —
-// компромисс качество/задержка, проверенный в cartesia_inbound.
-const LLM_REASONING_EFFORT = "low";
-const SILENCE_HARD_TIMEOUT_MS = 180000;
-// Сколько ждём SessionCreated после подключения WS.
-const SESSION_READY_TIMEOUT_MS = 6000;
-// Сколько раз пробуем поднять WS заново, если он оборвался посреди звонка.
-const MAX_RECONNECTS = 2;
-
-// Оценка длительности синтезированной речи: используется, чтобы понимать,
-// звучит ли агент прямо сейчас (для фильтрации ложных перебиваний).
-const MS_PER_CHAR = 95;
-
-// Пресеты паузы перед ответом (настройка агента, поле silence_duration_ms).
-// Значение = сколько тишины ждёт Silero, прежде чем счесть, что человек
-// замолчал. Это НЕ таймер ответа: вето детектора, стабильность транскрипта и
-// инвариант «клиент говорит» всё равно могут отложить закрытие хода.
-// 300 — быстрый ответ, риск вступить в паузу посреди фразы;
-// 650 — сбалансированный; 1000 — терпеливый.
-const SILENCE_MS_DEFAULT = 300;
-const SILENCE_MS_MIN = 200;
-const SILENCE_MS_MAX = 1500;
-// Страховочный таймаут держим на фиксированный запас выше тишины: иначе он
-// либо срабатывает раньше VAD, либо висит без нужды.
-const SILENCE_TO_TIMEOUT_MS = 250;
+/*
+ * Voximplant OUTBOUND Cascade Script v4.0 — ASR → LLM → VoxTTS
+ * ====================================================================
+ * Тот же каскад, что inbound_cascade v4.0 (ASR Voximplant + Silero VAD →
+ * модель через прокси /ws/cascade/llm/{id} → VoxTTS). LLM-часть, ASR/VAD,
+ * перебивания и VoxTTS-часть — копия inbound_cascade.js (правьте оба
+ * сценария вместе, как и пару inbound_fish / outbound_fish). v3.x работал
+ * на OpenAI Realtime + VoxTurnTaking.
+ *
+ * Отличия исходящего от входящего (как у outbound_fish v2.0):
+ *
+ *   1. Точка входа — AppEvents.Started + VoxEngine.customData() (phone_number,
+ *      assistant_id, caller_id, mute_duration_ms, contact_name, task_title,
+ *      task_description, task, custom_greeting). Конфиг —
+ *      /api/telephony/outbound-config по assistant_id.
+ *   2. Сокет модели, VAD и плеер VoxTTS поднимаются ДО callPSTN — пока не
+ *      готово, номер не набираем (0 ₽ телефонии). Прогрев модели (system +
+ *      приветствие + «Алло») уходит во время гудков.
+ *   3. Мьют: первые MUTE_DURATION мс после Connected аудио абонента не идёт
+ *      в ASR/VAD — «Алло?» на снятии трубки отвечать не нужно, звучит
+ *      приветствие.
+ *   4. Приветствие не перебивается: пока оно звучит, речь абонента не
+ *      обрывает озвучку. Ответ на реплику поверх приветствия встаёт в
+ *      очередь синтеза следом.
+ *   5. Контекст звонка из customData (задача + карточка CRM) дописывается в
+ *      system-промпт, custom_greeting (первая фраза PreCall-оркестратора)
+ *      заменяет приветствие из конфига.
+ *   6. Тишина в линии SILENCE_HARD_TIMEOUT_MS (ни реплик абонента, ни речи
+ *      агента) — кладём трубку: автоответчик или брошенная трубка.
+ *
+ * Сценарий самодостаточный: правило может быть одиночным или цепочкой
+ * [vox-turn-taking, outbound_cascade] — VoxTurnTaking больше не используется.
+ */
+
+// ============================================================================
+// КОНСТАНТЫ (крутить здесь, логику не трогать)
+// ============================================================================
+var ASR_PROVIDER     = "yandex";       // "yandex" | "deepgram"
+var LLM_TRANSPORT    = "proxy";        // "proxy" — наш сокет /ws/cascade/llm/{id}; "connector" — клиент Chat Completions Voximplant (откат)
+var LLM_MODEL        = "deepseek/deepseek-v4.1-flash"; // через OpenRouter (Together), как у Fish; откат — "gpt-6-luna"
+var LLM_CONNECTOR_MODEL = "gpt-6-luna";  // коннектор Voximplant ходит только в OpenAI — модель для LLM_TRANSPORT = "connector"
+var LLM_REASONING    = "none";         // reasoning_effort: none — без рассуждений; null — не передавать
+var LLM_SERVICE_TIER = "priority";     // для моделей OpenAI; прокси для OpenRouter его убирает; null — обычная
+var FAIL_PHRASE      = "Извините, у нас технические неполадки. Пожалуйста, перезвоните чуть позже.";
+var SILENCE_MS_DEFAULT = 300;          // пауза перед ответом, если в конфиге нет silence_duration_ms
+var SILENCE_MS_MIN   = 200;
+var SILENCE_MS_MAX   = 1500;
+var VAD_THRESHOLD    = 0.5;
+var VAD_SPEECH_PAD_MS = 30;
+var SUBMIT_SETTLE_MS = 50;             // ждём хвост текста от ASR после тишины
+var EMPTY_TEXT_WAIT_MS = 900;          // сколько ждать текст, если ASR ещё молчит
+var BARGE_IN_MIN_MS  = 300;            // речь поверх агента короче — не перебивание
+var FIRST_FLUSH_MIN  = 18;             // ранний flush первого предложения реплики
+var FIRST_CLAUSE_MIN = 18;             // ...или первой части фразы до запятой/тире
+var TEXT_BATCH_MIN   = 40;             // копим дельты до этой длины перед отправкой
+var LLM_WARMUP       = true;           // прогрев: пока идут гудки, шлём модели «Алло» с тем же промптом и выбрасываем ответ
+var WARMUP_MAX_TOKENS = 16;            // ответ прогрева не нужен — режем сразу
+var MS_PER_CHAR      = 95;             // оценка длительности речи VoxTTS (если событие конца не придёт)
+var TTS_START_PAD_MS = 400;            // задержка синтеза до первого звука — тоже «агент звучит»
+var TTS_CLEAR_GRACE_MS = 400;          // события плеера сразу после clearBuffer — хвост сброшенной фразы
+var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
+var HANGUP_EST_EXTRA_MS = 2500;        // запас к оценке длительности прощания
+var HANGUP_TAIL_MS   = 250;            // запас после конца озвучки перед hangup
+var LLM_FAIL_MAX     = 2;              // неудачных ходов подряд до извинения и hangup
+var LLM_RETRY_DELAY_MS = 300;          // пауза перед повтором хода после ошибки
+var LLM_STUCK_MS     = 20000;          // ответ не закрылся за это время — сброс
+var LLM_PROXY_OPEN_MS = 5000;          // ждать открытия сокета к прокси модели
+var GREETING_GUARD_MS = 30000;         // потолок ожидания конца приветствия
+var SILENCE_HARD_TIMEOUT_MS = 180000;  // нет ни реплик, ни речи агента — кладём трубку
+
+var TELEPHONY_STYLE_RULES =
+    "\n\nПравила голосового ответа (телефония):\n" +
+    "- Отвечай коротко, обычно 1-2 предложения, без списков, markdown и эмодзи.\n" +
+    "- Числа, даты и время произноси словами.\n" +
+    "- Если реплика оборвана или неясна — вежливо переспроси одним вопросом.";
 
 function resolveSilenceMs(raw) {
-    const v = Number(raw);
-    if (!Number.isFinite(v) || v <= 0) return SILENCE_MS_DEFAULT;
+    var v = Number(raw);
+    if (!isFinite(v) || v <= 0) return SILENCE_MS_DEFAULT;
     return Math.min(SILENCE_MS_MAX, Math.max(SILENCE_MS_MIN, Math.round(v)));
 }
 
-const RT = OpenAI.RealtimeAPIEvents;
-
-// --- Извлечение данных из событий Realtime (провайдерский payload в data) ---
-function rtPayload(event) {
-    return event?.data?.payload ?? event?.data ?? {};
-}
-// Дельта текста (response.output_text.delta).
-function rtDelta(event) {
-    const d = event?.data;
-    if (typeof d?.delta === "string" && d.delta) return d.delta;
-    const p = d?.payload;
-    if (typeof p?.delta === "string" && p.delta) return p.delta;
-    return "";
-}
-// Полный текст ответа (response.output_text.done).
-function rtDoneText(event) {
-    const d = event?.data;
-    if (typeof d?.text === "string" && d.text) return d.text;
-    const p = d?.payload;
-    if (typeof p?.text === "string" && p.text) return p.text;
-    return "";
-}
-// id генерации: в дельтах лежит плоско (response_id), в response.* — вложенно.
-function rtResponseId(event) {
-    const p = rtPayload(event);
-    return p?.response_id ?? p?.response?.id ?? "";
-}
-// usage приходит в response.done.
-function rtUsage(event) {
-    const p = rtPayload(event);
-    return p?.response?.usage ?? p?.usage ?? null;
-}
-// Модель иногда пишет ответ в несколько строк — "  \n" ломает потоковый синтез.
-function cleanForTTS(text) {
-    return (text || "").replace(/\s*\n+\s*/g, " ");
-}
-
-const TELEPHONY_STYLE_RULES = `
-
-Правила голосового ответа (телефония):
-- Отвечай коротко, обычно 1-2 предложения, без списков, markdown и эмодзи.
-- Числа, даты и время произноси словами.
-- Если реплика оборвана или неясна — вежливо переспроси одним вопросом.`;
-
-function asrProfileForLang(lang) {
-    const map = {
-        ru: ASRProfileList.Yandex.ru_RU,
-        en: ASRProfileList.Yandex.en_US,
-        de: ASRProfileList.Yandex.de_DE,
-        es: ASRProfileList.Yandex.es_ES,
-        fr: ASRProfileList.Yandex.fr_FR,
-    };
-    return map[(lang || "ru").toLowerCase()] || ASRProfileList.Yandex.ru_RU;
-}
-function asrModelForLang() {
-    return ASRModelList.Yandex.general;
-}
 function voxttsVoice(voiceId) {
     return VoxTTS.VoiceList[voiceId] || VoxTTS.VoiceList.Anna;
 }
 
-async function fetchOutboundConfig(assistantId) {
-    const url =
-        `${BACKEND_URL}/api/telephony/outbound-config` +
-        `?assistant_id=${encodeURIComponent(assistantId)}&assistant_type=cascade`;
-    const response = await Net.httpRequestAsync(url, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-    });
-    if (response.code !== 200 || !response.text) {
-        Logger.write(`[OUT-CASCADE] Config HTTP error: ${response.code}`);
-        return null;
-    }
-    try {
-        const config = JSON.parse(response.text);
-        return config && config.success ? config : null;
-    } catch (e) {
-        Logger.write(`[OUT-CASCADE] Config parse error: ${e}`);
-        return null;
-    }
-}
+// ============================================================================
+// ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ДЛЯ БИЛЛИНГА
+// ============================================================================
+var call_session_history_id = null;
+var record_url = null;
+var call_cost = 0;
+var call_duration = 0;
+var asr_cost = 0;
+var record_cost = 0;
 
-let call_session_history_id = null;
-
-VoxEngine.addEventListener(AppEvents.Started, async (e) => {
+VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     call_session_history_id = e.sessionId;
-    Logger.write(`[OUT-CASCADE] Session History ID: ${call_session_history_id}`);
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    Logger.write("🚀 APP STARTED (OUTBOUND Cascade v4.0)");
+    Logger.write("🔑 Session History ID: " + call_session_history_id);
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    // --- Параметры звонка из customData ---
-    let callData;
+    var call = null;
+
+    // ── Состояние сценария ──────────────────────────────────────────────────
+    var callAnswered = false;    // абонент снял трубку (Connected)
+    var isInterrupted = false;
+    var isHangingUp = false;
+
+    // ── Распознавание и VAD ─────────────────────────────────────────────────
+    var asr = null;
+    var vad = null;
+    var VAD_SILENCE_MS = SILENCE_MS_DEFAULT;
+    var userSpeaking = false;
+    var speechSeg = 0;           // номер сегмента речи по VAD
+    var turnFinal = "";          // финальные куски ASR текущей реплики
+    var turnInterim = "";        // текущий interim ASR
+    var submitTimer = null;
+    var submitWaitStarted = 0;
+    var bargeTimer = null;
+    var submitted = null;        // последняя отправленная реплика {seg, text, item, dialogEntry}
+    var retractedText = "";      // кусок, который retract вернул в реплику (ждём его поздний финал ASR)
+
+    // ── LLM ─────────────────────────────────────────────────────────────────
+    var llm = null;
+    var llmFailures = 0;         // неудачных ходов подряд
+    var llmFailedHard = false;   // модель недоступна — только прощаемся
+    var llmBusy = false;         // ответ модели в процессе
+    var llmDiscard = false;      // остаток текущего ответа игнорируем
+    var llmWarmup = false;       // идёт прогревочный запрос
+    var llmPending = false;      // после закрытия ответа нужен новый запрос
+    var llmStuckTimer = null;
+    var mWarmupSent = 0;
+    var llmReasoning = LLM_REASONING;
+    var llmServiceTier = LLM_SERVICE_TIER;
+    var toolsInFlight = 0;
+    var history = [];            // сообщения диалога (без system)
+    var needsFollowUp = false;   // после функций нужен ответ модели
+    var lastTurnMessages = null; // сообщения последнего запроса (для повтора)
+    var respText = "";           // текст текущего ответа (ContentDelta)
+    var respChunkText = "";      // он же из сырых чанков — запасной источник
+    var respToolCalls = {};      // вызовы функций текущего ответа по index
+    var respFinished = false;
+    var greetingInput = null;    // разовые сообщения вместо истории (приветствие, повтор)
+
+    // ── VoxTTS ──────────────────────────────────────────────────────────────
+    var tts = null;
+    var ttsAttached = false;     // sendMediaTo(call) уже вызван
+    var flushesSent = 0;         // flush_context, отправленные в плеер
+    var flushesDone = 0;         // ...и доигранные (AudioChunksPlaybackFinished)
+    var awaitingEnd = false;     // реплика закрыта flush'ем — ждём конца озвучки
+    var lastSendFlushed = true;  // последний отправленный кусок закрыт flush'ем
+    var ttsClearedAt = 0;
+    var agentAudioEndAt = 0;     // оценка: когда агент договорит
+
+    // ── Состояние текущей реплики ассистента ────────────────────────────────
+    var turnFullText = "";
+    var turnStarted = false;     // в TTS по этой реплике что-то уже уходило
+    var firstFlushDone = false;  // ранний flush первого предложения сделан
+    var deltaBuffer    = "";     // дельты, ещё не ушедшие в синтез
+
+    // ── Завершение по прощанию ──────────────────────────────────────────────
+    var hangupAfterSpeech = false;
+    var hangupGuardTimer = null;
+
+    // ── Приветствие, мьют, тишина ───────────────────────────────────────────
+    var greetingPending = false;   // приветствие ещё звучит — не перебиваем
+    var greetingGuardTimer = null;
+    var greetingFlushNo = 0;       // номер flush'а приветствия в плеере
+    var audioLinked = false;       // аудио абонента подключено к ASR/VAD
+    var muteTimer = null;
+    var hardTimer = null;
+
+    // ── Метрики ─────────────────────────────────────────────────────────────
+    var mVadStop = 0, mReqSent = 0, mFirstDelta = 0;
+    var stats = { turns: 0, bargeIns: 0, retracts: 0, corrections: 0, dropped: 0,
+                  inputTokens: 0, cachedTokens: 0, outputTokens: 0 };
+
+    // ── Структурированный диалог ────────────────────────────────────────────
+    var userMessageBuffer = "";
+    var assistantMessageBuffer = "";
+    var dialogLog = [];
+    var lastFunctionResult = null;
+    var logCounter = 0;
+
+    // =========================================================================
+    // ПАРСИНГ customData
+    // =========================================================================
+    var callData;
     try {
         callData = JSON.parse(VoxEngine.customData());
     } catch (err) {
-        Logger.write(`[OUT-CASCADE] Bad customData: ${err}`);
+        Logger.write("❌ Failed to parse custom data: " + err);
         VoxEngine.terminate();
         return;
     }
 
-    const PHONE_NUMBER = callData.phone_number;
-    const ASSISTANT_ID = callData.assistant_id;
-    const CALLER_ID = callData.caller_id || "";
+    var PHONE_NUMBER          = callData.phone_number;
+    var ASSISTANT_ID          = callData.assistant_id;
+    var CALLER_ID             = callData.caller_id || "";
+    var MUTE_DURATION         = callData.mute_duration_ms !== undefined ? callData.mute_duration_ms : 3000;
+    var FIRST_PHRASE_OVERRIDE = callData.first_phrase || null;
+
+    // Контекст звонка от бэкенда (агент обзвона / задача из CRM). Приезжает в
+    // script_custom_data — см. voximplant_partner.start_outbound_call.
+    // custom_greeting — первая фраза, которую сочинил PreCall-оркестратор для
+    // конкретного контакта; она приоритетнее приветствия из конфига.
+    var CONTACT_NAME     = callData.contact_name || "";
+    var TASK_TITLE       = callData.task_title || "";
+    var TASK_DESCRIPTION = callData.task_description || "";
+    var API_TASK         = callData.task || "";
+    var CUSTOM_GREETING  = callData.custom_greeting || "";
+
     if (!PHONE_NUMBER || !ASSISTANT_ID) {
-        Logger.write("[OUT-CASCADE] Missing phone_number/assistant_id");
+        Logger.write("❌ Missing required parameters: phone_number or assistant_id");
         VoxEngine.terminate();
         return;
     }
-    const MUTE_DURATION_MS = callData.mute_duration_ms || 3000;
-    const CONTACT_NAME = callData.contact_name || "";
-    const TASK_TITLE = callData.task_title || "";
-    const TASK_DESCRIPTION = callData.task_description || "";
-    const CUSTOM_GREETING = callData.custom_greeting || "";
-    const API_TASK = callData.task || "";
-    const FIRST_PHRASE_OVERRIDE = callData.first_phrase || "";
 
-    const chat_id = "vox_" + Math.random().toString(36).substring(2, 15);
-    const caller_number = "OUTBOUND: " + PHONE_NUMBER;
+    var caller_number = "OUTBOUND: " + PHONE_NUMBER;
+    var chat_id       = 'vox_' + Math.random().toString(36).substring(2, 15);
+    var call_id       = null;
 
-    let callType = "API";
-    const isCrmCall = !!(CONTACT_NAME || TASK_TITLE || TASK_DESCRIPTION);
-    if (isCrmCall && API_TASK) callType = "CRM+Task";
-    else if (isCrmCall) callType = "CRM";
-    else if (API_TASK) callType = "API+Task";
+    // ── Конфиг ──────────────────────────────────────────────────────────────
+    var CONFIG = null;
+    var GREETING = null;
+    var INSTRUCTIONS = "";
+    var functionNameToIdMap = {};
 
-    // --- Состояние LLM/каскада ---
-    let call;
-    let stt;
-    let realtime; // OpenAI.RealtimeAPIClient — текстовый мозг каскада
-    let ttsPlayer;
-    let turnTaking;
-    let greeting = "";
-    let systemPrompt = "";
-    let apiKey = "";
-    let reconnectAttempts = 0;
+    var CONFIG_URL    = "https://voicyfy.ru/api/telephony/outbound-config?assistant_id=" +
+        encodeURIComponent(ASSISTANT_ID) + "&assistant_type=cascade";
+    var FUNCTIONS_URL = "https://voicyfy.ru/api/voximplant/functions/execute";
+    var LOG_URL       = "https://voicyfy.ru/api/voximplant/log";
 
-    // Локальная копия диалога. В запросы НЕ уходит (контекст живёт на стороне
-    // OpenAI), нужна только для восстановления после обрыва WS.
-    const messages = []; // [0]=system, далее user/assistant
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    Logger.write("📞 OUTBOUND CALL (Cascade v4.0)");
+    Logger.write("   To: " + PHONE_NUMBER);
+    Logger.write("   Caller ID: " + CALLER_ID);
+    Logger.write("   Assistant: " + ASSISTANT_ID);
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-    // Состояние текущей генерации. Одна активная за раз.
-    const main = { active: false, responseId: null, text: "", version: -1 };
-
-    let realtimeTools = [];
-    const functionNameToIdMap = {};
-
-    let micOpen = false; // мик абонента открывается после mute-окна
-    let terminating = false;
-    let firstDeltaLoggedForTurn = false;
-    let turnStartedAt = 0;
-    let silenceMs = SILENCE_MS_DEFAULT;
-    const loggedShapes = new Set();
-
-    // Звучит ли агент прямо сейчас — нужно VoxTurnTaking, чтобы отличать
-    // настоящее перебивание от любого сегмента VAD. Считаем по «озвученному
-    // запасу»: каждый отправленный в VoxTTS кусок продлевает ожидаемый конец
-    // речи, так флаг не зависит от имён событий плеера и не залипает.
-    let agentSpeakingUntil = 0;
-    const noteAgentAudio = (text) => {
-        const ms = Math.max(300, (text || "").length * MS_PER_CHAR);
-        agentSpeakingUntil = Math.max(agentSpeakingUntil, Date.now()) + ms;
-    };
-    const stopAgentAudio = () => { agentSpeakingUntil = 0; };
-    const isAgentSpeaking = () => Date.now() < agentSpeakingUntil;
-
-    // --- Данные для /log ---
-    let record_url = null;
-    // Стоимость звонка по позициям, которые вообще отдают cost в события сценария.
-    // Это НЕ полный счёт: TTS, WebSocket-потоки (VAD + turn-detector) и детекция
-    // конца фразы тарифицируются Voximplant, но событий с cost не присылают —
-    // их видно только в GetCallHistory (other_resource_usage). Поэтому cost
-    // отсюда идёт в бэкенд лишь как fallback, а истина — GetCallHistory.
-    let telephony_cost = 0; // Call.Disconnected / Call.Failed
-    let asr_cost = 0;       // ASR.Stopped
-    let record_cost = 0;    // Call.RecordStopped
-    let call_duration = 0;
-    const knownCost = () =>
-        Math.round((telephony_cost + asr_cost + record_cost) * 1e6) / 1e6;
-    // Учёт токенов LLM для списания кредитов каскада. Cached считаем отдельно:
-    // ставка за них на порядок ниже, и именно в них уходит история диалога.
-    let totalPromptTokens = 0;
-    let totalCachedPromptTokens = 0;
-    let totalCompletionTokens = 0;
-    let usageEventsSeen = 0;
-    const dialogLog = [];
-    let userMessageBuffer = "";
-    let assistantMessageBuffer = "";
-
-    // --- Silence hard-timeout ---
-    let hardTimer = null;
-    const resetHardTimeout = () => {
-        if (hardTimer) clearTimeout(hardTimer);
-        hardTimer = setTimeout(() => {
-            Logger.write(`[OUT-CASCADE] ===SILENCE_TIMEOUT=== ${SILENCE_HARD_TIMEOUT_MS / 1000}s`);
-            terminateCall();
-        }, SILENCE_HARD_TIMEOUT_MS);
-    };
-
-    const logShapeOnce = (tag, event) => {
-        if (loggedShapes.has(tag)) return;
-        loggedShapes.add(tag);
+    // =========================================================================
+    // ФУНКЦИЯ ЛОГИРОВАНИЯ ДИАЛОГА НА БЕКЕНД
+    // =========================================================================
+    async function sendConversationLog(isFinal) {
         try {
-            Logger.write(`[OUT-CASCADE] ===SHAPE ${tag}=== ${JSON.stringify(event?.data)}`);
-        } catch (e) {
-            Logger.write(`[OUT-CASCADE] SHAPE ${tag} stringify error`);
-        }
-    };
-    const logFirstDelta = (tag) => {
-        if (firstDeltaLoggedForTurn) return;
-        firstDeltaLoggedForTurn = true;
-        const dt = turnStartedAt ? Date.now() - turnStartedAt : -1;
-        Logger.write(`[OUT-CASCADE] ===FIRST_DELTA=== +${dt}ms${tag ? " " + tag : ""}`);
-    };
+            logCounter++;
+            Logger.write("📤 SENDING LOG #" + logCounter + (isFinal ? " (FINAL)" : "") +
+                " — dialog turns: " + dialogLog.length);
 
-    const logDialog = (role, text) => {
-        if (!text) return;
-        dialogLog.push({ role, text, ts: Date.now() });
-        if (role === "user") {
-            userMessageBuffer += (userMessageBuffer ? "\n" : "") + text;
-        } else {
-            assistantMessageBuffer += (assistantMessageBuffer ? "\n" : "") + text;
-        }
-    };
-
-    const canPlay = () => turnTaking && turnTaking.canPlayAgentAudio();
-    const ttsSendText = (text) => {
-        if (!text) return;
-        noteAgentAudio(text);
-        ttsPlayer.send({ send_text: { text: cleanForTTS(text) } });
-    };
-    const ttsFlush = () => {
-        ttsPlayer.send({ send_text: { text: " ", flush_context: {} } });
-    };
-
-    // --- Учёт токенов из response.done ---
-    const accountUsage = (usage) => {
-        usageEventsSeen++;
-        const input = Number(usage.input_tokens) || 0;
-        const output = Number(usage.output_tokens) || 0;
-        const cachedRaw = Number(usage?.input_token_details?.cached_tokens) || 0;
-        const cached = Math.min(Math.max(0, cachedRaw), input);
-        totalCachedPromptTokens += cached;
-        totalPromptTokens += input - cached;
-        totalCompletionTokens += output;
-    };
-
-    // --- Гейтинг: событие относится к текущей активной генерации? ---
-    const isCurrent = (event) => {
-        if (!main.active) return false;
-        const id = rtResponseId(event);
-        if (!id) return true;
-        if (!main.responseId) {
-            main.responseId = id;
-            return true;
-        }
-        return id === main.responseId;
-    };
-
-    // --- Отдать реплику абонента модели и запросить ответ ---
-    const sendUserText = (text) => {
-        realtime.conversationItemCreate({
-            item: {
-                type: "message",
-                role: "user",
-                content: [{ type: "input_text", text: text }],
-            },
-        });
-    };
-    const requestResponse = (version) => {
-        main.active = true;
-        main.responseId = null;
-        main.text = "";
-        main.version = version;
-        realtime.responseCreate({});
-        resetHardTimeout();
-    };
-
-    const finalizeTurn = (text) => {
-        const clean = (text || "").trim();
-        if (clean) {
-            messages.push({ role: "assistant", content: clean });
-            Logger.write(`[OUT-CASCADE] ===AGENT=== ${clean}`);
-            logDialog("assistant", clean);
-        }
-        if (canPlay()) ttsFlush();
-        main.active = false;
-        main.responseId = null;
-        main.text = "";
-        resetHardTimeout();
-    };
-
-    const executeFunction = async (name, args) => {
-        const function_id = args.function_id || functionNameToIdMap[name];
-        const clean = Object.assign({}, args);
-        delete clean.function_id;
-        if (!function_id) return `Error: function_id not found for ${name}`;
-        try {
-            const resp = await Net.httpRequestAsync(FUNCTIONS_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                postData: JSON.stringify({
-                    function_id: function_id,
-                    arguments: Object.assign({}, clean, { assistant_id: ASSISTANT_ID }),
-                    call_data: {
-                        call_id: call ? call.id() : "unknown",
-                        chat_id: chat_id,
-                        assistant_id: ASSISTANT_ID,
-                        // Чистые номера для функций (send_sms и т.п.): caller_number —
-                        // клиент (кому звоним), called_number — наш номер (caller_id).
-                        caller_number: PHONE_NUMBER,
-                        called_number: CALLER_ID,
-                    },
-                }),
-            });
-            if (resp.code === 200) return resp.text || "{}";
-            return `Error: HTTP ${resp.code}`;
-        } catch (e) {
-            return `Error: ${e}`;
-        }
-    };
-
-    // Вызов функции приходит целиком в ResponseOutputItemDone (в отличие от
-    // Chat Completions, где tool_calls собирались по дельтам).
-    const handleFunctionCall = async (item) => {
-        const name = item.name;
-        const callIdRef = item.call_id;
-        let args = {};
-        try { args = JSON.parse(item.arguments || "{}"); } catch (e) { /* noop */ }
-        Logger.write(`[OUT-CASCADE] ===FUNCTION=== ${name} ${item.arguments || ""}`);
-
-        // Текущая генерация закончилась вызовом функции — снимаем гейт, чтобы
-        // хвостовые события старого response не влияли на следующий.
-        const pendingText = main.text;
-        main.active = false;
-        main.responseId = null;
-        main.text = "";
-        if (pendingText.trim()) {
-            messages.push({ role: "assistant", content: pendingText.trim() });
-            logDialog("assistant", pendingText.trim());
-        }
-
-        // hangup_call — ассистент сам завершает звонок.
-        if (name === "hangup_call") {
-            const farewell = args.farewell_message || "";
-            Logger.write(`[OUT-CASCADE] ===HANGUP=== ${farewell}`);
-            if (farewell) {
-                logDialog("assistant", farewell);
-                if (canPlay()) { ttsSendText(farewell); ttsFlush(); }
-            }
-            setTimeout(() => terminateCall(), farewell ? 3500 : 300);
-            return;
-        }
-
-        const result = await executeFunction(name, args);
-        if (terminating) return;
-
-        realtime.conversationItemCreate({
-            item: {
-                type: "function_call_output",
-                call_id: callIdRef,
-                output: String(result),
-            },
-        });
-        // Модель озвучит ответ по результату функции.
-        requestResponse(main.version);
-    };
-
-    const sendConversationLog = async () => {
-        if (!userMessageBuffer && !assistantMessageBuffer && dialogLog.length === 0) return;
-        const payload = {
-            assistant_id: ASSISTANT_ID,
-            chat_id: chat_id,
-            call_id: call ? call.id() : "unknown",
-            caller_number: caller_number,
-            type: "conversation",
-            call_type: callType,
-            // Fallback-стоимость: только те позиции, что видны сценарию.
-            // Бэкенд предпочитает полный счёт из GetCallHistory.
-            call_cost: knownCost(),
-            call_cost_parts: {
-                telephony: telephony_cost,
-                asr: asr_cost,
-                record: record_cost,
-            },
-            call_duration: call_duration,
-            cascade_usage: {
-                prompt_tokens: totalPromptTokens,
-                cached_prompt_tokens: totalCachedPromptTokens,
-                completion_tokens: totalCompletionTokens,
-                model: LLM_MODEL,
-            },
-            context: {
-                contact_name: CONTACT_NAME,
-                task_title: TASK_TITLE,
-                task_description: TASK_DESCRIPTION,
-                api_task: API_TASK,
-            },
-            data: {
-                user_message: userMessageBuffer,
-                assistant_message: assistantMessageBuffer,
-                dialog: dialogLog,
-            },
-        };
-        if (record_url) payload.record_url = record_url;
-        if (call_session_history_id) payload.call_session_history_id = String(call_session_history_id);
-        try {
-            const resp = await Net.httpRequestAsync(LOG_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                postData: JSON.stringify(payload),
-            });
-            Logger.write(`[OUT-CASCADE] /log HTTP ${resp.code} (turns=${dialogLog.length})`);
-        } catch (e) {
-            Logger.write(`[OUT-CASCADE] /log error: ${e}`);
-        }
-    };
-
-    let terminatePromise = null;
-    const terminateCall = () => {
-        if (terminatePromise) return terminatePromise;
-        terminating = true;
-        terminatePromise = (async () => {
-            if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
-            try { stt?.stop(); } catch (e) { /* noop */ }
-            try { turnTaking?.close(); } catch (e) { /* noop */ }
-            try { realtime?.close(); } catch (e) { /* noop */ }
-
-            if (main.active && main.text) logDialog("assistant", main.text);
-
-            await new Promise((r) => setTimeout(r, 400));
-
-            Logger.write(
-                `[OUT-CASCADE] ===BILLING=== known_cost=${knownCost()} ` +
-                `(telephony=${telephony_cost} asr=${asr_cost} record=${record_cost}) ` +
-                `dur=${call_duration}s ` +
-                `turns=${dialogLog.length} rec=${record_url ? "yes" : "no"} ` +
-                `session=${call_session_history_id || "none"} ` +
-                `tokens(in=${totalPromptTokens} cached=${totalCachedPromptTokens} out=${totalCompletionTokens} events=${usageEventsSeen})`
-            );
-            // Явно: это НЕ итоговый счёт. TTS, WebSocket-потоки и turn detection
-            // не отдают cost в сценарий — полная сумма только в GetCallHistory.
-            Logger.write(
-                `[OUT-CASCADE] ===BILLING_NOTE=== known_cost не включает TTS/WebSocket/turn-detection; ` +
-                `итог смотреть в GetCallHistory(other_resource_usage)`
-            );
-            // Эффект настроек turn-taking должен быть измерим на проде, а не «на слух».
-            try {
-                if (turnTaking && turnTaking.statsSummary) {
-                    Logger.write(`[OUT-CASCADE] ===TURN_STATS=== silence=${silenceMs}ms | ${turnTaking.statsSummary()}`);
+            var payload = {
+                assistant_id: ASSISTANT_ID,
+                chat_id: chat_id,
+                call_id: call_id,
+                caller_number: caller_number,
+                type: "conversation",
+                context: {
+                    contact_name: CONTACT_NAME,
+                    task_title: TASK_TITLE,
+                    task_description: TASK_DESCRIPTION,
+                    api_task: API_TASK
+                },
+                data: {
+                    user_message: userMessageBuffer,
+                    assistant_message: assistantMessageBuffer,
+                    function_result: lastFunctionResult,
+                    dialog: dialogLog
                 }
-            } catch (e) { /* noop */ }
-            await sendConversationLog();
+            };
 
-            try { call?.hangup(); } catch (e) { /* noop */ }
-            setTimeout(() => VoxEngine.terminate(), 400);
-        })();
-        return terminatePromise;
-    };
+            if (isFinal) {
+                if (record_url)              payload.record_url = record_url;
+                if (call_session_history_id) payload.call_session_history_id = String(call_session_history_id);
+                // Fallback-стоимость: то, что видно сценарию. ASR в cost звонка
+                // не входит — добавляем сами. Полный счёт бэкенд берёт из
+                // GetCallHistory по call_session_history_id.
+                payload.call_cost     = Math.round((call_cost + asr_cost + record_cost) * 1e6) / 1e6;
+                payload.call_cost_parts = { telephony: call_cost, asr: asr_cost, record: record_cost };
+                payload.call_duration = call_duration;
+                // Каскад бесплатен — токены только для статистики
+                // (списание по ним — за флагом CASCADE_CREDITS_BILLING, выключен).
+                payload.cascade_usage = {
+                    prompt_tokens: Math.max(0, stats.inputTokens - stats.cachedTokens),
+                    cached_prompt_tokens: stats.cachedTokens,
+                    completion_tokens: stats.outputTokens,
+                    model: llmModel()
+                };
 
-    function determineGreeting(configFirstPhrase) {
-        if (CUSTOM_GREETING) return CUSTOM_GREETING;
-        if (FIRST_PHRASE_OVERRIDE) return FIRST_PHRASE_OVERRIDE;
-        if (configFirstPhrase) return configFirstPhrase;
-        return "Здравствуйте!";
+                Logger.write("📊 Billing: record=" + (record_url ? "YES" : "NO") +
+                    ", cost=" + payload.call_cost + " (asr=" + asr_cost + ", record=" + record_cost + ")" +
+                    ", duration=" + call_duration + "s");
+            }
+
+            var logResponse = await Net.httpRequestAsync(LOG_URL, {
+                headers: ["Content-Type: application/json"],
+                method: 'POST',
+                postData: JSON.stringify(payload)
+            });
+
+            Logger.write("📡 Log #" + logCounter + " → HTTP " + logResponse.code);
+
+            if (logResponse.code == 200 && isFinal) {
+                userMessageBuffer = "";
+                assistantMessageBuffer = "";
+                dialogLog = [];
+                lastFunctionResult = null;
+            }
+        } catch (error) {
+            Logger.write("❌ Error sending log: " + error);
+        }
     }
 
+    // =========================================================================
+    // ОБРАБОТЧИК ЗАВЕРШЕНИЯ ЗВОНКА
+    // =========================================================================
+    var callEndHandler = async function(event) {
+        if (isHangingUp) return;
+        isHangingUp = true;
+
+        Logger.write("📴 OUTBOUND CALL ENDED");
+
+        if (event && event.cost !== undefined)     call_cost = event.cost;
+        if (event && event.duration !== undefined) call_duration = event.duration;
+
+        if (hangupGuardTimer) { clearTimeout(hangupGuardTimer); hangupGuardTimer = null; }
+        if (greetingGuardTimer) { clearTimeout(greetingGuardTimer); greetingGuardTimer = null; }
+        if (muteTimer) { clearTimeout(muteTimer); muteTimer = null; }
+        if (hardTimer) { clearTimeout(hardTimer); hardTimer = null; }
+        clearTurnTimers();
+        if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+
+        if (llm) { try { llm.close(); } catch (err) {} }
+        if (vad) { try { vad.close(); } catch (err) {} }
+        if (asr) { try { asr.stop(); } catch (err) {} }
+
+        Logger.write("===TURN_STATS=== silence=" + VAD_SILENCE_MS + "ms " + JSON.stringify(stats));
+
+        // Запись завершается вместе со звонком. Ждём RecordStopped (и
+        // ASR.Stopped со стоимостью распознавания) до отправки финального лога.
+        await new Promise(function(resolve) { setTimeout(resolve, 500); });
+
+        if (userMessageBuffer || assistantMessageBuffer || call_session_history_id || dialogLog.length > 0) {
+            try { await sendConversationLog(true); } catch (err) { Logger.write("❌ final log: " + err); }
+        }
+
+        Logger.write("✅ Terminated. Total logs: " + logCounter);
+        VoxEngine.terminate();
+    };
+
+    // =========================================================================
+    // ЗАГРУЗКА КОНФИГА
+    // =========================================================================
+    Logger.write("🔄 Loading config: " + CONFIG_URL);
+
+    var configResponse;
+    try {
+        configResponse = await Net.httpRequestAsync(CONFIG_URL);
+    } catch (err) {
+        Logger.write("❌ Config request failed: " + err);
+        VoxEngine.terminate();
+        return;
+    }
+
+    if (configResponse.code != 200) {
+        Logger.write("❌ Config HTTP error: " + configResponse.code);
+        VoxEngine.terminate();
+        return;
+    }
+
+    try {
+        CONFIG = JSON.parse(configResponse.text);
+    } catch (err) {
+        Logger.write("❌ Config parse error: " + err);
+        VoxEngine.terminate();
+        return;
+    }
+
+    if (!CONFIG.success) {
+        Logger.write("❌ Config returned success=false");
+        VoxEngine.terminate();
+        return;
+    }
+
+    if (CONFIG.assistant_type !== "cascade") {
+        Logger.write("❌ Wrong assistant type: " + CONFIG.assistant_type + " (expected: cascade)");
+        VoxEngine.terminate();
+        return;
+    }
+
+    if (LLM_TRANSPORT === "proxy" && !CONFIG.llm_proxy_url) {
+        Logger.write("❌ Config has no llm_proxy_url — модели не к чему подключаться");
+        VoxEngine.terminate();
+        return;
+    }
+
+    GREETING = cleanForTTS((CUSTOM_GREETING || FIRST_PHRASE_OVERRIDE || CONFIG.first_phrase || "Здравствуйте!").trim());
+    VAD_SILENCE_MS = resolveSilenceMs(CONFIG.silence_duration_ms);
+
+    if (CONFIG.tts_provider && CONFIG.tts_provider !== "voxtts") {
+        Logger.write("⚠️ tts_provider='" + CONFIG.tts_provider + "' не поддержан — озвучиваем VoxTTS");
+    }
+
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    Logger.write("✅ CONFIG LOADED:");
+    Logger.write("   📋 Assistant: " + CONFIG.assistant_name);
+    Logger.write("   🌐 Language: " + (CONFIG.asr_lang || CONFIG.language || "ru"));
+    Logger.write("   👂 ASR: " + ASR_PROVIDER + " | VAD silence " + VAD_SILENCE_MS + "ms");
+    Logger.write("   🧠 LLM: " + llmModel() + " via " + LLM_TRANSPORT + " (reasoning " + (llmReasoning || "default") + ")");
+    Logger.write("   🔊 VoxTTS voice: " + voxttsVoice(CONFIG.tts_voice));
+    Logger.write("   👋 Greeting: \"" + GREETING.substring(0, 60) + "\"");
+    Logger.write("   🔧 Functions: " + (CONFIG.functions ? CONFIG.functions.length : 0));
+    if (CONTACT_NAME || TASK_TITLE || TASK_DESCRIPTION || API_TASK) {
+        Logger.write("   📇 CRM: " + (CONTACT_NAME || "без имени") +
+            (TASK_TITLE ? " | " + TASK_TITLE : ""));
+    }
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    // =========================================================================
+    // ПОДГОТОВКА ФУНКЦИЙ И ИНСТРУКЦИЙ
+    // =========================================================================
+    var voximplantTools = [];
+
+    if (CONFIG.functions && Array.isArray(CONFIG.functions)) {
+        for (var i = 0; i < CONFIG.functions.length; i++) {
+            var tool = CONFIG.functions[i];
+            if (tool.type === "function" && tool.function) {
+                var functionId = (i + 1).toString();
+                functionNameToIdMap[tool.function.name] = functionId;
+                Logger.write("   🔧 Function: " + tool.function.name + " → ID: " + functionId);
+                var description = tool.function.description;
+                if (tool.function.name === "hangup_call") {
+                    // Без нажима модель «прощается словами» и держит линию до
+                    // таймаута — на исходящем это лишние минуты телефонии.
+                    description = "КРИТИЧЕСКИ ВАЖНО: вызови эту функцию НЕМЕДЛЕННО, " +
+                        "когда задача звонка выполнена или собеседник хочет закончить " +
+                        "разговор («пока», «до свидания», «всё, спасибо»). Не прощайся " +
+                        "просто словами — вызови функцию.";
+                }
+                voximplantTools.push({
+                    type: "function",
+                    function: {
+                        name: tool.function.name,
+                        description: description,
+                        parameters: tool.function.parameters
+                    }
+                });
+            }
+        }
+    }
+
+    // Задача звонка и карточка контакта известны только бэкенду, в конфиге
+    // ассистента их нет: один и тот же голос обзванивает разных людей по разным
+    // поводам. Поэтому контекст приезжает в customData и дописывается в промпт.
     function buildContextBlock() {
-        let block = "";
+        var block = "";
         if (API_TASK) {
             block +=
                 "══════════════════════════════════════\n" +
@@ -1310,435 +473,1237 @@ VoxEngine.addEventListener(AppEvents.Started, async (e) => {
                 "══════════════════════════════════════\n" +
                 "КОНТЕКСТ ЗВОНКА (CRM)\n" +
                 "══════════════════════════════════════\n";
-            if (CONTACT_NAME) block += `Клиент: ${CONTACT_NAME} (обращайся по имени).\n`;
-            if (TASK_TITLE) block += `Задача: ${TASK_TITLE}\n`;
-            if (TASK_DESCRIPTION) block += `Подробности: ${TASK_DESCRIPTION}\n`;
+            if (CONTACT_NAME)     block += "Клиент: " + CONTACT_NAME + " (обращайся по имени).\n";
+            if (TASK_TITLE)       block += "Задача: " + TASK_TITLE + "\n";
+            if (TASK_DESCRIPTION) block += "Подробности: " + TASK_DESCRIPTION + "\n";
             block += "══════════════════════════════════════\n\n";
         }
         return block;
     }
 
-    // --- Конфигурация Realtime-сессии ---
-    // withHistory=true только при реконнекте: контекст на стороне OpenAI умер
-    // вместе с сессией, отдаём его стенограммой прямо в instructions. Это
-    // надёжнее, чем пересоздавать items (формат assistant-item зависит от версии API).
-    const buildSessionConfig = (withHistory) => {
-        let instructions = systemPrompt;
-        if (withHistory && messages.length > 1) {
-            const transcript = messages
-                .filter((m) => m.role !== "system" && m.content)
-                .map((m) => (m.role === "user" ? "Собеседник: " : "Ты: ") + m.content)
-                .join("\n");
-            if (transcript) {
-                instructions +=
-                    `\n\nСтенограмма уже состоявшейся части разговора ` +
-                    `(соединение обрывалось, продолжай с этого места):\n${transcript}`;
-            }
+    // Инструкции собираются один раз и не меняются до конца звонка — так
+    // префикс запроса одинаковый и модель кэширует его между ходами.
+    INSTRUCTIONS = buildContextBlock() + (CONFIG.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
+    INSTRUCTIONS += "\n\nЭто исходящий звонок: ты позвонил абоненту и уже поприветствовал его фразой: «" +
+        GREETING + "». Не здоровайся повторно — сразу переходи к цели звонка.";
+    // Реальные номера и время: без них модель не может корректно вызвать
+    // send_sms (некуда отправлять) и путается в датах. Для исходящего
+    // caller_number — номер клиента, called_number — наш. МСК (UTC+3).
+    var mskTime = new Date(Date.now() + 3 * 3600 * 1000)
+        .toISOString().replace("T", " ").slice(0, 16);
+    INSTRUCTIONS += "\n\nИнформация о звонке:\n" +
+        "- Номер клиента (caller_number): " + PHONE_NUMBER + "\n" +
+        "- Наш номер (called_number): " + CALLER_ID + "\n" +
+        "- Текущее время: " + mskTime + " (МСК)\n\n" +
+        "Это телефонный разговор: реплики абонента приходят из распознавания " +
+        "речи и могут содержать ошибки. Пиши только то, что нужно произнести: " +
+        "без markdown, списков и эмодзи — текст сразу озвучивается.";
+
+    // =========================================================================
+    // TTS: ПОДГОТОВКА ТЕКСТА
+    // =========================================================================
+
+    // Модель иногда пишет ответ в несколько строк — "  \n" ломает синтез.
+    function cleanForTTS(text) {
+        return text.replace(/\s*\n+\s*/g, " ");
+    }
+
+    // Точка — конец предложения, а не десятичный разделитель и не инициал.
+    function isSentenceDot(s, i) {
+        var prev = i > 0 ? s.charAt(i - 1) : "";
+        var next = i + 1 < s.length ? s.charAt(i + 1) : "";
+        if (/\d/.test(prev) && /\d/.test(next)) return false;           // 1.5, 12.30
+        if (/[A-Za-zА-Яа-яЁё]/.test(prev)) {
+            var before = i >= 2 ? s.charAt(i - 2) : "";
+            if (before === "" || before === " ") return false;          // "А.", "т.е."
         }
-        return {
-            type: "realtime",
-            output_modalities: ["text"], // голос синтезирует VoxTTS, не модель
-            instructions: instructions,
-            reasoning: { effort: LLM_REASONING_EFFORT },
-            tools: realtimeTools,
-            tool_choice: realtimeTools.length > 0 ? "auto" : "none",
-            // Ход определяем МЫ (VoxTurnTaking), серверный VAD не нужен.
-            // Аудио в клиент не заводится вовсе — это вторая линия защиты.
-            audio: { input: { turn_detection: null } },
-        };
-    };
+        return true;
+    }
 
-    // --- Обработчики стрима Realtime (единственный клиент; текст + функции) ---
-    const attachRealtimeHandlers = (client) => {
-        client.addEventListener(RT.ResponseCreated, (event) => {
-            if (terminating) return;
-            if (main.active && !main.responseId) {
-                main.responseId = rtResponseId(event) || "";
-            }
-        });
-
-        client.addEventListener(RT.ResponseOutputTextDelta, (event) => {
-            if (terminating) return;
-            logShapeOnce("ResponseOutputTextDelta", event);
-            if (!isCurrent(event)) return;
-            const delta = rtDelta(event);
-            if (!delta) return;
-            main.text += delta;
-            if (canPlay()) {
-                logFirstDelta("");
-                ttsSendText(delta);
-            }
-        });
-
-        client.addEventListener(RT.ResponseOutputTextDone, (event) => {
-            if (terminating) return;
-            if (!isCurrent(event)) return;
-            finalizeTurn(rtDoneText(event) || main.text);
-        });
-
-        client.addEventListener(RT.ResponseOutputItemDone, async (event) => {
-            if (terminating) return;
-            try {
-                const payload = rtPayload(event);
-                const item = payload && payload.item;
-                if (!item || item.type !== "function_call") return;
-                logShapeOnce("ResponseOutputItemDone.function_call", event);
-                await handleFunctionCall(item);
-            } catch (e) {
-                Logger.write(`[OUT-CASCADE] function handler error: ${e}`);
-            }
-        });
-
-        // Финал генерации: токены для биллинга + страховка на случай, если
-        // ResponseOutputTextDone не пришёл, а текст накоплен.
-        client.addEventListener(RT.ResponseDone, (event) => {
-            logShapeOnce("ResponseDone", event);
-            const usage = rtUsage(event);
-            if (usage) {
-                accountUsage(usage);
-            } else {
-                Logger.write("[OUT-CASCADE] ⚠️ ResponseDone без usage — токены этого хода не учтены");
-            }
-            if (terminating) return;
-            if (main.active && isCurrent(event) && main.text) {
-                finalizeTurn(main.text);
-            }
-        });
-
-        client.addEventListener(RT.Error, (event) => {
-            Logger.write("[OUT-CASCADE] ===LLM_ERROR===");
-            try { Logger.write(JSON.stringify(event?.data)); } catch (e) { /* noop */ }
-        });
-    };
-
-    // Поднять WS и дождаться готовности сессии (SessionCreated -> sessionUpdate).
-    const connectRealtime = async (withHistory) => {
-        const client = await OpenAI.createRealtimeAPIClient({
-            apiKey: apiKey,
-            model: LLM_MODEL,
-            type: OpenAI.RealtimeAPIClientType.REALTIME,
-            onWebSocketClose: () => {
-                Logger.write("[OUT-CASCADE] [OpenAI] WS closed");
-                handleRealtimeClose();
-            },
-            onWebSocketError: (err) => {
-                Logger.write(`[OUT-CASCADE] [OpenAI] WS error: ${JSON.stringify(err)}`);
-            },
-        });
-
-        await new Promise((resolve, reject) => {
-            let settled = false;
-            const timer = setTimeout(() => {
-                if (settled) return;
-                settled = true;
-                reject(new Error("SessionCreated timeout"));
-            }, SESSION_READY_TIMEOUT_MS);
-
-            client.addEventListener(RT.SessionCreated, () => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                try {
-                    client.sessionUpdate({ session: buildSessionConfig(withHistory) });
-                    Logger.write("[OUT-CASCADE] [OpenAI] Session configured (text-only, turn_detection=null)");
-                    resolve();
-                } catch (e) {
-                    reject(e);
-                }
-            });
-        });
-
-        attachRealtimeHandlers(client);
-        return client;
-    };
-
-    // Обрыв WS посреди звонка: TTL сессии, сеть, рестарт на стороне OpenAI.
-    // Поднимаем заново и отдаём историю стенограммой.
-    const handleRealtimeClose = async () => {
-        if (terminating) return;
-        // До дозвона обрыв означает неготовность — звонок ещё не начался,
-        // readiness-блок разберётся сам.
-        if (!call) return;
-        if (reconnectAttempts >= MAX_RECONNECTS) {
-            Logger.write("[OUT-CASCADE] ===RT_RECONNECT_GIVEUP=== завершаем звонок");
-            terminateCall();
-            return;
+    function hasSentenceEnd(s) {
+        var TERM = ".!?…";
+        for (var i = 0; i < s.length; i++) {
+            var ch = s.charAt(i);
+            if (TERM.indexOf(ch) === -1) continue;
+            if (ch === "." && !isSentenceDot(s, i)) continue;
+            return true;
         }
-        reconnectAttempts++;
-        Logger.write(`[OUT-CASCADE] ===RT_RECONNECT=== попытка ${reconnectAttempts}/${MAX_RECONNECTS}`);
-        main.active = false;
-        main.responseId = null;
-        main.text = "";
-        try {
-            realtime = await connectRealtime(true);
-            Logger.write("[OUT-CASCADE] ===RT_RECONNECT_OK===");
-        } catch (e) {
-            Logger.write(`[OUT-CASCADE] ===RT_RECONNECT_FAILED=== ${e}`);
-            terminateCall();
-        }
-    };
+        return false;
+    }
 
-    // --- Обработчики звонка (навешиваем на созданный call) ---
-    const attachCallHandlers = () => {
-        call.addEventListener(CallEvents.RecordStarted, (event) => {
-            record_url = event.url;
-            Logger.write(`[OUT-CASCADE] Recording started: ${event.url}`);
-        });
-        call.addEventListener(CallEvents.RecordStopped, (event) => {
-            if (event && event.url) record_url = event.url;
-            if (event && event.cost !== undefined) record_cost = Number(event.cost) || 0;
-        });
-        call.addEventListener(CallEvents.Failed, (event) => {
-            if (event && event.cost !== undefined) telephony_cost = Number(event.cost) || 0;
-            if (event && event.duration !== undefined) call_duration = event.duration;
-            Logger.write(`[OUT-CASCADE] ===CALL_FAILED=== code=${event?.code} ${event?.reason || ""}`);
-            terminateCall();
-        });
-        call.addEventListener(CallEvents.Disconnected, (event) => {
-            if (event && event.cost !== undefined) telephony_cost = Number(event.cost) || 0;
-            if (event && event.duration !== undefined) call_duration = event.duration;
-            Logger.write(`[OUT-CASCADE] ===DISCONNECTED=== telephony=${telephony_cost} dur=${call_duration}s`);
-            terminateCall();
-        });
+    // =========================================================================
+    // TTS: ПЛЕЕР VoxTTS
+    // =========================================================================
+    // Плеер создаётся до ответа на звонок, в звонок подключается после answer.
+    // VoxTTS синтезирует накопленный текст по flush_context (на длинном тексте
+    // сам делает промежуточные авто-flush). Конец озвучки — событие
+    // AudioChunksPlaybackFinished: final=false у промежуточного авто-flush.
+    // Одному событию не доверяем: «звучит ли агент» считаем ещё и по оценке
+    // длительности речи (MS_PER_CHAR), как в v3, — флаг не залипнет.
 
-        call.addEventListener(CallEvents.Connected, async () => {
-            Logger.write(`[OUT-CASCADE] ===CONNECTED=== ${caller_number}`);
-            try {
-                call.record({ stereo: false, lossless: false, hd_audio: true });
-            } catch (e) {
-                Logger.write(`[OUT-CASCADE] record() error: ${e}`);
-            }
-
-            ttsPlayer.sendMediaTo(call);
-
-            turnTaking = await VoxTurnTaking.create({
-                call,
-                stt,
-                // ВАЖНО: НЕ переопределяем vadOptions целиком и не трогаем
-                // таймеры закрытия хода — дефолты v2 выверены на проде, и любое
-                // их «улучшение» отсюда возвращает дробление фраз. Сценарий
-                // управляет только паузой перед ответом (пресет из настроек агента).
-                vadOptions: { minSilenceDurationMs: silenceMs },
-                turnDetectorOptions: { threshold: 0.7 },
-                policy: {
-                    confidentEouProbability: 0.8,
-                    userSpeechTimeoutMs: silenceMs + SILENCE_TO_TIMEOUT_MS,
-                    // Языковые списки — то, что v2 намеренно оставляет пустыми
-                    // и ждёт от сценария.
-                    continuationTokens: [
-                        "и", "а", "но", "ну", "вот", "так", "значит",
-                        "короче", "эм", "ээ", "мм", "это",
-                    ],
-                    trailingContinuationTokens: [
-                        "чтобы", "потому", "который", "которая", "которое", "которые",
-                        "про", "либо", "если", "когда", "пока", "хотя",
-                    ],
-                    completeShortAnswers: [
-                        "да", "нет", "ок", "окей", "хорошо", "ага", "угу", "не",
-                        "стоп", "верно", "точно", "конечно", "давай", "давайте",
-                        "спасибо", "понятно", "нет спасибо", "да давайте",
-                    ],
-                    speculativeEouProbability: 0.6,
-                },
-                enableLogging: true,
-
-                // Без этого коллбэка VoxTurnTaking считает перебиванием ЛЮБОЙ
-                // сегмент VAD — эхо, кашель, шум линии.
-                isAgentSpeaking: isAgentSpeaking,
-
-                onUserTurn: (input, version) => {
-                    if (terminating || !micOpen) return;
-                    firstDeltaLoggedForTurn = false;
-                    turnStartedAt = Date.now();
-                    Logger.write(`[OUT-CASCADE] ===USER=== ${input}`);
-                    logDialog("user", input);
-                    messages.push({ role: "user", content: input });
-                    sendUserText(input);
-                    requestResponse(version);
-                },
-
-                // Yandex досылает полный текст реплики через 2-5с после того,
-                // как ход уже ушёл в модель по interim. Отвечать второй раз
-                // нельзя — абонент сказал это один раз. Правим историю и молча
-                // отдаём модели уточнение, БЕЗ responseCreate.
-                onTurnCorrection: (fullText, correctedTurnId, meta) => {
-                    if (terminating || !micOpen || !fullText) return;
-                    const sent = (meta && meta.sentText) || "";
-                    Logger.write(
-                        `[OUT-CASCADE] ===USER_CORRECTED=== (+${meta && meta.lagMs}ms) ` +
-                        `"${sent}" -> "${fullText}"`
-                    );
-
-                    for (let i = messages.length - 1; i >= 0; i--) {
-                        if (messages[i].role === "user") {
-                            messages[i].content = fullText;
-                            break;
-                        }
-                    }
-                    for (let i = dialogLog.length - 1; i >= 0; i--) {
-                        if (dialogLog[i].role === "user") {
-                            const old = dialogLog[i].text;
-                            dialogLog[i].text = fullText;
-                            if (userMessageBuffer.endsWith(old)) {
-                                userMessageBuffer =
-                                    userMessageBuffer.slice(0, userMessageBuffer.length - old.length) + fullText;
-                            }
-                            break;
-                        }
-                    }
-
-                    try {
-                        realtime.conversationItemCreate({
-                            item: {
-                                type: "message",
-                                role: "user",
-                                content: [{
-                                    type: "input_text",
-                                    text:
-                                        "[Уточнение распознавания: предыдущая реплика собеседника " +
-                                        `полностью звучала так: «${fullText}». Не отвечай на неё повторно, ` +
-                                        "просто учитывай верный текст дальше.]",
-                                }],
-                            },
-                        });
-                    } catch (e) {
-                        Logger.write(`[OUT-CASCADE] correction item error: ${e}`);
-                    }
-                },
-
-                onInterrupt: () => {
-                    if (terminating || !micOpen) return;
-                    ttsPlayer?.clearBuffer();
-                    stopAgentAudio();
-                    if (main.active) {
-                        // Останавливаем генерацию НА СЕРВЕРЕ — иначе модель
-                        // досчитывает ответ, который никто не услышит, и мы за него платим.
-                        try { realtime.responseCancel(); } catch (e) { /* noop */ }
-                    }
-                    main.active = false;
-                    main.responseId = null;
-                    main.text = "";
-                },
-            });
-
-            // Приветствие (фиксированная фраза, мимо LLM).
-            messages.push({ role: "assistant", content: greeting });
-            logDialog("assistant", greeting);
-            noteAgentAudio(greeting);
-            ttsPlayer.send({ send_text: { text: cleanForTTS(greeting), flush_context: {} } });
-            resetHardTimeout();
-
-            // MUTE-окно: открываем мик абонента только после mute_duration_ms,
-            // чтобы «Алло»/шум при поднятии трубки не оборвали приветствие.
-            setTimeout(() => {
-                if (terminating) return;
-                call.sendMediaTo(stt);
-                micOpen = true;
-                Logger.write(`[OUT-CASCADE] MIC OPEN (after ${MUTE_DURATION_MS}ms mute)`);
-            }, MUTE_DURATION_MS);
-        });
-    };
-
-    try {
-        Logger.write(`[OUT-CASCADE] Outbound -> ${PHONE_NUMBER} (caller_id=${CALLER_ID}) type=${callType}`);
-
-        const config = await fetchOutboundConfig(ASSISTANT_ID);
-        if (!config || !config.api_key) {
-            Logger.write("[OUT-CASCADE] No outbound config / api_key — abort (no dial)");
-            VoxEngine.terminate();
-            return;
-        }
-
-        apiKey = config.api_key;
-        greeting = determineGreeting(config.first_phrase);
-
-        // system-промпт: контекст (задача + CRM) + база + стиль + анти-повтор приветствия.
-        systemPrompt = buildContextBlock();
-        systemPrompt += (config.system_prompt || "Ты — голосовой ассистент.") + TELEPHONY_STYLE_RULES;
-        systemPrompt +=
-            `\n\nТип звонка: ИСХОДЯЩИЙ (ты звонишь абоненту, номер ${PHONE_NUMBER}). ` +
-            `Разговор уже начат: приветствие собеседнику уже произнесено. ` +
-            `Не здоровайся и не представляйся заново — сразу переходи к цели звонка.`;
-        // Информация о звонке в промпт: реальные номера и текущее время, чтобы
-        // модель могла корректно вызывать функции (например, send_sms) и
-        // ориентироваться во времени. Для исходящего caller_number — номер
-        // клиента (кому звоним), called_number — наш номер (caller_id). МСК (UTC+3).
-        const mskTime = new Date(Date.now() + 3 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
-        systemPrompt +=
-            `\n\nИнформация о звонке:\n` +
-            `- Номер клиента (caller_number): ${PHONE_NUMBER}\n` +
-            `- Наш номер (called_number): ${CALLER_ID}\n` +
-            `- Текущее время: ${mskTime} (МСК)`;
-        messages.push({ role: "system", content: systemPrompt });
-
-        // Функции ассистента -> tools Realtime (ПЛОСКИЙ формат: name/description/
-        // parameters на верхнем уровне, в отличие от вложенного у Chat Completions).
-        if (config.functions && config.functions.length > 0) {
-            const decls = [];
-            for (let i = 0; i < config.functions.length; i++) {
-                const t = config.functions[i];
-                const fn = (t.type === "function" && t.function) ? t.function : (t.name ? t : null);
-                if (!fn) continue;
-                functionNameToIdMap[fn.name] = String(i + 1);
-                let desc = fn.description;
-                if (fn.name === "hangup_call") {
-                    desc = "КРИТИЧЕСКИ ВАЖНО: вызови эту функцию НЕМЕДЛЕННО, когда задача звонка выполнена или собеседник хочет завершить разговор («пока», «до свидания», «всё, спасибо»). Не прощайся просто словами — вызови функцию.";
-                }
-                decls.push({
-                    type: "function",
-                    name: fn.name,
-                    description: desc,
-                    parameters: fn.parameters,
-                });
-            }
-            realtimeTools = decls;
-            Logger.write(`[OUT-CASCADE] Functions: ${JSON.stringify(functionNameToIdMap)}`);
-        }
-
-        // Пауза перед ответом: пресет из настроек агента (300/650/1000).
-        silenceMs = resolveSilenceMs(config.silence_duration_ms);
-
-        Logger.write(`[OUT-CASCADE] LLM: ${LLM_MODEL} via Realtime WS (text-only, наш turn-taking)`);
-        Logger.write(
-            `[OUT-CASCADE] Silence preset: ${silenceMs}ms ` +
-            `(fallback timeout ${silenceMs + SILENCE_TO_TIMEOUT_MS}ms)`
-        );
-
-        // READINESS: готовим ASR / LLM / TTS ДО дозвона. WS к OpenAI поднимается
-        // здесь же — если сессия не встала, PSTN не набираем вовсе (0₽ телефонии).
-        stt = VoxEngine.createASR({
-            profile: asrProfileForLang(config.asr_lang),
-            model: asrModelForLang(config.asr_lang),
-            interimResults: true,
-        });
-        // ASR тарифицируется отдельной строкой и в cost звонка НЕ входит.
-        stt.addEventListener(ASREvents.Stopped, (event) => {
-            if (event && event.cost !== undefined) asr_cost = Number(event.cost) || 0;
-        });
-
-        realtime = await connectRealtime(false);
-
-        if (config.tts_provider && config.tts_provider !== "voxtts") {
-            Logger.write(`[OUT-CASCADE] ⚠️ tts_provider='${config.tts_provider}' не поддержан, fallback VoxTTS/Anna`);
-        }
-        ttsPlayer = VoxTTS.createRealtimeTTSPlayer({
+    function createTts() {
+        tts = VoxTTS.createRealtimeTTSPlayer({
             createContextParameters: {
                 create: {
                     modelId: VoxTTS.ModelList.VoxTTS,
-                    voiceId: voxttsVoice(config.tts_voice),
-                },
+                    voiceId: voxttsVoice(CONFIG.tts_voice)
+                }
+            }
+        });
+        tts.addEventListener(PlayerEvents.AudioChunksPlaybackFinished, function(ev) {
+            if (ev && ev.final === false) return;                       // промежуточный авто-flush
+            if (Date.now() - ttsClearedAt < TTS_CLEAR_GRACE_MS) return; // хвост сброшенной фразы
+            flushesDone++;
+            // Приветствие доиграно, даже если за ним в очереди уже стоит ответ.
+            if (greetingPending && flushesDone >= greetingFlushNo) onGreetingFinished("playback finished");
+            if (awaitingEnd && flushesDone >= flushesSent) onSpeechDone("playback finished");
+        });
+        tts.addEventListener(PlayerEvents.Error, function(ev) {
+            Logger.write("[TTS] ❌ " + JSON.stringify(ev && (ev.error || ev.reason || ev.code || ev)));
+        });
+    }
+
+    // sendMediaTo можно звать только когда есть и плеер, и отвеченный звонок.
+    function attachTtsToCall() {
+        if (ttsAttached || !tts || !callAnswered || !call) return;
+        try {
+            tts.sendMediaTo(call);
+            ttsAttached = true;
+            Logger.write("[TTS] 🔊 VoxTTS → call");
+        } catch (err) {
+            Logger.write("[TTS] ❌ sendMediaTo failed: " + err);
+        }
+    }
+
+    function ttsSend(text, flush) {
+        if (!tts) return;
+        var msg = { send_text: { text: text } };
+        if (flush) {
+            msg.send_text.flush_context = {};
+            flushesSent++;
+        }
+        lastSendFlushed = !!flush;
+        try {
+            tts.send(msg);
+        } catch (err) {
+            Logger.write("[TTS] ❌ send failed: " + err);
+        }
+    }
+
+    // Оценка: кусок текста продлевает ожидаемый конец речи.
+    function noteAgentAudio(text) {
+        var now = Date.now();
+        var start = agentAudioEndAt > now ? agentAudioEndAt : now + TTS_START_PAD_MS;
+        agentAudioEndAt = start + Math.max(300, text.length * MS_PER_CHAR);
+    }
+
+    // Агент звучит (или вот-вот зазвучит). Нужно, чтобы отличить перебивание
+    // от обычной реплики абонента.
+    function isAgentAudible() {
+        return Date.now() < agentAudioEndAt;
+    }
+
+    function onSpeechDone(reason) {
+        awaitingEnd = false;
+        agentAudioEndAt = Date.now();
+        Logger.write("[TTS] ⏹ speech done (" + reason + ")");
+        if (hangupAfterSpeech) scheduleHangup(0);
+        // Приветствие договорено — снимаем защиту от перебивания.
+        if (greetingPending) onGreetingFinished(reason);
+        resetHardTimeout();
+    }
+
+    // Единственная точка отправки текста в синтез.
+    function speak(text, final) {
+        if (!text || !text.trim() || isHangingUp) return;
+
+        var clean = cleanForTTS(text);
+        noteAgentAudio(clean);
+        ttsSend(clean, final);
+        awaitingEnd = !!final;
+
+        Logger.write("[TTS] → \"" + clean.substring(0, 60) + "\"" + (final ? " (final)" : ""));
+        resetHardTimeout();
+
+        if (!turnStarted) {
+            turnStarted = true;
+            logTurnTiming();
+        }
+    }
+
+    // Закрыть реплику, когда весь текст уже ушёл: если последний кусок уже
+    // был с flush, второй (пустой) flush не шлём — событие на него может
+    // не прийти.
+    function closeTtsTurn() {
+        if (lastSendFlushed) {
+            awaitingEnd = true;
+            if (flushesDone >= flushesSent) onSpeechDone("already played");
+        } else {
+            ttsSend(" ", true);
+            awaitingEnd = true;
+        }
+    }
+
+    // Дельты модели копим и отдаём пачками. До первого flush ничего не шлём:
+    // текст, ушедший раньше, попал бы в первый синтез целиком — так flush
+    // резал бы фразу на полуслове. Отрезает maybeEarlyFlush, остаток дожмёт
+    // endTurn.
+    function pushDelta(delta) {
+        deltaBuffer  += delta;
+        turnFullText += delta;
+
+        if (!firstFlushDone) return;
+
+        if (deltaBuffer.length >= TEXT_BATCH_MIN || hasSentenceEnd(deltaBuffer)) {
+            var out = deltaBuffer;
+            deltaBuffer = "";
+            speak(out, false);
+        }
+    }
+
+    // Конец реплики: дожимаем остаток накопленного и закрываем flush'ем.
+    function endTurn() {
+        var out = deltaBuffer;
+        deltaBuffer = "";
+
+        if (out && out.trim()) {
+            speak(out, true);
+        } else if (turnStarted) {
+            closeTtsTurn();
+        }
+    }
+
+    // Запятая, тире, двоеточие — граница части фразы. Запятая между цифрами
+    // (1,5) границей не считается.
+    function hasClauseEnd(s) {
+        for (var i = 0; i < s.length; i++) {
+            var ch = s.charAt(i);
+            if (ch === "—" || ch === ";" || ch === ":") return true;
+            if (ch === ",") {
+                var prev = i > 0 ? s.charAt(i - 1) : "";
+                var next = i + 1 < s.length ? s.charAt(i + 1) : "";
+                if (/\d/.test(prev) && /\d/.test(next)) continue;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Длина куска до первой границы, на которой можно делать ранний flush:
+    // конец предложения (от FIRST_FLUSH_MIN символов) или запятая/тире/
+    // двоеточие (от FIRST_CLAUSE_MIN). Точка или запятая сразу после цифры
+    // в конце текста — ещё не граница: следом может прийти «12.30» / «1,5».
+    function firstFlushCut(s) {
+        for (var i = 0; i < s.length; i++) {
+            var ch = s.charAt(i);
+            var isEnd = ".!?…".indexOf(ch) !== -1;
+            var isClause = ",—;:".indexOf(ch) !== -1;
+            if (!isEnd && !isClause) continue;
+            var prev = i > 0 ? s.charAt(i - 1) : "";
+            var next = i + 1 < s.length ? s.charAt(i + 1) : "";
+            if ((ch === "." || ch === ",") && /\d/.test(prev) && (next === "" || /\d/.test(next))) continue;
+            if (ch === "." && !isSentenceDot(s, i)) continue;
+            if (i + 1 >= (isEnd ? FIRST_FLUSH_MIN : FIRST_CLAUSE_MIN)) {
+                return { len: i + 1, bySentence: isEnd };
+            }
+        }
+        return null;
+    }
+
+    // Синтез начинается по flush и захватывает весь накопленный кусок, поэтому
+    // первый flush делаем уже на запятой, если кусок не слишком короткий:
+    // звук пойдёт раньше. В синтез уходит ровно кусок до границы — хвост
+    // ждёт следующей пачки.
+    function maybeEarlyFlush() {
+        if (firstFlushDone || isInterrupted) return;
+        var cut = firstFlushCut(turnFullText);
+        if (!cut) return;
+        firstFlushDone = true;
+        var alreadySent = turnFullText.length - deltaBuffer.length;
+        var take = Math.max(0, cut.len - alreadySent);
+        var head = deltaBuffer.substring(0, take);
+        deltaBuffer = deltaBuffer.substring(take);
+        if (head && head.trim()) {
+            var clean = cleanForTTS(head);
+            noteAgentAudio(clean);
+            ttsSend(clean, true);
+            awaitingEnd = false;     // реплика ещё не закончена
+            Logger.write("[TTS] → \"" + clean.substring(0, 60) + "\" (early flush)");
+            if (!turnStarted) { turnStarted = true; logTurnTiming(); }
+        }
+        Logger.write("[TTS] ⚡ early flush " + (cut.bySentence ? "первого предложения" : "по запятой"));
+    }
+
+    // Перебивание: гасим буфер плеера (мгновенно) — и то, что уже звучит, и
+    // то, что VoxTTS ещё синтезирует.
+    function stopSpeaking() {
+        if (tts) {
+            try { tts.clearBuffer(); } catch (err) {
+                Logger.write("[TTS] clearBuffer failed: " + err);
+            }
+        }
+        ttsClearedAt = Date.now();
+        flushesDone = flushesSent;
+        awaitingEnd = false;
+        lastSendFlushed = true;
+        agentAudioEndAt = 0;
+    }
+
+    function resetTurnState() {
+        turnFullText = "";
+        turnStarted = false;
+        firstFlushDone = false;
+        deltaBuffer    = "";
+        mVadStop = 0; mReqSent = 0; mFirstDelta = 0;
+    }
+
+    // Метрика хода: от конца речи абонента до отправки текста в синтез
+    // (до звука добавляется задержка VoxTTS).
+    function logTurnTiming() {
+        if (!mVadStop) return;
+        var now = Date.now();
+        Logger.write("⏱ TURN: vad→llm=" + (mReqSent ? (mReqSent - mVadStop) : -1) + "ms" +
+            " vad→token=" + (mFirstDelta ? (mFirstDelta - mVadStop) : -1) + "ms" +
+            " vad→tts=" + (now - mVadStop) + "ms");
+    }
+
+    // =========================================================================
+    // ЗАВЕРШЕНИЕ ПО ПРОЩАНИЮ
+    // =========================================================================
+
+    // Потолок ожидания конца прощания: оценка длительности + запас.
+    function armHangupGuard() {
+        if (hangupGuardTimer) clearTimeout(hangupGuardTimer);
+        var left = Math.max(0, agentAudioEndAt - Date.now());
+        var ms = Math.min(HANGUP_GUARD_MS, left + HANGUP_EST_EXTRA_MS);
+        hangupGuardTimer = setTimeout(function() { finishHangup("guard timeout"); }, ms);
+    }
+
+    function scheduleHangup(remainingMs) {
+        if (!hangupAfterSpeech || isHangingUp) return;
+        var delay = Math.max(0, remainingMs) + HANGUP_TAIL_MS;
+        Logger.write("📴 Прощание отзвучало — вешаем трубку через " + delay + "ms");
+        setTimeout(function() { finishHangup("speech done"); }, delay);
+    }
+
+    function finishHangup(reason) {
+        if (!hangupAfterSpeech || isHangingUp) return;
+        hangupAfterSpeech = false;
+        if (hangupGuardTimer) { clearTimeout(hangupGuardTimer); hangupGuardTimer = null; }
+        Logger.write("📴 Hangup after farewell (" + reason + ")");
+        try { call.hangup(); } catch (err) {}
+    }
+
+    // =========================================================================
+    // ДИАЛОГ: ЗАПИСЬ РЕПЛИК
+    // =========================================================================
+
+    function logDialog(role, text) {
+        var entry = { role: role, text: text, ts: Date.now() };
+        dialogLog.push(entry);
+        if (role === "user") {
+            if (userMessageBuffer) userMessageBuffer += " ";
+            userMessageBuffer += text;
+        } else {
+            if (assistantMessageBuffer) assistantMessageBuffer += " ";
+            assistantMessageBuffer += text;
+        }
+        Logger.write("   📝 [DIALOG] Added " + role.toUpperCase() + " turn #" + dialogLog.length);
+        return entry;
+    }
+
+    function normText(s) {
+        return String(s || "").toLowerCase().replace(/[^0-9a-zа-яё ]+/g, " ")
+            .replace(/\s+/g, " ").trim();
+    }
+
+    function wordCount(s) {
+        var n = normText(s);
+        return n ? n.split(" ").length : 0;
+    }
+
+    // =========================================================================
+    // LLM: CHAT COMPLETIONS ЧЕРЕЗ ПРОКСИ
+    // =========================================================================
+    // История сообщений ведётся здесь и уходит целиком в каждый запрос,
+    // ответ — стримом. Интерфейс клиента — как у коннектора Voximplant
+    // (createChatCompletions + события ChatCompletionsAPIEvents), поэтому
+    // откат на коннектор — одна константа.
+
+    // Модели с «/» (OpenRouter) доступны только через наш прокси.
+    function llmModel() {
+        return (LLM_TRANSPORT !== "proxy" && LLM_MODEL.indexOf("/") !== -1) ? LLM_CONNECTOR_MODEL : LLM_MODEL;
+    }
+
+    function eventPayload(event) {
+        return (event && event.data && event.data.payload) || (event && event.data) || {};
+    }
+
+    // Прогрев. Первое обращение к модели за звонок самое медленное. Пока
+    // звучит приветствие, шлём тот же префикс (tools + system + приветствие) с
+    // репликой «Алло» и выбрасываем ответ: первая настоящая реплика абонента
+    // идёт уже вторым запросом. Реплика, пришедшая раньше, ждёт закрытия
+    // прогрева (не обрываем его — иначе разгон пришлось бы платить заново).
+    function warmupLlm() {
+        if (!LLM_WARMUP || llmBusy || !llm || isHangingUp || llmFailedHard) return;
+        var params = {
+            model: llmModel(),
+            messages: [{ role: "system", content: INSTRUCTIONS }].concat(history)
+                .concat([{ role: "user", content: "Алло" }]),
+            stream: true,
+            stream_options: { include_usage: true },
+            max_completion_tokens: WARMUP_MAX_TOKENS
+        };
+        if (voximplantTools.length > 0) {
+            params.tools = voximplantTools;
+            params.tool_choice = "auto";
+        }
+        if (llmReasoning) params.reasoning_effort = llmReasoning;
+        if (llmServiceTier) params.service_tier = llmServiceTier;
+
+        llmBusy = true;
+        llmDiscard = true;
+        llmWarmup = true;
+        respFinished = false;
+        mWarmupSent = Date.now();
+        if (llmStuckTimer) clearTimeout(llmStuckTimer);
+        llmStuckTimer = setTimeout(function() {
+            llmStuckTimer = null;
+            if (llmBusy && llmWarmup) onLlmError("прогрев не закрылся за " + LLM_STUCK_MS + "ms");
+        }, LLM_STUCK_MS);
+        try {
+            llm.createChatCompletions(params);
+            Logger.write("[LLM] 🔥 прогрев");
+        } catch (err) {
+            onLlmError("warmup failed: " + err);
+        }
+    }
+
+    // Один ответ за раз. Если ответ ещё идёт — выбрасываем его: прокси
+    // обрывает запрос сразу, а у коннектора отмены нет, и новый запрос уйдёт,
+    // когда текущий закроется (finish_reason / ошибка).
+    function requestResponse() {
+        if (isHangingUp) return;
+        if (llmBusy) {
+            llmPending = true;
+            if (llmWarmup) { Logger.write("[LLM] ждём закрытия прогрева"); return; }
+            if (!discardResponse()) Logger.write("[LLM] ответ ещё идёт — новый запрос после его закрытия");
+            return;
+        }
+        sendRequest();
+    }
+
+    // Выбросить текущий ответ. true — оборван сразу (прокси), дальше
+    // onResponseClosed → maybeContinue; false — дочитываем и игнорируем.
+    function discardResponse() {
+        if (!llmBusy || llmWarmup) return false;
+        llmDiscard = true;
+        if (!llm || !llm.cancel) return false;
+        llm.cancel();
+        onResponseClosed("cancelled");
+        return true;
+    }
+
+    function sendRequest() {
+        if (isHangingUp || !llm || llmFailedHard) return;
+
+        var turnMessages = greetingInput || history;
+        greetingInput = null;
+        var messages = [{ role: "system", content: INSTRUCTIONS }].concat(turnMessages);
+
+        var params = {
+            model: llmModel(),
+            messages: messages,
+            stream: true,
+            stream_options: { include_usage: true }
+        };
+        if (voximplantTools.length > 0) {
+            params.tools = voximplantTools;
+            params.tool_choice = "auto";
+        }
+        if (llmReasoning) params.reasoning_effort = llmReasoning;
+        if (llmServiceTier) params.service_tier = llmServiceTier;
+
+        llmBusy = true;
+        llmDiscard = false;
+        llmPending = false;
+        isInterrupted = false;
+        respText = "";
+        respChunkText = "";
+        respToolCalls = {};
+        respFinished = false;
+        lastTurnMessages = turnMessages;
+        var vadStop = mVadStop;
+        resetTurnState();
+        mVadStop = vadStop;          // метрику текущего хода сохраняем
+        mReqSent = Date.now();
+
+        if (llmStuckTimer) clearTimeout(llmStuckTimer);
+        llmStuckTimer = setTimeout(function() {
+            llmStuckTimer = null;
+            if (!llmBusy) return;
+            onLlmError("ответ не закрылся за " + LLM_STUCK_MS + "ms");
+        }, LLM_STUCK_MS);
+
+        try {
+            llm.createChatCompletions(params);
+            Logger.write("[LLM] → request (" + messages.length + " messages)");
+        } catch (err) {
+            onLlmError("createChatCompletions failed: " + err);
+        }
+    }
+
+    // Ответ закрылся — решаем, что дальше: продолжение после функций,
+    // отложенная реплика абонента или ничего.
+    function onResponseClosed(reason) {
+        if (!llmBusy) return;
+        llmBusy = false;
+        if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+        if (llmWarmup) {
+            llmWarmup = false;
+            Logger.write("[LLM] 🔥 прогрев готов +" + (Date.now() - mWarmupSent) + "ms");
+            maybeContinue();
+            return;
+        }
+        Logger.write("[LLM] response closed (" + reason + ")" + (llmDiscard ? " [discarded]" : ""));
+        maybeContinue();
+    }
+
+    function maybeContinue() {
+        if (llmBusy || toolsInFlight > 0 || isHangingUp || !llm) return;
+        if (llmPending || needsFollowUp) {
+            needsFollowUp = false;
+            sendRequest();
+        }
+    }
+
+    // Ошибка хода. Тот же ход повторяем (после переподключения, если сокет
+    // закрылся вслед за ошибкой). reasoning_effort / service_tier, которые
+    // модель не приняла, убираем без счёта попыток. После LLM_FAIL_MAX неудач
+    // подряд извиняемся и кладём трубку — молчать в трубку хуже.
+    function onLlmError(text) {
+        Logger.write("❌ [LLM] " + String(text).substring(0, 500));
+        if (!llmBusy) return;
+        llmBusy = false;
+        if (llmStuckTimer) { clearTimeout(llmStuckTimer); llmStuckTimer = null; }
+
+        // Прогрев не удался — не страшно: попыток не считаем и не повторяем.
+        if (llmWarmup) {
+            llmWarmup = false;
+            setTimeout(maybeContinue, LLM_RETRY_DELAY_MS);
+            return;
+        }
+
+        if (llmReasoning && /reasoning/i.test(text)) {
+            Logger.write("[LLM] модель не приняла reasoning_effort — повтор без него");
+            llmReasoning = null;
+        } else if (llmServiceTier && /service_tier/i.test(text)) {
+            Logger.write("[LLM] service_tier не принят — повтор без него");
+            llmServiceTier = null;
+        } else {
+            llmFailures++;
+        }
+        if (llmFailures > LLM_FAIL_MAX) { failGracefully(); return; }
+
+        if (!llmDiscard) {
+            greetingInput = lastTurnMessages === history ? null : lastTurnMessages;
+            llmPending = true;
+        }
+        // Сокет после ошибки обычно закрывается следом — даём ему это сделать,
+        // повтор тогда уйдёт из обработчика переподключения.
+        setTimeout(maybeContinue, LLM_RETRY_DELAY_MS);
+    }
+
+    function failGracefully() {
+        if (llmFailedHard) return;
+        llmFailedHard = true;
+        llmPending = false;
+        needsFollowUp = false;
+        Logger.write("❌ [LLM] модель недоступна — извиняемся и завершаем звонок");
+        if (isHangingUp || hangupAfterSpeech) return;
+        stopSpeaking();
+        resetTurnState();
+        logDialog("assistant", FAIL_PHRASE);
+        hangupAfterSpeech = true;
+        speak(FAIL_PHRASE, true);
+        armHangupGuard();
+    }
+
+    async function connectLlm() {
+        var client;
+        if (LLM_TRANSPORT === "proxy") {
+            client = await createProxyLlmClient(function(ev) { onLlmSocketClosed(client, ev); });
+        } else {
+            client = await OpenAI.createChatCompletionsAPIClient({
+                apiKey: CONFIG.api_key,
+                storeContext: false,
+                onWebSocketClose: function(ev) { onLlmSocketClosed(client, ev); }
+            });
+        }
+        attachLlmListeners(client);
+        llm = client;
+    }
+
+    function onLlmSocketClosed(client, ev) {
+        if (client !== llm) return;          // закрылся уже заменённый клиент
+        Logger.write("[LLM] WS closed: " + JSON.stringify(ev && { code: ev.code, reason: ev.reason }));
+        llm = null;
+        if (isHangingUp || llmFailedHard) return;
+        if (llmBusy) onLlmError("сокет закрылся посреди ответа");
+        if (llmFailedHard) return;
+        Logger.write("[LLM] переподключение");
+        connectLlm().then(function() {
+            Logger.write("[LLM] ✅ переподключено");
+            maybeContinue();
+        }).catch(function(err) {
+            Logger.write("❌ [LLM] reconnect failed: " + err);
+            failGracefully();
+        });
+    }
+
+    // Клиент нашего прокси /ws/cascade/llm/{id} с тем же интерфейсом, что у
+    // коннектора Voximplant: createChatCompletions(params) + события
+    // ContentDelta / Chunk / ChatCompletionsAPIError. Плюс cancel(): прокси
+    // обрывает запрос к модели. Сообщения чужого (оборванного) запроса
+    // отбрасываются по id.
+    function createProxyLlmClient(onClose) {
+        var url = String(CONFIG.llm_proxy_url || "");
+        var E = OpenAI.ChatCompletionsAPIEvents;
+        var handlers = {};
+        var seq = 0;
+        var curId = null;
+        var opened = false;
+        var closed = false;
+        var ws = VoxEngine.createWebSocket(url);
+        var client = {
+            addEventListener: function(name, cb) { (handlers[name] = handlers[name] || []).push(cb); },
+            createChatCompletions: function(params) {
+                if (closed) throw new Error("proxy socket closed");
+                curId = ++seq;
+                ws.send(JSON.stringify({ event: "request", id: curId, payload: params }));
             },
+            cancel: function() {
+                if (curId === null) return;
+                try { ws.send(JSON.stringify({ event: "cancel", id: curId })); } catch (err) {}
+                curId = null;
+            },
+            close: function() { closed = true; try { ws.close(); } catch (err) {} }
+        };
+        function fire(name, payload) {
+            var list = handlers[name] || [];
+            for (var i = 0; i < list.length; i++) list[i]({ data: { payload: payload } });
+        }
+        return new Promise(function(resolve, reject) {
+            var openTimer = setTimeout(function() {
+                if (opened) return;
+                closed = true;
+                try { ws.close(); } catch (err) {}
+                reject(new Error("LLM proxy не открылся за " + LLM_PROXY_OPEN_MS + "ms"));
+            }, LLM_PROXY_OPEN_MS);
+            ws.addEventListener(WebSocketEvents.OPEN, function() {
+                opened = true;
+                clearTimeout(openTimer);
+                Logger.write("[LLM] ✅ proxy socket open: " + url);
+                resolve(client);
+            });
+            ws.addEventListener(WebSocketEvents.MESSAGE, function(e) {
+                var msg;
+                try { msg = JSON.parse(e.text); } catch (err) { return; }
+                if (!msg || msg.id === undefined || msg.id !== curId) return;
+                if (msg.event === "chunk") {
+                    var p = msg.payload || {};
+                    var c = p.choices && p.choices[0];
+                    if (c && c.delta && c.delta.content) fire(E.ContentDelta, { delta: c.delta.content });
+                    fire(E.Chunk, p);
+                } else if (msg.event === "error") {
+                    curId = null;
+                    fire(E.ChatCompletionsAPIError, { text: msg.message || "proxy error" });
+                } else if (msg.event === "done") {
+                    curId = null;
+                    if (msg.openai_first_ms !== undefined) {
+                        Logger.write("[LLM] proxy: model first chunk " + msg.openai_first_ms +
+                                     "ms, total " + msg.total_ms + "ms (сервер Voicyfy → " + LLM_MODEL + ")");
+                    }
+                    // На случай стрима без finish_reason — закрыть ответ всё равно.
+                    fire(E.Chunk, { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] });
+                }
+            });
+            function onEnd(ev) {
+                if (closed) return;
+                closed = true;
+                if (!opened) {
+                    clearTimeout(openTimer);
+                    reject(new Error("LLM proxy: " + JSON.stringify(ev && { code: ev.code, reason: ev.reason })));
+                    return;
+                }
+                onClose(ev);
+            }
+            ws.addEventListener(WebSocketEvents.CLOSE, onEnd);
+            ws.addEventListener(WebSocketEvents.ERROR, onEnd);
+        });
+    }
+
+    function attachLlmListeners(client) {
+        // Дельты текста → в VoxTTS пачками
+        client.addEventListener(OpenAI.ChatCompletionsAPIEvents.ContentDelta, function(event) {
+            if (client !== llm || !llmBusy || llmDiscard || isHangingUp) return;
+            var delta = eventPayload(event).delta || "";
+            if (!delta) return;
+            if (!mFirstDelta) {
+                mFirstDelta = Date.now();
+                Logger.write("[LLM] first token +" + (mFirstDelta - mReqSent) + "ms");
+            }
+            respText += delta;
+            if (isInterrupted || !callAnswered) return;
+            pushDelta(cleanForTTS(delta));
+            maybeEarlyFlush();
         });
 
-        // Прогрев больше не нужен: WS открыт и сессия сконфигурирована ещё до
-        // дозвона, первый ход абонента и так уходит в тёплое соединение.
-        Logger.write(`[OUT-CASCADE] Ready -> dialing PSTN ${PHONE_NUMBER}`);
-        call = VoxEngine.callPSTN(PHONE_NUMBER, CALLER_ID);
-        attachCallHandlers();
-    } catch (error) {
-        Logger.write("[OUT-CASCADE] ===UNHANDLED_ERROR===");
-        Logger.write(String(error));
-        if (call) terminateCall();
-        else VoxEngine.terminate();
+        // Сырые чанки: вызовы функций, конец ответа, расход токенов
+        client.addEventListener(OpenAI.ChatCompletionsAPIEvents.Chunk, function(event) {
+            if (client !== llm) return;
+            var p = eventPayload(event);
+            if (p.usage) {
+                stats.inputTokens += p.usage.prompt_tokens || 0;
+                stats.outputTokens += p.usage.completion_tokens || 0;
+                var det = p.usage.prompt_tokens_details;
+                stats.cachedTokens += (det && det.cached_tokens) || 0;
+            }
+            var choice = p.choices && p.choices[0];
+            if (!choice || !llmBusy) return;
+            var d = choice.delta || {};
+            if (d.content) respChunkText += d.content;
+            if (d.tool_calls) {
+                for (var i = 0; i < d.tool_calls.length; i++) {
+                    var tc = d.tool_calls[i];
+                    var key = tc.index !== undefined ? tc.index : i;
+                    var acc = respToolCalls[key] || (respToolCalls[key] = { id: "", name: "", arguments: "" });
+                    if (tc.id) acc.id = tc.id;
+                    if (tc.function && tc.function.name) acc.name += tc.function.name;
+                    if (tc.function && tc.function.arguments) acc.arguments += tc.function.arguments;
+                }
+            }
+            if (choice.finish_reason) finishResponse(choice.finish_reason);
+        });
+
+        client.addEventListener(OpenAI.ChatCompletionsAPIEvents.ChatCompletionsAPIError, function(event) {
+            if (client !== llm) return;
+            onLlmError(JSON.stringify(eventPayload(event)));
+        });
     }
+
+    // Ответ модели целиком: текст — в историю и дожать в синтез, вызовы
+    // функций — выполнить. Одно сообщение assistant на ответ (текст +
+    // tool_calls вместе), иначе следующий запрос модель отклонит.
+    function finishResponse(reason) {
+        if (respFinished) return;
+        respFinished = true;
+
+        if (llmDiscard || isHangingUp) { onResponseClosed(reason); return; }
+
+        llmFailures = 0;
+        var text = (respText || respChunkText).trim();
+        var calls = [];
+        for (var k in respToolCalls) {
+            if (respToolCalls[k].name) calls.push(respToolCalls[k]);
+        }
+
+        var msg = { role: "assistant", content: text || null };
+        if (calls.length > 0) {
+            msg.tool_calls = calls.map(function(c, i) {
+                if (!c.id) c.id = "call_" + Date.now() + "_" + i;
+                return { id: c.id, type: "function", function: { name: c.name, arguments: c.arguments || "{}" } };
+            });
+        }
+        if (text || calls.length > 0) history.push(msg);
+
+        if (text) {
+            Logger.write("🤖 AGENT: \"" + text.substring(0, 80) + "\"");
+            logDialog("assistant", text);
+            if (!isInterrupted) {
+                if (!turnStarted && !deltaBuffer) {
+                    // Дельты не приходили (ответ отдан одним куском) — озвучиваем целиком.
+                    turnFullText = cleanForTTS(text);
+                    speak(turnFullText, true);
+                } else {
+                    endTurn();
+                }
+            }
+        }
+
+        for (var j = 0; j < calls.length; j++) handleFunctionCall(calls[j]);
+
+        onResponseClosed(reason);
+    }
+
+    // =========================================================================
+    // FUNCTION CALLS
+    // =========================================================================
+    async function handleFunctionCall(tc) {
+        var functionName = tc.name;
+        var callId = tc.id;
+        var args = {};
+        try { args = JSON.parse(tc.arguments || "{}"); } catch (err) {}
+        Logger.write("🔧 FUNCTION CALL: " + functionName);
+
+        if (functionName === "hangup_call") {
+            Logger.write("📴 HANGUP CALL requested");
+            lastFunctionResult = { action: "call_terminated", reason: args.reason || "user request" };
+            history.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(lastFunctionResult) });
+            llmPending = false;
+            needsFollowUp = false;
+
+            if (args.farewell_message && args.farewell_message.trim()) {
+                var farewell = cleanForTTS(args.farewell_message.trim());
+                logDialog("assistant", farewell);
+                resetTurnState();
+                turnFullText = farewell;
+                hangupAfterSpeech = true;
+                speak(farewell, true);
+                armHangupGuard();
+            } else if (isAgentAudible()) {
+                // Модель попрощалась текстом в том же ответе — дадим договорить.
+                hangupAfterSpeech = true;
+                armHangupGuard();
+            } else {
+                call.hangup();
+            }
+            return;
+        }
+
+        // Пара tool_calls + tool обязательна в истории: без ответа функции
+        // следующий запрос модель отклонит.
+        toolsInFlight++;
+        needsFollowUp = true;
+
+        var output;
+        var function_id = functionNameToIdMap[functionName];
+        try {
+            if (!function_id) {
+                Logger.write("❌ Unknown function: " + functionName);
+                output = { error: "Unknown function: " + functionName };
+            } else {
+                args.function_id = function_id;
+                var functionResponse = await Net.httpRequestAsync(FUNCTIONS_URL, {
+                    headers: ["Content-Type: application/json"],
+                    method: 'POST',
+                    postData: JSON.stringify({
+                        function_id: function_id,
+                        arguments: args,
+                        call_data: {
+                            call_id: call_id,
+                            chat_id: chat_id,
+                            assistant_id: ASSISTANT_ID,
+                            caller_number: PHONE_NUMBER,
+                            called_number: CALLER_ID
+                        }
+                    })
+                });
+                if (functionResponse.code == 200) {
+                    output = JSON.parse(functionResponse.text);
+                    lastFunctionResult = output;
+                    Logger.write("✅ Function executed: " + functionName);
+                } else {
+                    Logger.write("❌ Function failed: HTTP " + functionResponse.code);
+                    output = { error: "Function execution failed" };
+                }
+            }
+        } catch (err) {
+            Logger.write("❌ function handler: " + err);
+            output = { error: "Function execution failed" };
+        }
+
+        history.push({ role: "tool", tool_call_id: callId, content: JSON.stringify(output) });
+        toolsInFlight--;
+        maybeContinue();
+    }
+
+    // =========================================================================
+    // ХОД АБОНЕНТА: VAD + ASR
+    // =========================================================================
+
+    function clearTurnTimers() {
+        if (submitTimer) { clearTimeout(submitTimer); submitTimer = null; }
+        if (bargeTimer) { clearTimeout(bargeTimer); bargeTimer = null; }
+    }
+
+    function currentTurnText() {
+        return (turnFinal + " " + turnInterim).replace(/\s+/g, " ").trim();
+    }
+
+    function bargeIn(reason) {
+        if (bargeTimer) { clearTimeout(bargeTimer); bargeTimer = null; }
+        if (hangupAfterSpeech) return;          // прощание не перебиваем
+        if (greetingPending) return;            // приветствие тоже
+        if (!isAgentAudible() && !llmBusy) return;
+        stats.bargeIns++;
+        Logger.write("[TURN] ✋ перебивание (" + reason + ") — обрываем озвучку");
+        isInterrupted = true;
+        stopSpeaking();
+        discardResponse();
+        turnStarted = false;
+        firstFlushDone = false;
+        deltaBuffer = "";
+    }
+
+    // Абонент продолжил говорить, а ответ на его прошлый кусок ещё не зазвучал:
+    // это одна реплика с паузой, а не две. Забираем прошлый кусок обратно в
+    // текущую реплику, ответ на него выбрасываем.
+    function retractSubmitted() {
+        if (!submitted || !llmBusy || turnStarted || hangupAfterSpeech) return false;
+        if (history[history.length - 1] !== submitted.item) return false;
+        history.pop();
+        var idx = dialogLog.indexOf(submitted.dialogEntry);
+        if (idx !== -1) dialogLog.splice(idx, 1);
+        turnFinal = (submitted.text + " " + turnFinal).trim();
+        retractedText = submitted.text;
+        submitted = null;
+        discardResponse();
+        stats.retracts++;
+        Logger.write("[TURN] ↩ абонент продолжил — объединяем с \"" + retractedText.substring(0, 60) + "\"");
+        return true;
+    }
+
+    function onSpeechStart() {
+        userSpeaking = true;
+        speechSeg++;
+        if (submitTimer) { clearTimeout(submitTimer); submitTimer = null; }
+
+        if (isAgentAudible()) {
+            // Речь поверх агента: эхо и кашель короче BARGE_IN_MIN_MS, поэтому
+            // перебиваем только если речь продержалась (или ASR дал текст).
+            if (bargeTimer) clearTimeout(bargeTimer);
+            bargeTimer = setTimeout(function() {
+                bargeTimer = null;
+                if (userSpeaking) bargeIn("vad");
+            }, BARGE_IN_MIN_MS);
+        } else if (llmBusy) {
+            retractSubmitted();
+        }
+    }
+
+    function onSpeechEnd() {
+        userSpeaking = false;
+        if (bargeTimer) { clearTimeout(bargeTimer); bargeTimer = null; }
+        mVadStop = Date.now();
+        submitWaitStarted = Date.now();
+        scheduleSubmit(SUBMIT_SETTLE_MS);
+    }
+
+    function scheduleSubmit(ms) {
+        if (submitTimer) clearTimeout(submitTimer);
+        submitTimer = setTimeout(trySubmit, ms);
+    }
+
+    function trySubmit() {
+        submitTimer = null;
+        if (userSpeaking || isHangingUp) return;
+        if (hangupAfterSpeech) return;          // прощаемся — новых ответов не будет
+
+        var text = currentTurnText();
+        if (!text) {
+            // Тишина пришла раньше текста — ASR ещё не отдал interim. Ждём
+            // немного; если текста так и нет — это был шум, а не реплика.
+            if (Date.now() - submitWaitStarted < EMPTY_TEXT_WAIT_MS) {
+                scheduleSubmit(100);
+            } else {
+                stats.dropped++;
+                Logger.write("[TURN] сегмент без текста — шум, пропускаем");
+            }
+            return;
+        }
+
+        turnFinal = "";
+        turnInterim = "";
+        retractedText = "";
+        stats.turns++;
+
+        Logger.write("👤 USER: \"" + text + "\"");
+        resetHardTimeout();
+        var item = { role: "user", content: text };
+        history.push(item);
+        submitted = { seg: speechSeg, text: text, item: item, dialogEntry: logDialog("user", text) };
+
+        // Абонент заговорил, пока агент звучал, но перебивание не сработало
+        // (короткая реплика) — гасим агента сейчас, отвечать будем на новое.
+        // Приветствие не гасим: ответ встанет в очередь синтеза за ним.
+        if (isAgentAudible() && !hangupAfterSpeech && !greetingPending) bargeIn("turn");
+
+        requestResponse();
+    }
+
+    // Поздний текст от ASR по уже отправленной реплике (Yandex досылает
+    // финал через несколько секунд). Историю правим на месте — модель увидит
+    // полный текст в следующем запросе, отдельный запрос не нужен.
+    // Короче по буквам, но не по словам финал — это исправленное слово
+    // («баня уфимская» → «баня финская»), его берём; interim или меньше
+    // слов — недослушанный кусок, не лучше.
+    function correctSubmitted(text, isFinal) {
+        if (!submitted) return false;
+        if (userSpeaking || speechSeg !== submitted.seg) return false;
+        if (currentTurnText()) return false;
+        if (normText(text) === normText(submitted.text)) return true;
+        if (text.length < submitted.text.length &&
+            (!isFinal || wordCount(text) < wordCount(submitted.text))) return true;
+        Logger.write("[TURN] ✏️ уточнение: \"" + submitted.text + "\" → \"" + text + "\"");
+        submitted.text = text;
+        submitted.item.content = text;
+        if (submitted.dialogEntry) submitted.dialogEntry.text = text;
+        stats.corrections++;
+        return true;
+    }
+
+    function stripSubmittedPrefix(text) {
+        if (!submitted) return text;
+        var n = normText(text), s = normText(submitted.text);
+        if (s && n.indexOf(s + " ") === 0) {
+            var words = submitted.text.trim().split(/\s+/).length;
+            return text.trim().split(/\s+/).slice(words).join(" ");
+        }
+        return text;
+    }
+
+    // Retract вернул в реплику кусок, собранный из interim, а финал ASR по
+    // этому же куску приходит позже отдельным событием — без этой проверки
+    // он дописывался второй раз. Совпал или короче — выбрасываем, начинается
+    // с него — берём хвост, та же длина в словах — это исправленный вариант,
+    // подменяем.
+    function stripRetracted(text, isFinal) {
+        if (!retractedText) return text;
+        var n = normText(text), r = normText(retractedText);
+        if (!n || !r) return text;
+        var out = text;
+        if (n === r || r.indexOf(n) === 0) {
+            out = "";
+        } else if (n.indexOf(r + " ") === 0) {
+            out = text.trim().split(/\s+/).slice(retractedText.trim().split(/\s+/).length).join(" ");
+        } else if (isFinal && n.split(" ").length === r.split(" ").length &&
+                   n.split(" ")[0] === r.split(" ")[0] &&
+                   turnFinal.indexOf(retractedText) === 0) {
+            turnFinal = (text.trim() + turnFinal.substring(retractedText.length)).trim();
+            out = "";
+        } else {
+            return text;
+        }
+        if (isFinal) retractedText = "";
+        return out;
+    }
+
+    function onAsrInterim(text) {
+        if (correctSubmitted(text, false)) return;
+        turnInterim = stripSubmittedPrefix(stripRetracted(text, false));
+        // Настоящее перебивание: агент звучит, а от абонента уже пошёл текст.
+        if (userSpeaking && isAgentAudible()) bargeIn("interim");
+    }
+
+    function onAsrResult(text) {
+        if (correctSubmitted(text, true)) { turnInterim = ""; return; }
+        text = stripSubmittedPrefix(stripRetracted(text, true));
+        if (text) turnFinal = (turnFinal + " " + text).trim();
+        turnInterim = "";
+        // Финал пришёл, пока ждали текст после тишины — отправляем сразу.
+        if (!userSpeaking && submitTimer) scheduleSubmit(0);
+    }
+
+    function asrOptions() {
+        var lang = (CONFIG.asr_lang || CONFIG.language || "ru").toLowerCase();
+        if (ASR_PROVIDER === "deepgram") {
+            return {
+                profile: lang.indexOf("en") === 0 ? ASRProfileList.Deepgram.en_US : ASRProfileList.Deepgram.ru,
+                model: ASRModelList.Deepgram.nova2_general,
+                interimResults: true
+            };
+        }
+        var profiles = {
+            ru: ASRProfileList.Yandex.ru_RU,
+            en: ASRProfileList.Yandex.en_US,
+            de: ASRProfileList.Yandex.de_DE,
+            es: ASRProfileList.Yandex.es_ES,
+            fr: ASRProfileList.Yandex.fr_FR
+        };
+        return {
+            profile: profiles[lang.substring(0, 2)] || ASRProfileList.Yandex.ru_RU,
+            model: ASRModelList.Yandex.general,
+            interimResults: true
+        };
+    }
+
+    // =========================================================================
+    // ПРИВЕТСТВИЕ, МЬЮТ, ТИШИНА
+    // =========================================================================
+    function armGreetingGuard() {
+        // Потолок: оценка длительности приветствия + запас, но не больше
+        // GREETING_GUARD_MS — если событие конца озвучки не придёт.
+        var left = Math.max(0, agentAudioEndAt - Date.now());
+        greetingGuardTimer = setTimeout(function() {
+            greetingGuardTimer = null;
+            if (!greetingPending) return;
+            Logger.write("⚠️ конец приветствия не пришёл — снимаем защиту по оценке длительности");
+            onGreetingFinished("guard timeout");
+        }, Math.min(GREETING_GUARD_MS, left + HANGUP_EST_EXTRA_MS));
+    }
+
+    function onGreetingFinished(reason) {
+        if (!greetingPending) return;
+        greetingPending = false;
+        if (greetingGuardTimer) { clearTimeout(greetingGuardTimer); greetingGuardTimer = null; }
+        Logger.write("✅ Приветствие отзвучало (" + reason + ")");
+    }
+
+    // Мьют: аудио абонента подключается к ASR/VAD не сразу. Всё сказанное в
+    // это окно не распознаётся и в транскрипт не попадёт.
+    function linkClientAudio(reason) {
+        if (audioLinked || isHangingUp || !call || !asr || !vad) return;
+        audioLinked = true;
+        if (muteTimer) { clearTimeout(muteTimer); muteTimer = null; }
+        call.sendMediaTo(asr);
+        call.sendMediaTo(vad);
+        Logger.write("🎙️ call → ASR (" + ASR_PROVIDER + ") + VAD connected (" + reason + ")");
+    }
+
+    function startMuteWindow() {
+        if (MUTE_DURATION <= 0) {
+            linkClientAudio("mute disabled");
+            return;
+        }
+        Logger.write("🔇 Mute: фиксированные " + MUTE_DURATION + "ms от Connected");
+        muteTimer = setTimeout(function() {
+            muteTimer = null;
+            linkClientAudio("fixed mute " + MUTE_DURATION + "ms");
+        }, MUTE_DURATION);
+    }
+
+    // Ни реплик абонента, ни речи агента SILENCE_HARD_TIMEOUT_MS —
+    // автоответчик или брошенная трубка, минуты телефонии не тратим.
+    function resetHardTimeout() {
+        if (!callAnswered || isHangingUp) return;
+        if (hardTimer) clearTimeout(hardTimer);
+        hardTimer = setTimeout(function() {
+            hardTimer = null;
+            Logger.write("⏰ SILENCE TIMEOUT " + (SILENCE_HARD_TIMEOUT_MS / 1000) + "s — кладём трубку");
+            try { call.hangup(); } catch (err) {}
+        }, SILENCE_HARD_TIMEOUT_MS);
+    }
+
+    function createAsr() {
+        asr = VoxEngine.createASR(asrOptions());
+        asr.addEventListener(ASREvents.InterimResult, function(event) {
+            var text = event && event.text && String(event.text).trim();
+            if (text) onAsrInterim(text);
+        });
+        asr.addEventListener(ASREvents.Result, function(event) {
+            var text = event && event.text && String(event.text).trim();
+            if (text) onAsrResult(text);
+        });
+        // ASR тарифицируется отдельной строкой и в cost звонка не входит.
+        asr.addEventListener(ASREvents.Stopped, function(event) {
+            if (event && event.cost !== undefined) asr_cost = Number(event.cost) || 0;
+        });
+        asr.addEventListener(ASREvents.ASRError, function(event) {
+            Logger.write("❌ [ASR] " + JSON.stringify(event && (event.error || event.reason || event)));
+        });
+    }
+
+    // =========================================================================
+    // ПОДКЛЮЧЕНИЕ: LLM + VAD + VoxTTS (до набора номера)
+    // =========================================================================
+    Logger.write("🔌 Connecting to LLM (" + LLM_TRANSPORT + ") + Silero VAD...");
+
+    try {
+        await connectLlm();
+        vad = await Silero.createVAD({
+            threshold: VAD_THRESHOLD,
+            minSilenceDurationMs: VAD_SILENCE_MS,
+            speechPadMs: VAD_SPEECH_PAD_MS
+        });
+        createTts();
+    } catch (err) {
+        // Без модели звонить нельзя — абонент услышит только приветствие.
+        Logger.write("❌ Failed to connect LLM/VAD/TTS: " + err + " — звонок не совершаем");
+        isHangingUp = true;
+        if (llm) { try { llm.close(); } catch (e2) {} }
+        VoxEngine.terminate();
+        return;
+    }
+
+    Logger.write("✅ LLM + VAD + VoxTTS ready");
+
+    // Именно «поле присутствует», а не «истинно»: speechStartAt === 0
+    // (начало сессии) — валидное значение.
+    vad.addEventListener(Silero.VADEvents.Result, function(event) {
+        if (!callAnswered || isHangingUp) return;
+        var hasStart = event && event.speechStartAt !== undefined && event.speechStartAt !== null;
+        var hasEnd = event && event.speechEndAt !== undefined && event.speechEndAt !== null;
+        if (hasStart) onSpeechStart();
+        if (hasEnd) onSpeechEnd();
+    });
+    vad.addEventListener(Silero.VADEvents.Error, function(event) {
+        Logger.write("❌ [VAD] " + JSON.stringify(event && event.reason));
+    });
+
+    // Приветствие известно заранее — кладём его в историю сразу и греем
+    // модель тем же префиксом, пока идут гудки.
+    history.push({ role: "assistant", content: GREETING });
+    warmupLlm();
+
+    // =========================================================================
+    // СОВЕРШЕНИЕ ИСХОДЯЩЕГО ЗВОНКА
+    // =========================================================================
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    Logger.write("📞 Calling: " + PHONE_NUMBER + " from " + CALLER_ID);
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+    call = VoxEngine.callPSTN(PHONE_NUMBER, CALLER_ID);
+
+    call.addEventListener(CallEvents.Connected, function() {
+        if (callAnswered) return;
+        callAnswered = true;
+        call_id = call.id();
+        Logger.write("✅ OUTBOUND CALL CONNECTED | Call ID: " + call_id);
+
+        try {
+            call.record({ stereo: false, lossless: false, hd_audio: true });
+            Logger.write("🎙️ Recording started");
+        } catch (recordErr) {
+            Logger.write("⚠️ Recording failed: " + recordErr);
+        }
+
+        attachTtsToCall();
+
+        // Приветствие — напрямую в VoxTTS, без раунда к модели
+        Logger.write("🤖 AGENT (greeting): \"" + GREETING.substring(0, 60) + "\"");
+        logDialog("assistant", GREETING);
+        resetTurnState();
+        turnFullText = GREETING;
+        greetingPending = true;
+        speak(GREETING, true);
+        greetingFlushNo = flushesSent;
+        armGreetingGuard();
+
+        createAsr();
+        startMuteWindow();
+    });
+
+    call.addEventListener(CallEvents.RecordStarted, function(event) {
+        if (event.url) { record_url = event.url; Logger.write("🎙️ RecordStarted: " + record_url); }
+    });
+    call.addEventListener(CallEvents.RecordStopped, function(event) {
+        if (event.url) record_url = event.url;
+        // Запись тарифицируется отдельно и в cost звонка не входит.
+        if (event.cost !== undefined) record_cost = Number(event.cost) || 0;
+    });
+
+    call.addEventListener(CallEvents.Failed, function(event) {
+        Logger.write("❌ OUTBOUND CALL FAILED | Code: " + event.code + " | Reason: " + event.reason);
+        callEndHandler(event);
+    });
+    call.addEventListener(CallEvents.Disconnected, callEndHandler);
+
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    Logger.write("🎉 READY (OUTBOUND Cascade v4.0)");
+    Logger.write("   🔑 Session: " + call_session_history_id);
+    Logger.write("   👂 ASR: " + ASR_PROVIDER + " → 🧠 " + llmModel() + " → 🔊 VoxTTS " + voxttsVoice(CONFIG.tts_voice));
+    Logger.write("   🎧 VAD silence: " + VAD_SILENCE_MS + "ms");
+    Logger.write("   🔇 Mute: " + MUTE_DURATION + "ms (fixed, from Connected)");
+    Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });

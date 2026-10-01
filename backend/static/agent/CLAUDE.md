@@ -5,10 +5,11 @@
 
 Голосовой ассистент агента — один из шести провайдеров:
 `gemini | openai | cartesia | yandex | cascade | fish` (`AgentConfig.assistant_type`).
-Каскад работает на серверном ключе OpenAI (gpt-realtime-2.1-mini) + VoxTTS, оплата —
-кредитами каскада (`users.cascade_credits_balance`); хранится в
-`grok_assistant_configs (assistant_type='cascade')`, исходящие идут через отдельный
-rule `outbound_cascade` (цепочка с `vox-turn-taking`).
+Каскад (сценарии v4.0): ASR Voximplant + Silero VAD → модель через наш прокси
+`/ws/cascade/llm/{id}` (DeepSeek V4.1 Flash на ключе платформы) → VoxTTS; бесплатен
+(тариф 0 ₽); хранится в `grok_assistant_configs (assistant_type='cascade')`, исходящие
+идут через отдельный rule `outbound_cascade` (цепочка с `vox-turn-taking` не мешает,
+но больше не нужна).
 Fish — половинный каскад на ключах пользователя (OpenAI Realtime ведёт диалог,
 озвучивает Fish Audio через прокси `/ws/fish/tts/{id}`); хранится в
 `fish_assistant_configs`, голос задаётся `fish_voice_id` (reference_id из

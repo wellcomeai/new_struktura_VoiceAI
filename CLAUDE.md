@@ -451,6 +451,20 @@ Responses-клиент VoxEngine не использовать: массив с�
 (ответ на реплику поверх него встаёт в очередь синтеза), описание `hangup_call` усилено. Тест —
 `node voximplant_scenarios/test_outbound_fish.js`. Первый flush в Fish режется строго по знаку препинания (от 18 символов). Тест: `node voximplant_scenarios/test_inbound_fish.js` (запускает и `test_inbound_fish_proxy.js`), бэкенд прокси — `python test_llm_proxy.py`. Подробности — README сценариев.
 
+## Каскад на прокси модели и Silero (ветка 0110-contact)
+
+`voximplant_scenarios/inbound_cascade.js` / `outbound_cascade.js` v4.0 переведены на схему Fish v2.0:
+ASR Voximplant (Yandex, `asr_lang`) + Silero VAD (тишина = пресет `silence_duration_ms` ассистента, Pipecat /
+`VoxTurnTaking` не используются) → модель `LLM_MODEL` (`deepseek/deepseek-v4.1-flash`) через прокси
+`/ws/cascade/llm/{id}` (тот же `handler_llm_proxy.py`, `kind="cascade"`: ассистент из `grok_assistant_configs`
+с `assistant_type='cascade'`, ключ `provider_keys.resolve(user, "cascade")`; роут в `fish_ws.py`) → VoxTTS.
+URL сценарий берёт из `llm_proxy_url` конфига (`build_cascade_llm_url` в `telephony.py`, `/config` и
+`/outbound-config`); без него v4.0 звонок не принимает — бэкенд деплоить раньше сценариев. LLM/ASR/VAD-часть —
+копия Fish-сценариев (правьте четыре файла вместе), исходящая специфика — как у `outbound_fish`. Конец озвучки
+VoxTTS — `PlayerEvents.AudioChunksPlaybackFinished` плюс оценка длительности по `MS_PER_CHAR`. Каскад бесплатен:
+токены в `/log` (`cascade_usage`) только для статистики. Цепочка `vox-turn-taking` в правилах оставлена (безвредна).
+Тест — `node voximplant_scenarios/test_cascade.js`, бэкенд прокси — `python test_llm_proxy.py`.
+
 ## Описание API для ИИ-инструментов (ветка 2709-skills)
 
 `backend/static/agent-api.md` — «скилл» для Claude Code и т.п.: справочник возможностей агента

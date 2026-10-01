@@ -1,6 +1,8 @@
 # backend/websockets/handler_llm_proxy.py
 """
-Прокси Voximplant ⇄ OpenAI Chat Completions для каскада inbound_fish.js.
+Прокси Voximplant ⇄ OpenAI Chat Completions для каскадов: Fish
+(inbound_fish.js / outbound_fish.js, /ws/fish/llm/{id}) и каскада VoxTTS
+(inbound_cascade.js / outbound_cascade.js, /ws/cascade/llm/{id}).
 
 Зачем он нужен
 --------------
@@ -21,8 +23,8 @@
 
 Одновременно идёт один ответ: новый request обрывает предыдущий.
 Ключ OpenAI в сценарий не уходит — берём тот же, что и для остального
-Fish-ассистента (provider_keys.resolve(user, "fish").api_key). Списание — как
-раньше, по отчёту сценария (/api/voximplant/log).
+ассистента (provider_keys.resolve(user, "fish" | "cascade").api_key). Списание —
+как раньше, по отчёту сценария (/api/voximplant/log); каскад бесплатен.
 
 Модели с «/» в имени (deepseek/deepseek-v4.1-flash и т.п.) идут через
 OpenRouter на ключе платформы settings.OPENROUTER_API_KEY: замер с Render на
@@ -47,6 +49,7 @@ from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.db.session import release_db_connection
 from backend.models.fish_assistant import FishAssistantConfig
+from backend.models.grok_assistant import GrokAssistantConfig
 from backend.models.user import User
 from backend.services import provider_keys
 
@@ -251,21 +254,29 @@ async def handle_llm_proxy_connection(
     websocket: WebSocket,
     assistant_id: str,
     db: Session,
+    kind: str = "fish",
 ) -> None:
-    """Точка входа для /ws/fish/llm/{assistant_id}."""
+    """Точка входа для /ws/fish/llm/{assistant_id} (kind="fish") и
+    /ws/cascade/llm/{assistant_id} (kind="cascade")."""
     await websocket.accept()
     session: Optional[_LLMProxySession] = None
     try:
-        assistant = db.query(FishAssistantConfig).filter(
-            FishAssistantConfig.id == assistant_id
-        ).first()
+        if kind == "cascade":
+            assistant = db.query(GrokAssistantConfig).filter(
+                GrokAssistantConfig.id == assistant_id,
+                GrokAssistantConfig.assistant_type == "cascade",
+            ).first()
+        else:
+            assistant = db.query(FishAssistantConfig).filter(
+                FishAssistantConfig.id == assistant_id
+            ).first()
         if not assistant or not assistant.is_active:
-            logger.warning(f"[LLM-PROXY] Assistant not found or inactive: {assistant_id}")
+            logger.warning(f"[LLM-PROXY] {kind} assistant not found or inactive: {assistant_id}")
             await websocket.close(code=1008, reason="Assistant not found")
             return
 
         user = db.query(User).filter(User.id == assistant.user_id).first()
-        api_key = provider_keys.resolve(user, "fish").api_key
+        api_key = provider_keys.resolve(user, kind).api_key
         release_db_connection(db)
         if not api_key:
             await websocket.close(code=1008, reason="OpenAI API key is not configured")

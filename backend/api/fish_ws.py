@@ -87,6 +87,32 @@ async def fish_llm_websocket_endpoint(
             pass
 
 
+@router.websocket("/ws/cascade/llm/{assistant_id}")
+async def cascade_llm_websocket_endpoint(
+    websocket: WebSocket,
+    assistant_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    🧠 Тот же прокси модели для каскада VoxTTS (inbound_cascade.js /
+    outbound_cascade.js): ассистент ищется в grok_assistant_configs
+    (assistant_type='cascade'), ключ — provider_keys.resolve("cascade").
+    """
+    try:
+        logger.info(f"[CASCADE-WS] New LLM connection: assistant_id={assistant_id}")
+        await handle_llm_proxy_connection(
+            websocket=websocket, assistant_id=assistant_id, db=db, kind="cascade",
+        )
+    except WebSocketDisconnect:
+        logger.info(f"[CASCADE-WS] LLM scenario disconnected: assistant_id={assistant_id}")
+    except Exception as e:
+        logger.error(f"[CASCADE-WS] LLM WebSocket error for assistant {assistant_id}: {e}")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except Exception:
+            pass
+
+
 @router.get("/fish/health")
 def fish_health_check():
     """Health check прокси Fish Audio."""
