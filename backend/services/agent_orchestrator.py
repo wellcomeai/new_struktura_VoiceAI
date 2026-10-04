@@ -621,6 +621,19 @@ class PreCallOrchestrator:
 # POST-CALL ORCHESTRATOR
 # ============================================================================
 
+def _notification_history_context(agent_call, agent_contact) -> Dict[str, Any]:
+    """
+    Данные о контакте/звонке для записи уведомления send_telegram_notification в
+    историю Telegram-чата владельца (см. fn_send_telegram_notification).
+    """
+    return {
+        "contact_name": getattr(agent_contact, "name", None),
+        "contact_phone": getattr(agent_contact, "phone", None),
+        "agent_contact_id": str(agent_contact.id) if agent_contact is not None else None,
+        "agent_call_id": str(agent_call.id) if agent_call is not None else None,
+    }
+
+
 class PostCallOrchestrator:
     """Analyzes call results using GPT-5 with AGENT_POSTCALL_TOOLS."""
 
@@ -654,6 +667,19 @@ class PostCallOrchestrator:
         ).order_by(Conversation.created_at.asc()).all()
 
         return convs
+
+    @staticmethod
+    def _extract_record_url(convs) -> Optional[str]:
+        """
+        Ссылка на аудиозапись из найденных conversations (client_info["record_url"],
+        пишется вебхуком /api/voximplant/log). При нескольких записях — самая свежая.
+        """
+        for conv in reversed(convs or []):
+            info = conv.client_info if isinstance(conv.client_info, dict) else None
+            url = (info or {}).get("record_url")
+            if url:
+                return url
+        return None
 
     @staticmethod
     def _claim_for_finalization(db, agent_call_id: str, allowed_statuses: List[str]) -> bool:
@@ -720,6 +746,7 @@ class PostCallOrchestrator:
             duration_seconds = 0
 
             call_time = agent_call.started_at or agent_call.created_at
+            convs = []
 
             for attempt in range(retries):
                 # Поллер живёт до 5 минут на каждый звонок; пачка исходящих звонков
@@ -787,6 +814,12 @@ class PostCallOrchestrator:
                 logger.info(f"[AGENT-POSTCALL] Call {agent_call_id} already finalized elsewhere, skipping reserve poller")
                 return
             db.refresh(agent_call)
+            # Ссылку на запись фиксируем отдельным коммитом до анализа: при ошибке
+            # внутри _analyze делается rollback, и незакоммиченное поле потерялось бы.
+            record_url = PostCallOrchestrator._extract_record_url(convs)
+            if record_url:
+                agent_call.record_url = record_url
+                db.commit()
             release_db_connection(db)  # дальше долгие await LLM в _analyze
 
             orchestrator = PostCallOrchestrator()
@@ -891,6 +924,12 @@ class PostCallOrchestrator:
                 logger.info(f"[AGENT-POSTCALL] (webhook) call {agent_call_id} already owned/finalized, skip")
                 return
             db.refresh(agent_call)
+
+            # Ссылка на запись — отдельным коммитом до анализа (см. poll_and_run).
+            record_url = PostCallOrchestrator._extract_record_url(convs)
+            if record_url:
+                agent_call.record_url = record_url
+                db.commit()
 
             task = None
             if agent_call.source_task_id:
@@ -1117,6 +1156,11 @@ class PostCallOrchestrator:
    зафиксируй одной заметкой в update_agent_memory. Если ничего общего нет —
    не трогай память агента."""
 
+        # Ссылка на аудиозапись текущего звонка. Прикладывать её в уведомления
+        # или нет — решает оркестратор по инструкциям владельца.
+        record_url = getattr(agent_call, "record_url", None)
+        record_line = f"\nЗАПИСЬ ЗВОНКА (аудио): {record_url}" if record_url else ""
+
         return f"""{direction_line}
 КОНТАКТ: {agent_contact.name or 'Неизвестный'} ({agent_contact.phone})
 КОМПАНИЯ: {agent_contact.company or 'Не указана'}
@@ -1127,7 +1171,7 @@ class PostCallOrchestrator:
 {transcript}
 
 {status_label}: {call_status}
-ДЛИТЕЛЬНОСТЬ: {duration_seconds}s
+ДЛИТЕЛЬНОСТЬ: {duration_seconds}s{record_line}
 AGENT_CONTACT_ID: {str(agent_contact.id)}
 
 {action_block}"""
@@ -1363,6 +1407,8 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             "user_id": str(agent_call.user_id),
             "user": user,
             "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
+            # Уведомление из фонового разбора попадает в историю TG-чата владельца.
+            "notification_history_context": _notification_history_context(agent_call, agent_contact),
         }
 
         messages: List[Dict[str, Any]] = [
@@ -1617,6 +1663,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
                 "user_id": str(agent_call.user_id),
                 "user": user,
                 "agent_config": agent_config,  # ← v2.2: для тулзы send_telegram_notification
+                "notification_history_context": _notification_history_context(agent_call, agent_contact),
             }
 
             post_call_decision = None
@@ -1840,6 +1887,12 @@ class ChatOrchestrator:
 
     def _persist_telegram_history(self, telegram_history_row, message: str, final_text: str, db, contact_refs=None):
         """Дописать пару user/assistant в telegram_history_row.history, обрезать до 20, commit."""
+        # Перечитываем историю из БД: пока модель отвечала, фоновый PostCall мог
+        # дописать туда уведомление (append_notification_to_chat_histories).
+        try:
+            db.refresh(telegram_history_row, attribute_names=["history"])
+        except Exception as e:
+            logger.warning(f"[AGENT-TG] history refresh failed: {e}")
         history = list(telegram_history_row.history or [])
         history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
         history.append(self._assistant_history_entry(final_text, contact_refs))

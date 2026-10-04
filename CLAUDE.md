@@ -474,6 +474,67 @@ VoxTTS — `PlayerEvents.AudioChunksPlaybackFinished` плюс оценка дл
 `DELETE /api/agent/memory` — только JWT). База знаний, контакты, подключения — только кабинет.
 Добавляя тулзу агента или меняя тарифы/провайдеров, обновляй этот файл (шпаргалка, таблицы
 инструментов, PostCall-набор, «Тарифы»). HTML-версия для людей — `agent-api-docs.html`.
+## Запись звонка агента обзвона (ветка 2509-agent)
+
+`agent_calls.record_url` (Text) — ссылка на аудиозапись (R2, при сбое — временный URL
+Voximplant). Источник — `conversations.client_info["record_url"]`, который пишет
+`POST /api/voximplant/log` до запуска разбора звонка. `PostCallOrchestrator._extract_record_url`
+берёт самую свежую ссылку из найденных conversations в `finalize_from_webhook` и
+`poll_and_run` и коммитит её **до** `_analyze` (иначе rollback при ошибке анализа её
+потеряет). Оркестратор видит строку `ЗАПИСЬ ЗВОНКА (аудио): <url>` в блоке текущего звонка
+и сам решает, прикладывать ли её в `send_telegram_notification` (по промпту владельца —
+автодописывания нет). Если ссылка на запись есть в тексте уведомления
+(`_find_recording_url`: `/recordings/` или .mp3/.wav/.ogg/.m4a), бот агента включает
+предпросмотр только для неё (`link_preview_options.url` в `AgentTelegramService._send_chunk`,
+параметр `preview_url`) — в Telegram появляется плеер; остальные ссылки без превью. В чате ссылку отдают `get_contact_call_history` и
+`get_call_transcript` (`record_url`). UI: плеер + «Скачать запись» в `renderCallExpanded`
+(`agent/calls.js`, общий для модалки звонков, истории и карточки контакта), в xlsx-экспорте —
+колонка «Запись звонка». Колонка добавляется на старте (`ensure_agent_call_record_url_column`)
+и миграцией `add_agent_call_record_url`. Заполняется только для новых звонков.
+
+## Уведомления агента в истории Telegram-чата (ветка 2509-agent)
+
+`send_telegram_notification`, вызванный из фонового разбора (`PostCallOrchestrator._analyze`
+v2/v3: звонки, входящие SMS/TG/MAX, отложенные отправки), дописывает отправленный текст в
+историю Telegram-чатов владельца (`agent_telegram_chat_histories.history`, реплика
+`assistant`, `kind: "notification"`) — только в чаты, куда отправка прошла
+(`send_to_all_chats` → `sent_chat_ids`). Первая строка служебная:
+`[Уведомление, отправленное мной автоматически; контакт Имя (+7…), AGENT_CONTACT_ID: …, AGENT_CALL_ID: …]`,
+поэтому на «а что по этому клиенту?» чат-оркестратор знает, о ком речь. Контекст передаётся
+через `context["notification_history_context"]` (`_notification_history_context`); в
+интерактивном чате его нет и запись не делается. Запись — `append_notification_to_chat_histories`
+(своя сессия, `FOR UPDATE`, через `asyncio.to_thread`, хранится 20 последних записей), а
+`ChatOrchestrator._persist_telegram_history` перечитывает `history` перед записью, чтобы не
+затереть уведомление, пришедшее во время ответа. Веб-чат (`agent_configs.chat_history`) не трогается.
+
+## Поиск в базе знаний в живом звонке (ветка 2509-agent)
+
+`backend/functions/search_pinecone.py`: Pinecone отдаёт `top_k` ближайших (1–10, по умолчанию 3),
+затем ответ ужимается — `MAX_RESULT_CHARS`=3500 на все фрагменты, `MAX_FRAGMENT_CHARS`=1200 на
+один (раньше общий лимит 1000 — первый фрагмент съедал весь бюджет и модель получала один кусок),
+огрызки короче `MIN_FRAGMENT_CHARS`=200 не кладутся. Фрагменты со score ниже `MIN_SCORE`=0.25
+отбрасываются; если ничего не осталось — `found: false` + `message` (не придумывать ответ).
+В лог пишутся все scores (`[PINECONE] ... scores=[...] below_threshold=N`) — по ним подбирать порог.
+Поиск оркестратора агента (`fn_search_knowledge_base`) этих лимитов не использует.
+
+## Админка: все типы ассистентов, базы знаний, заполненность Pinecone (ветка 2509-agent)
+
+`backend/api/admin.py`: `ASSISTANT_KINDS` — все типы (Fish, OpenAI, Gemini, Каскад, Grok,
+Яндекс, Cartesia; Каскад и Grok делятся по `grok_assistant_configs.assistant_type`).
+`_count_assets_by_user(db, user_ids)` считает типы + агентов + базы знаний (`pinecone_configs` и
+`agent_configs.kb_namespace`) одним `GROUP BY` на таблицу (раньше — 3 запроса на каждого
+пользователя). `/admin/users` отдаёт `counts`, `kb_count`; `/admin/users/{id}` — `by_kind`,
+`agents`, `knowledge_bases`; `/admin/stats` — `assistants.by_kind`, `agents`, `knowledge_bases`.
+`GET /admin/pinecone-usage` — живой `describe_index_stats` (кэш 5 мин, `?refresh=true`): занято
+из `PINECONE_NAMESPACE_LIMIT`=100, `level` ok/warn/danger по порогам 80/95, мусорные namespaces
+(нет ссылок в БД — `_referenced_namespaces`, как в скрипте чистки) и базы без векторов; при
+недоступном Pinecone — `available: false`. Фронт (`admin.html`): виджет `[data-pc-root]` на
+вкладке «Пользователи» и в «Статистике» (`ui.renderPineconeUsage`), бейджи типов
+(`ui.assistantBadges`), таблица агентов в карточке пользователя (базы знаний по пользователям
+в UI не показываем — достаточно общего счётчика). Фильтр «Оплаченные (активные)»
+(`subscription_status=active`) отдаёт только оплаченные действующие подписки — не триал, не
+`FREE_PLAN_CODES`, не админы (`_is_paid_subscription`), сортировка по дате окончания; строки с
+`is_paid` подсвечены зелёным, колонка «Подписка до» — дата окончания и остаток дней.
 
 ## Key API Prefixes
 

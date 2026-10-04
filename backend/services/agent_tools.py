@@ -6,6 +6,7 @@ Two tool sets: AGENT_CHAT_TOOLS (user chat) and AGENT_POSTCALL_TOOLS (post-call 
 import asyncio
 import json
 import uuid
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -181,7 +182,9 @@ SEND_TELEGRAM_NOTIFICATION_TOOL = {
         "Используй при важных событиях: клиент готов купить / просит счёт, жалуется, "
         "просит живого человека, задал вопрос без ответа в материалах. "
         "Укажи в тексте: контакт (имя, телефон), суть события, что уже сделано. "
-        "Не отправляй повторно одно и то же событие."
+        "Не отправляй повторно одно и то же событие. "
+        "Если у звонка есть аудиозапись (строка «ЗАПИСЬ ЗВОНКА» или поле record_url), "
+        "ссылку можно вставить в текст — по ней владелец послушает разговор."
     ),
     "parameters": {
         "type": "object",
@@ -1980,7 +1983,7 @@ AGENT_CHAT_TOOLS = [
     {
         "type": "function",
         "name": "get_contact_call_history",
-        "description": "Получить историю звонков конкретного контакта агента.",
+        "description": "Получить историю звонков конкретного контакта агента (начало транскрипта и ссылка на аудиозапись record_url, если есть).",
         "parameters": {
             "type": "object",
             "properties": {
@@ -2351,7 +2354,8 @@ AGENT_CHAT_TOOLS = [
         "name": "get_call_transcript",
         "description": (
             "Получить ПОЛНЫЙ транскрипт конкретного звонка по его UUID (get_contact_call_history отдаёт только "
-            "первые 500 символов). Используй когда пользователь просит 'покажи весь разговор', 'что именно сказал клиент'. "
+            "первые 500 символов) и ссылку на аудиозапись (record_url, если звонок записан). Используй когда "
+            "пользователь просит 'покажи весь разговор', 'что именно сказал клиент', 'пришли запись звонка'. "
             "Сначала найди agent_call_id через get_contact_call_history."
         ),
         "parameters": {
@@ -2774,6 +2778,7 @@ async def fn_get_contact_call_history(args: dict, user_id: str, agent_config_id:
                 "post_call_decision": c.post_call_decision,
                 "duration_seconds": c.duration_seconds,
                 "transcript": (c.transcript[:500] if c.transcript else None),
+                "record_url": c.record_url,
                 "started_at": c.started_at.isoformat() if c.started_at else None,
                 "completed_at": c.completed_at.isoformat() if c.completed_at else None,
             }
@@ -2976,13 +2981,43 @@ async def fn_get_agent_stats(args: dict, user_id: str, agent_config_id: str, db:
     }
 
 
-async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, db: Session) -> dict:
+_URL_RE = re.compile(r"https?://[^\s<>\"'\]\[()]+", re.IGNORECASE)
+_AUDIO_EXT_RE = re.compile(r"\.(mp3|wav|ogg|oga|m4a)$", re.IGNORECASE)
+
+
+def _find_recording_url(text: str) -> Optional[str]:
+    """
+    Первая ссылка на аудиозапись звонка в тексте уведомления: папка /recordings/
+    в R2 или файл .mp3/.wav/.ogg/.m4a. По ней Telegram построит плеер.
+    """
+    for m in _URL_RE.finditer(text or ""):
+        url = m.group(0).rstrip(".,;:!?»*_`")
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        if "/recordings/" in path or _AUDIO_EXT_RE.search(path):
+            return url
+    return None
+
+
+async def fn_send_telegram_notification(
+    args: dict,
+    agent_config: AgentConfig,
+    db: Session,
+    history_context: Optional[dict] = None,
+) -> dict:
     """
     v2.2: Шлёт во все chat_id из agent_config.telegram_chat_ids.
     Использует бота агента (agent_configs.telegram_bot_token), а не юзера.
+
+    history_context (фоновые запуски: PostCall, входящие SMS/TG/MAX, отложенные
+    отправки) — {contact_name, contact_phone, agent_contact_id, agent_call_id}.
+    Если передан, отправленное уведомление дописывается в историю Telegram-чатов
+    владельца вместе со служебной строкой о контакте, чтобы чат-оркестратор
+    понимал, о ком речь. В интерактивном чате не передаётся: там уведомление
+    и так в контексте текущего ответа.
     """
     from backend.services.agent_telegram_service import (
         AgentTelegramService,
+        append_notification_to_chat_histories,
         markdown_to_telegram_html,
     )
 
@@ -3004,11 +3039,25 @@ async def fn_send_telegram_notification(args: dict, agent_config: AgentConfig, d
 
     body_html = markdown_to_telegram_html(message)
     text = f"🤖 <b>Voicyfy Agent</b>\n\n{body_html}"
+    # Ссылка на запись звонка (если агент её приложил) — с предпросмотром-плеером.
     result = await AgentTelegramService.send_to_all_chats(
         agent_config, text,
         file_bytes=(bytes(attach.content) if attach else None),
         file_name=(attach.filename if attach else None),
+        preview_url=_find_recording_url(message),
     )
+
+    if history_context and result.get("sent_chat_ids"):
+        hc = history_context
+        who = " ".join(x for x in [hc.get("contact_name"), f"({hc['contact_phone']})" if hc.get("contact_phone") else None] if x)
+        meta = [f"контакт {who}" if who else None,
+                f"AGENT_CONTACT_ID: {hc['agent_contact_id']}" if hc.get("agent_contact_id") else None,
+                f"AGENT_CALL_ID: {hc['agent_call_id']}" if hc.get("agent_call_id") else None]
+        meta_line = ", ".join(x for x in meta if x)
+        stored = f"[Уведомление, отправленное мной автоматически" + (f"; {meta_line}" if meta_line else "") + f"]\n{message}"
+        await asyncio.to_thread(
+            append_notification_to_chat_histories, agent_config.id, result["sent_chat_ids"], stored
+        )
 
     logger.info(
         f"[AGENT-TOOLS] Telegram notification: sent={result['sent']} "
@@ -3861,6 +3910,7 @@ async def fn_get_call_transcript(args: dict, user_id: str, agent_config_id: str,
             "started_at": call.started_at.isoformat() if call.started_at else None,
             "completed_at": call.completed_at.isoformat() if call.completed_at else None,
             "transcript": call.transcript or "(транскрипт недоступен)",
+            "record_url": call.record_url,
         },
     }
 
@@ -4134,7 +4184,10 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         elif tool_name == "get_agent_stats":
             result = await fn_get_agent_stats(tool_args, user_id, agent_config_id, db)
         elif tool_name == "send_telegram_notification":
-            result = await fn_send_telegram_notification(tool_args, context.get("agent_config"), db)
+            result = await fn_send_telegram_notification(
+                tool_args, context.get("agent_config"), db,
+                history_context=context.get("notification_history_context"),
+            )
         elif tool_name == "send_sms":
             agent_config = context.get("agent_config")
             if agent_config is None and agent_config_id:

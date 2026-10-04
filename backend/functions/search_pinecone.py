@@ -19,7 +19,25 @@ logger = get_logger(__name__)
 # по всем найденным фрагментам. До этого лимита не было вообще: размер ответа
 # определялся нарезкой базы, а она рубит текст только по пустой строке, так
 # что база, вставленная одним куском, уезжала в модель целиком.
-MAX_RESULT_CHARS = 1000
+# Было 1000: первый фрагмент (~1000 символов при нарезке базы) съедал весь
+# бюджет, и до модели доходил один кусок — часто не тот (например, шапка со
+# справочником синонимов вместо прайса).
+MAX_RESULT_CHARS = 3500
+
+# Потолок на один фрагмент: самый релевантный кусок не должен вытеснять
+# остальные, чтобы модель получала 3–4 фрагмента, а не один.
+MAX_FRAGMENT_CHARS = 1200
+
+# Порог релевантности (cosine, text-embedding-3-small). Pinecone всегда отдаёт
+# top_k ближайших, даже совсем не по теме; ниже порога фрагмент отбрасываем.
+# Релевантные совпадения на реальных базах — 0.45–0.7, мусор — до ~0.2.
+MIN_SCORE = 0.25
+
+# Что говорим модели, если по запросу ничего релевантного нет.
+NOT_FOUND_MESSAGE = (
+    "В базе знаний нет информации по этому запросу. Не придумывай ответ: "
+    "скажи клиенту, что уточнишь, или переформулируй запрос и поищи ещё раз."
+)
 
 # Огрызок короче этого в ответ не кладём: пользы от него нет, а место в
 # бюджете он занимает. Поэтому последний фрагмент либо влезает осмысленным
@@ -358,8 +376,15 @@ class PineconeSearchFunction(FunctionBase):
             formatted_results = []
             budget = MAX_RESULT_CHARS
             truncated = False
+            matches = results.get("matches", []) or []
+            below_threshold = 0
 
-            for match in results.get("matches", []):
+            for match in matches:
+                score = match.get("score") or 0
+                if score < MIN_SCORE:
+                    below_threshold += 1
+                    continue
+
                 metadata = dict(match.get("metadata") or {})
                 text = metadata.get("text") or ""
 
@@ -367,27 +392,30 @@ class PineconeSearchFunction(FunctionBase):
                     if budget < MIN_FRAGMENT_CHARS:
                         truncated = True
                         break
-                    if len(text) > budget:
-                        text = _trim(text, budget)
+                    limit = min(MAX_FRAGMENT_CHARS, budget)
+                    if len(text) > limit:
+                        text = _trim(text, limit)
                         truncated = True
                     metadata["text"] = text
                     budget -= len(text)
 
                 formatted_results.append({
                     "id": match.get("id"),
-                    "score": match.get("score"),
+                    "score": score,
                     "metadata": metadata,
                 })
 
             chars_returned = MAX_RESULT_CHARS - budget
+            scores = ",".join(f"{(m.get('score') or 0):.2f}" for m in matches)
             logger.info(
                 f"[PINECONE] namespace={namespace} top_k={top_k} "
-                f"matches={len(results.get('matches', []))} "
+                f"matches={len(matches)} scores=[{scores}] "
+                f"below_threshold={below_threshold} "
                 f"returned={len(formatted_results)} chars={chars_returned}"
                 + (" (обрезано)" if truncated else "")
             )
 
-            return {
+            response = {
                 "success": True,
                 "query": query,
                 "namespace": namespace,
@@ -396,6 +424,10 @@ class PineconeSearchFunction(FunctionBase):
                 "chars_returned": chars_returned,
                 "truncated": truncated,
             }
+            if not formatted_results:
+                response["found"] = False
+                response["message"] = NOT_FOUND_MESSAGE
+            return response
             
         except Exception as e:
             logger.error(f"Error in search_pinecone: {str(e)}")
