@@ -31,6 +31,9 @@ _DECISION_TO_STAGE = {
     "REJECTED": "rejected",
     "DO_NOT_CALL": "do_not_call",
     "FOLLOWUP": "active",
+    # Разговор состоялся, но агент не поставил ни следующий шаг, ни итог —
+    # контакт «в работе» (раньше такой разговор автоматически становился «Успехом»).
+    "ANSWERED": "active",
 }
 
 
@@ -53,7 +56,7 @@ def stage_from_decision(decision, current_stage=None):
 
     Возвращает ключ стадии только при определённом исходе:
       SUCCESS → success, REJECTED → rejected, DO_NOT_CALL → do_not_call,
-      FOLLOWUP → active.
+      FOLLOWUP → active, ANSWERED → active.
     """
     if current_stage in _TERMINAL_KEYS:
         return None

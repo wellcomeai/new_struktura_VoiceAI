@@ -52,7 +52,7 @@ from backend.services.agent_prompts import get_voice_agent_prompt, build_voice_a
 from backend.services.agent_models import (
     ORCHESTRATOR_MODELS, get_default_model, is_valid_model, resolve_slug,
 )
-from backend.services.agent_tools import assistant_task_kwargs
+from backend.services.agent_tools import assistant_task_kwargs, cancel_scheduled_agent_tasks
 from backend.services import agent_memory
 from backend.services.conversation_service import ConversationService
 from backend.services.credit_service import (
@@ -2911,9 +2911,13 @@ def update_agent_contact_status(
 
     old_stage = contact.status
     contact.status = body.status
+    # «Не звонить» — запланированные звонки и сообщения контакту отменяются.
+    cancelled = cancel_scheduled_agent_tasks(db, [contact.id]) if body.status == "do_not_call" else 0
     db.commit()
     db.refresh(contact)
-    logger.info(f"[AGENT] Contact {contact_id} stage {old_stage} -> {body.status} (manual)")
+    logger.info(
+        f"[AGENT] Contact {contact_id} stage {old_stage} -> {body.status} (manual, cancelled_tasks={cancelled})"
+    )
     return contact.to_dict()
 
 

@@ -5501,6 +5501,8 @@ _CALLER_DECISION_RU = {
     "NO_ANSWER": "Не дозвонились",
     "REJECTED": "Отказ",
     "DO_NOT_CALL": "Просил не звонить",
+    "ANSWERED": "Разговор состоялся",
+    "ERROR": "Ошибка разбора",
 }
 
 

@@ -41,6 +41,9 @@ _DECISION_LABELS = {
     "NO_ANSWER": "Не дозвонились",
     "REJECTED": "Отказ",
     "DO_NOT_CALL": "Не звонить",
+    "ANSWERED": "Разговор состоялся",
+    "ERROR": "Ошибка разбора",
+    "REPLIED": "Клиент ответил",
 }
 
 _CALL_STATUS_LABELS = {

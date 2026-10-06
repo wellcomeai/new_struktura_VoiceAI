@@ -377,6 +377,24 @@ async def build_chat_tools(agent_config, db: Session) -> list:
     return tools + to_chat_completions_tools([SCHEDULE_REPLY_CHECK_TOOL, *FILE_CHAT_TOOLS])
 
 
+# Публичный канал (/api/agent/public/{id}/message): текст часто приходит из формы
+# на сайте, то есть от постороннего человека. Только приём заявки: контакт,
+# задача/звонок, уведомление владельцу. Без удаления, массовых действий,
+# выгрузок, рассылок и правки памяти агента.
+PUBLIC_CHANNEL_TOOL_NAMES = {
+    "create_agent_contact", "find_contact", "update_contact_info", "append_contact_note",
+    "create_agent_task", "trigger_immediate_call", "send_telegram_notification",
+    "search_knowledge_base", "send_webhook",
+}
+
+
+def build_public_tools() -> list:
+    """Tools публичного канала приёма заявок (Chat Completions формат)."""
+    return to_chat_completions_tools(
+        [t for t in AGENT_CHAT_TOOLS if t.get("name") in PUBLIC_CHANNEL_TOOL_NAMES]
+    )
+
+
 async def build_postcall_tools(agent_config, db: Session) -> list:
     """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы + личный Telegram + личный MAX + проверка ответа."""
     tools = await _augment_with_connectors(
@@ -1583,7 +1601,9 @@ GET_AGENT_FILES_TOOL = {
 }
 
 FILE_CHAT_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, EXPORT_CONTACTS_TABLE_TOOL, GET_AGENT_FILES_TOOL]
-FILE_POSTCALL_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, GET_AGENT_FILES_TOOL]
+# Без get_agent_files: в разборе звонка/сообщения клиента модель не должна видеть
+# ссылки на все файлы агента (там выгрузки базы) — клиент мог бы их «попросить».
+FILE_POSTCALL_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL]
 
 
 def _attachment(args: dict, db: Session, agent_config_id) -> tuple:
@@ -1862,13 +1882,35 @@ async def fn_bulk_schedule_messages(args: dict, user_id: str, agent_config, db: 
     title = args.get("title") or ("Сообщение в MAX" if channel == "max" else "Сообщение в Telegram")
     task_kwargs = assistant_task_kwargs(agent_config)
 
+    # Новая партия встаёт после уже запланированных сообщений этого канала:
+    # две партии с одним start_at иначе шли бы параллельно, вдвое чаще лимита.
+    last_queued = db.query(func.max(Task.scheduled_time)).join(
+        AgentContact, AgentContact.id == Task.agent_contact_id
+    ).filter(
+        AgentContact.agent_config_id == agent_config.id,
+        Task.is_agent_task == True,
+        Task.status == TaskStatus.SCHEDULED,
+        Task.channel == channel,
+    ).scalar()
+    if last_queued is not None:
+        last_queued = last_queued if last_queued.tzinfo else last_queued.replace(tzinfo=timezone.utc)
+        if last_queued + timedelta(minutes=interval) > start_dt:
+            start_dt = last_queued + timedelta(minutes=interval)
+
     scheduled = []
-    for i, contact in enumerate(contacts):
-        slot = start_dt + timedelta(minutes=interval * i)
+    cursor = start_dt
+    for contact in contacts:
+        # Ночь переносится на утро вместе со всей очередью, интервал сохраняется.
+        slot, _shifted = adjust_to_working_hours(
+            cursor, agent_config.working_hours_start, agent_config.working_hours_end
+        )
+        cursor = slot + timedelta(minutes=interval)
         if isinstance(contact.memory, dict):
             snooze_until = _parse_iso_utc(contact.memory.get("snooze_until"))
             if snooze_until and slot < snooze_until:
-                slot = snooze_until
+                slot, _shifted = adjust_to_working_hours(
+                    snooze_until, agent_config.working_hours_start, agent_config.working_hours_end
+                )
         task = Task(
             is_agent_task=True,
             channel=channel,
@@ -2318,8 +2360,8 @@ AGENT_CHAT_TOOLS = [
         "name": "trigger_immediate_call",
         "description": (
             "Позвонить контакту прямо сейчас — создаёт задачу на ближайшее выполнение (планировщик подхватит "
-            "её в течение ~30 секунд). В отличие от create_agent_task, НЕ сдвигает время в рабочие часы — "
-            "звонок уйдёт немедленно. Используй только по явной просьбе 'позвони ему сейчас', 'набери немедленно'. "
+            "её в течение ~30 секунд). Вне рабочих часов агента звонок уйдёт в начале рабочего окна — "
+            "ночью клиентам не звоним. Используй только по явной просьбе 'позвони ему сейчас', 'набери немедленно'. "
             "Перед звонком убедись, что агент активен."
         ),
         "parameters": {
@@ -2500,8 +2542,10 @@ async def fn_create_agent_contact(args: dict, agent_config_id: str, user_id: str
 async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, db: Session, channel: str = "call") -> dict:
     """
     Создать агентскую задачу. channel="call" (дефолт) — задача на звонок,
-    channel="telegram" — отложенное сообщение с личного Telegram-аккаунта
-    (для него не применяются рабочие часы: писать можно в любое время).
+    channel="telegram"/"max" — отложенное сообщение с личного аккаунта,
+    channel="reply_check" — проверка ответа. Рабочие часы агента (МСК) действуют
+    для всех каналов: ночью клиенту не звоним и не пишем. Контакту в стадии
+    «Не звонить» задачи не ставятся.
     """
     is_telegram = channel == "telegram"
     is_max = channel == "max"
@@ -2510,13 +2554,15 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     agent_contact_id = args["agent_contact_id"]
 
     # Изоляция агентов: задачу можно ставить только своему контакту.
-    owner = db.query(AgentContact.id).filter(
+    owner = db.query(AgentContact.id, AgentContact.status).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
         AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not owner:
         return {"ok": False, "error": "Contact not found"}
+    if owner.status == "do_not_call":
+        return {"ok": False, "error": "contact_do_not_call", "hint": DO_NOT_CALL_HINT}
 
     # Время задачи: delay_minutes (относительное, сервер считает сам) имеет
     # приоритет над scheduled_at (абсолютное, посчитанное моделью).
@@ -2555,17 +2601,16 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
                 scheduled_at = snooze_until
                 logger.info(f"[AGENT-TOOLS] Contact {agent_contact_id} snoozed until {snooze_until}, shifting task to it")
 
-    # Унифицированная проверка рабочих часов агента (МСК) — переносим звонок
-    # на ближайший рабочий день, если время выпадает на нерабочие часы.
-    # Сообщения мессенджеров (Telegram/MAX) и проверка ответа рабочими часами
-    # не ограничены (звонок по итогам проверки сам сдвинется в рабочие часы).
-    if agent_config is not None and not is_messenger and not is_reply_check:
-        adjusted, _shifted = adjust_to_working_hours(
+    # Унифицированная проверка рабочих часов агента (МСК) — переносим задачу
+    # на ближайшее начало рабочего окна, если время выпадает на ночь. Касается
+    # и сообщений, и проверки ответа: планировщик всё равно не выполнит их ночью.
+    shifted_to_hours = False
+    if agent_config is not None:
+        scheduled_at, shifted_to_hours = adjust_to_working_hours(
             scheduled_at,
             agent_config.working_hours_start,
             agent_config.working_hours_end,
         )
-        scheduled_at = adjusted
 
     # Cancel only exact-time duplicates for this contact (same contact + same
     # scheduled_time + same channel). Tasks scheduled for other dates/times are
@@ -2621,6 +2666,12 @@ async def fn_create_agent_task(args: dict, user_id: str, agent_config_id: str, d
     }
     if clamped_to_future:
         result["note"] = "scheduled_at был в прошлом — время поднято до ближайшего будущего"
+    if shifted_to_hours:
+        result["shifted_to_working_hours"] = True
+        result["note"] = (
+            f"Время выпало на нерабочие часы ({agent_config.working_hours_start}–"
+            f"{agent_config.working_hours_end} МСК) — задача перенесена на начало рабочего окна"
+        )
     return result
 
 
@@ -2659,7 +2710,7 @@ async def fn_update_contact_memory(args: dict, agent_config_id: str, db: Session
     return {"ok": True, "contact_id": agent_contact_id}
 
 
-async def fn_update_agent_memory(args: dict, agent_config_id: str, db: Session) -> dict:
+async def fn_update_agent_memory(args: dict, agent_config_id: str, db: Session, protect_owner: bool = False) -> dict:
     """
     Точечные операции над памятью агента (add / update / delete). Атомарно под
     FOR UPDATE строки агента — см. agent_memory.lock_and_apply. Возвращает
@@ -2675,7 +2726,8 @@ async def fn_update_agent_memory(args: dict, agent_config_id: str, db: Session) 
     if not (add or update or delete):
         return {"ok": False, "error": "nothing_to_do: pass add, update or delete"}
     return agent_memory.lock_and_apply(
-        db, agent_config_id, add=add, update=update, delete=delete, source="agent"
+        db, agent_config_id, add=add, update=update, delete=delete, source="agent",
+        protect_owner=protect_owner,
     )
 
 
@@ -2733,12 +2785,17 @@ async def fn_move_contact_stage(args: dict, user_id: str, agent_config_id: str, 
 
     old_stage = contact.status
     contact.status = stage
+    # «Не звонить» — отменяем всё запланированное (звонки, сообщения, проверки).
+    cancelled = cancel_scheduled_agent_tasks(db, [contact.id]) if stage == "do_not_call" else 0
     db.commit()
     logger.info(
         f"[AGENT-TOOLS] Moved contact {agent_contact_id} stage {old_stage} -> {stage} "
-        f"(reason: {args.get('reason', '')})"
+        f"(reason: {args.get('reason', '')}, cancelled_tasks={cancelled})"
     )
-    return {"ok": True, "contact_id": str(agent_contact_id), "old_stage": old_stage, "stage": stage}
+    result = {"ok": True, "contact_id": str(agent_contact_id), "old_stage": old_stage, "stage": stage}
+    if cancelled:
+        result["cancelled_tasks"] = cancelled
+    return result
 
 
 async def fn_get_agent_contacts(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
@@ -2753,13 +2810,15 @@ async def fn_get_contact_call_history(args: dict, user_id: str, agent_config_id:
     agent_contact_id = args["agent_contact_id"]
 
     # Изоляция агентов: историю звонков отдаём только по своему контакту.
-    owner = db.query(AgentContact.id).filter(
+    owner = db.query(AgentContact.id, AgentContact.status).filter(
         AgentContact.id == agent_contact_id,
         AgentContact.user_id == user_id,
         AgentContact.agent_config_id == agent_config_id,
     ).first()
     if not owner:
         return {"ok": False, "error": "Contact not found"}
+    if owner.status == "do_not_call":
+        return {"ok": False, "error": "contact_do_not_call", "hint": DO_NOT_CALL_HINT}
 
     calls = (
         db.query(AgentCall)
@@ -3648,21 +3707,30 @@ async def fn_bulk_schedule_calls(args: dict, user_id: str, agent_config_id: str,
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
     task_kwargs = assistant_task_kwargs(agent_config)
 
+    # Звонки в прошлом не ставим: иначе первые задачи сработают разом.
+    now_dt = datetime.now(timezone.utc)
+    cursor = max(start_dt if start_dt.tzinfo else start_dt.replace(tzinfo=timezone.utc), now_dt)
+
     scheduled = []
-    for i, contact in enumerate(contacts):
-        slot = start_dt + timedelta(minutes=interval * i)
-
-        # Уважаем паузу контакта (snooze).
-        if isinstance(contact.memory, dict):
-            snooze_until = _parse_iso_utc(contact.memory.get("snooze_until"))
-            if snooze_until and slot < snooze_until:
-                slot = snooze_until
-
-        # Рабочие часы агента.
+    for contact in contacts:
+        slot = cursor
+        # Рабочие часы агента: перенос на утро сдвигает и всю дальнейшую
+        # очередь, интервал между звонками сохраняется (без пачки в 9:00).
         if agent_config is not None:
             slot, _shifted = adjust_to_working_hours(
                 slot, agent_config.working_hours_start, agent_config.working_hours_end
             )
+        cursor = slot + timedelta(minutes=interval)
+
+        # Уважаем паузу контакта (snooze) — только для этого контакта.
+        if isinstance(contact.memory, dict):
+            snooze_until = _parse_iso_utc(contact.memory.get("snooze_until"))
+            if snooze_until and slot < snooze_until:
+                slot = snooze_until
+                if agent_config is not None:
+                    slot, _shifted = adjust_to_working_hours(
+                        slot, agent_config.working_hours_start, agent_config.working_hours_end
+                    )
 
         task = Task(
             is_agent_task=True,
@@ -3739,13 +3807,7 @@ async def fn_bulk_move_contacts_stage(args: dict, user_id: str, agent_config_id:
         {"status": stage, "updated_at": datetime.utcnow()}, synchronize_session=False
     )
 
-    cancelled = 0
-    if stage == "do_not_call":
-        cancelled = db.query(Task).filter(
-            Task.agent_contact_id.in_(ids),
-            Task.is_agent_task == True,
-            Task.status == TaskStatus.SCHEDULED,
-        ).update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
+    cancelled = cancel_scheduled_agent_tasks(db, ids) if stage == "do_not_call" else 0
 
     db.commit()
     logger.info(
@@ -3803,7 +3865,10 @@ async def fn_bulk_cancel_calls(args: dict, user_id: str, agent_config_id: str, d
 
 
 async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: str, db: Session) -> dict:
-    """Создать задачу на немедленный звонок (без сдвига в рабочие часы)."""
+    """
+    Создать задачу на немедленный звонок. Ночью (вне рабочих часов агента)
+    планировщик звонок не выполнит — он уйдёт в начале рабочего окна.
+    """
     agent_contact_id = args.get("agent_contact_id")
     if not agent_contact_id:
         return {"ok": False, "error": "agent_contact_id_required"}
@@ -3816,19 +3881,28 @@ async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: s
     if not contact:
         return {"ok": False, "error": "Contact not found"}
 
+    if contact.status == "do_not_call":
+        return {"ok": False, "error": "contact_do_not_call", "hint": DO_NOT_CALL_HINT}
+
     agent_config = db.query(AgentConfig).filter(AgentConfig.id == agent_config_id).first()
     if agent_config is not None and not agent_config.is_active:
         return {"ok": False, "error": "agent_inactive", "hint": "Активируйте агента, иначе планировщик не выполнит звонок."}
 
-    # Немедленно: ставим задачу на текущий момент, рабочие часы НЕ применяем —
-    # пользователь явно просит позвонить сейчас. Планировщик подхватит её за ~30с.
+    # Немедленно: ставим задачу на текущий момент. Ночью планировщик её не
+    # выполнит, а перенесёт на начало рабочего окна — честно говорим об этом.
+    now_dt = datetime.now(timezone.utc)
+    run_at, after_hours = (now_dt, False)
+    if agent_config is not None:
+        run_at, after_hours = adjust_to_working_hours(
+            now_dt, agent_config.working_hours_start, agent_config.working_hours_end
+        )
     task = Task(
         is_agent_task=True,
         agent_contact_id=contact.id,
         user_id=user_id,
         contact_id=None,
         status=TaskStatus.SCHEDULED,
-        scheduled_time=datetime.now(timezone.utc),
+        scheduled_time=run_at,
         title=args.get("title") or "Немедленный звонок",
         description="",
         **assistant_task_kwargs(agent_config),
@@ -3842,7 +3916,12 @@ async def fn_trigger_immediate_call(args: dict, user_id: str, agent_config_id: s
         "task_id": str(task.id),
         "agent_contact_id": str(contact.id),
         "contact_name": contact.name or contact.phone,
-        "note": "Звонок поставлен в очередь, планировщик выполнит его в течение ~30 секунд.",
+        "note": (
+            f"Сейчас нерабочие часы агента ({agent_config.working_hours_start}–"
+            f"{agent_config.working_hours_end} МСК): звонок пройдёт в {run_at.isoformat()}."
+            if after_hours else
+            "Звонок поставлен в очередь, планировщик выполнит его в течение ~30 секунд."
+        ),
     }
 
 
@@ -4099,6 +4178,26 @@ CONTACT_NOT_FOUND_HINT = (
     "find_contact (имя или телефон) и возьми id из ответа."
 )
 
+DO_NOT_CALL_HINT = (
+    "Клиент в стадии «Не звонить»: звонки и сообщения ему не планируются. Если клиент "
+    "сам попросил связаться снова — сначала переведи его в другую стадию (move_contact_stage)."
+)
+
+
+def cancel_scheduled_agent_tasks(db: Session, agent_contact_ids) -> int:
+    """
+    Отменить запланированные (SCHEDULED) задачи агента у контактов — при переводе
+    в «Не звонить». Без commit: вызывающий коммитит вместе со сменой стадии.
+    """
+    ids = [i for i in (agent_contact_ids or []) if i]
+    if not ids:
+        return 0
+    return db.query(Task).filter(
+        Task.agent_contact_id.in_(ids),
+        Task.is_agent_task == True,
+        Task.status == TaskStatus.SCHEDULED,
+    ).update({"status": TaskStatus.CANCELLED}, synchronize_session=False)
+
 _TOOL_MAP = {
     "search_knowledge_base": "fn_search_knowledge_base",
     "create_agent_contact": "fn_create_agent_contact",
@@ -4147,16 +4246,107 @@ _TOOL_MAP = {
 }
 
 
+# Тулзы, которые действуют на конкретного контакта. В разборе события
+# (scope_contact_id в context) им принудительно подставляется контакт события:
+# туда попадает текст клиента, и «отправь SMS на +7…» / «переведи Иванова в
+# отказ» не должны дотянуться до чужих номеров и контактов.
+SCOPED_CONTACT_TOOLS = {
+    "create_agent_task", "update_contact_memory", "update_contact_info",
+    "move_contact_stage", "send_sms", "telegram_send_message", "max_send_message",
+    "schedule_telegram_message", "schedule_max_message", "schedule_reply_check",
+    "create_pdf_document", "create_spreadsheet",
+}
+# Тулзы отправки клиенту: получатель — только контакт события, вложение —
+# только файл этого контакта или созданный в этом же прогоне.
+SCOPED_SEND_TOOLS = {"send_sms", "telegram_send_message", "max_send_message"}
+# Явные адреса получателя, которые в разборе события игнорируются.
+_RECIPIENT_OVERRIDE_ARGS = ("phone", "username")
+
+
+def tool_names(tools: list) -> set:
+    """Имена тулз из списка (форматы Chat Completions и Responses API)."""
+    names = set()
+    for t in tools or []:
+        fn = t.get("function") if isinstance(t, dict) else None
+        name = (fn or {}).get("name") or (t.get("name") if isinstance(t, dict) else None)
+        if name:
+            names.add(name)
+    return names
+
+
+def _scope_tool_args(tool_name: str, tool_args: dict, context: dict, db: Session):
+    """
+    Привязать аргументы тулзы к контакту события. Возвращает (args, error|None).
+    """
+    scope_id = context.get("scope_contact_id")
+    if not scope_id or tool_name not in SCOPED_CONTACT_TOOLS:
+        return tool_args, None
+    args = dict(tool_args or {})
+    asked = args.get("agent_contact_id")
+    if asked and str(asked) != str(scope_id):
+        logger.warning(
+            f"[AGENT-TOOLS] {tool_name}: contact {asked} replaced by event contact {scope_id}"
+        )
+    args["agent_contact_id"] = str(scope_id)
+    if tool_name in SCOPED_SEND_TOOLS:
+        for key in _RECIPIENT_OVERRIDE_ARGS:
+            if args.pop(key, None):
+                logger.warning(f"[AGENT-TOOLS] {tool_name}: explicit '{key}' ignored in event run")
+        fid = args.get("file_id")
+        if fid:
+            run_files = context.setdefault("run_file_ids", set())
+            f = None
+            try:
+                f = agent_files.get_agent_file(db, fid, context.get("agent_config_id"))
+            except Exception:
+                safe_rollback(db)
+            allowed = f is not None and (
+                str(f.id) in run_files or str(f.agent_contact_id or "") == str(scope_id)
+            )
+            if not allowed:
+                return args, {
+                    "ok": False, "error": "file_not_allowed",
+                    "hint": "Клиенту можно отправить только файл, созданный для него в этом разборе "
+                            "(create_pdf_document / create_spreadsheet).",
+                }
+    return args, None
+
+
+def _remember_run_file(tool_name: str, result, context: dict) -> None:
+    """Файл, созданный в разборе события, можно приложить в этом же прогоне."""
+    if not context.get("scope_contact_id") or tool_name not in ("create_pdf_document", "create_spreadsheet"):
+        return
+    if isinstance(result, dict) and result.get("ok") and result.get("file_id"):
+        context.setdefault("run_file_ids", set()).add(str(result["file_id"]))
+
+
 async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Session) -> str:
     """
     Execute an agent tool by name.
 
     context must contain: agent_config_id, user_id, user (User object)
+    Optional:
+      allowed_tools    — имена тулз, выданных модели в этом прогоне; остальные
+                         не исполняются (модель могла «выдумать» опасную тулзу);
+      scope_contact_id — разбор события одного контакта: тулзы привязываются к нему
+                         (см. SCOPED_CONTACT_TOOLS), память агента — без правок владельца.
     Returns JSON string with result.
     """
     agent_config_id = context.get("agent_config_id")
     user_id = context.get("user_id")
     user = context.get("user")
+
+    allowed = context.get("allowed_tools")
+    if allowed is not None and tool_name not in allowed:
+        logger.warning(f"[AGENT-TOOLS] Tool '{tool_name}' is not in this run's tool set, refused")
+        return json.dumps({
+            "ok": False, "error": "tool_not_available",
+            "hint": "Этого инструмента нет в текущем наборе — используй только выданные инструменты.",
+        }, ensure_ascii=False)
+
+    tool_args, scope_error = _scope_tool_args(tool_name, tool_args, context, db)
+    if scope_error:
+        return json.dumps(scope_error, ensure_ascii=False)
 
     try:
         if tool_name == "create_agent_contact":
@@ -4166,7 +4356,10 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
         elif tool_name == "update_contact_memory":
             result = await fn_update_contact_memory(tool_args, agent_config_id, db)
         elif tool_name == "update_agent_memory":
-            result = await fn_update_agent_memory(tool_args, agent_config_id, db)
+            result = await fn_update_agent_memory(
+                tool_args, agent_config_id, db,
+                protect_owner=bool(context.get("scope_contact_id")),
+            )
         elif tool_name == "update_contact_info":
             result = await fn_update_contact_info(tool_args, user_id, agent_config_id, db)
         elif tool_name == "move_contact_stage":
@@ -4283,6 +4476,7 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
 
         if isinstance(result, dict) and result.get("error") == "Contact not found" and "hint" not in result:
             result["hint"] = CONTACT_NOT_FOUND_HINT
+        _remember_run_file(tool_name, result, context)
         return json.dumps(result, ensure_ascii=False, default=str)
 
     except Exception as e:

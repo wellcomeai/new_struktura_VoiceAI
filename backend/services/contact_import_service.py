@@ -376,6 +376,10 @@ def assign_schedule(
         base_utc = now_utc()
 
     shifted_count = 0
+    # Сдвиг дефолтного расписания: если группу перенесло на утро, следующие
+    # группы едут вместе с ней — иначе весь ночной хвост импорта собрался бы
+    # в одну минуту начала рабочего дня.
+    default_delta = timedelta(0)
 
     for idx, row in enumerate(rows):
         dt = row.get("scheduled_dt")
@@ -385,11 +389,14 @@ def assign_schedule(
                 target_utc = msk_to_utc(dt)
             else:
                 target_utc = dt.astimezone(timezone.utc)
+            adjusted_utc, shifted = adjust_to_working_hours(target_utc, wh_start, wh_end)
         else:
             group_index = idx // PARALLEL_GROUP_SIZE
-            target_utc = _default_scheduled_utc(group_index, base_utc)
+            target_utc = _default_scheduled_utc(group_index, base_utc) + default_delta
+            adjusted_utc, shifted = adjust_to_working_hours(target_utc, wh_start, wh_end)
+            if shifted:
+                default_delta += adjusted_utc - target_utc
 
-        adjusted_utc, shifted = adjust_to_working_hours(target_utc, wh_start, wh_end)
         if shifted:
             shifted_count += 1
 

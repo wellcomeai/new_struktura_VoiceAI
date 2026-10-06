@@ -113,8 +113,8 @@ function errText(detail){
   }
   return 'Ошибка: '+(detail||'не удалось выполнить запрос');
 }
-function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил', REPLIED:'Клиент ответил' })[d] || d || '—'; }
-function decisionBadge(d){ const cls={ FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer' }; return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`; }
+function decisionRu(d){ return ({ FOLLOWUP:'Перезвон', SUCCESS:'Успех', NO_ANSWER:'Не ответил', REPLIED:'Клиент ответил', ANSWERED:'Разговор', REJECTED:'Отказ', DO_NOT_CALL:'Не звонить', ERROR:'Ошибка разбора' })[d] || d || '—'; }
+function decisionBadge(d){ const cls={ FOLLOWUP:'badge-followup', SUCCESS:'badge-success', NO_ANSWER:'badge-no-answer', ANSWERED:'badge-answered', REJECTED:'badge-no-answer', DO_NOT_CALL:'badge-no-answer', ERROR:'badge-no-answer' }; return `<span class="status-badge ${cls[d]||''}">${decisionRu(d)}</span>`; }
 // Канал агентской задачи: call (звонок, дефолт) / telegram, max (отложенное сообщение) /
 // reply_check (проверка ответа клиента).
 // Для звонков бейдж не рисуем — это основной тип, шум не нужен.

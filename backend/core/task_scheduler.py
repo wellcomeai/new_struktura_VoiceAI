@@ -15,9 +15,11 @@ Task Scheduler для автоматического выполнения зап
 import asyncio
 import json
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, Tuple
+from sqlalchemy import and_, exists, text
+from sqlalchemy.orm import aliased
 
 from backend.core.logging import get_logger
 from backend.db.session import SessionLocal, safe_rollback
@@ -37,6 +39,9 @@ from backend.models.agent_call import AgentCall
 from backend.services.voximplant_partner import get_voximplant_partner_service
 from backend.services.agent_orchestrator import PreCallOrchestrator, PostCallOrchestrator
 from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL, client_reply_since
+from backend.core.timezone_utils import (
+    MSK, adjust_to_working_hours, defer_out_of_hours, in_working_hours,
+)
 
 logger = get_logger(__name__)
 
@@ -45,6 +50,25 @@ VOXIMPLANT_API_URL = "https://api.voximplant.com/platform_api/StartScenarios/"
 
 # Timezone по умолчанию
 DEFAULT_TIMEZONE = "Europe/Moscow"
+
+# Порции и параллельность (см. check_and_execute_tasks).
+AGENT_BATCH_SIZE = 20        # задач агента за один проход (раз в 30 с)
+AGENT_CONCURRENCY = 5        # одновременно исполняемых задач агента
+REGULAR_BATCH_SIZE = 20      # обычных задач CRM за проход
+
+# Уборка зависшего после рестарта (см. _sweep_stuck).
+SWEEP_INTERVAL_SECONDS = 300
+STUCK_TASK_MINUTES = 15      # задача в PENDING дольше — процесс умер посреди неё
+# Для звонков отсчёт — от начала звонка (started_at), поэтому запас на длинный
+# разговор плюс его разбор: иначе живой разбор приняли бы за зависший.
+STUCK_CALL_MINUTES = 90      # AgentCall в 'calling' дольше — поллер погиб
+STUCK_FINALIZING_MINUTES = 90
+REQUEUED_MARK = "requeued_after_restart"
+CLAIM_LOCK_KEY = 7240011     # pg_advisory_xact_lock для бронирования задач агента
+
+# Владельцу о пустом кошельке — не чаще раза в час (в памяти процесса).
+WALLET_NOTIFY_INTERVAL = timedelta(hours=1)
+_wallet_notified_at: Dict[str, datetime] = {}
 
 # Провайдеры со своим исходящим сценарием. Каскаду нужна цепочка
 # vox-turn-taking + outbound_cascade, Fish — прокси синтеза (/ws/fish/tts/…);
@@ -59,6 +83,17 @@ DEFAULT_OUTBOUND_RULE = "outbound_crm"
 # Тип, у которого outbound_crm остаётся запасным, пока своё правило не
 # заведено на дочернем аккаунте (раскатка /admin/setup-openai-scenarios-stream).
 OUTBOUND_RULE_FALLBACK_TO_DEFAULT = {"openai"}
+
+
+def _parse_utc(value) -> Optional[datetime]:
+    """ISO-строка → aware UTC (naive считается UTC); мусор → None."""
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
 
 
 def _outbound_rule_name(assistant_type: Optional[str]) -> str:
@@ -102,6 +137,9 @@ class TaskScheduler:
         """
         self.check_interval = check_interval
         self.is_running = False
+        self._agent_semaphore = asyncio.Semaphore(AGENT_CONCURRENCY)
+        # Первая уборка — сразу после старта: это и есть момент после рестарта.
+        self._last_sweep = datetime.min
         
     async def start(self):
         """Запуск планировщика"""
@@ -128,69 +166,341 @@ class TaskScheduler:
         logger.info("[TASK-SCHEDULER] Stopped")
     
     async def check_and_execute_tasks(self):
-        """Проверка и выполнение задач (agent + regular)"""
+        """
+        Один проход планировщика (agent + regular).
+
+        Задачи «бронируются» одним запросом (SELECT … FOR UPDATE SKIP LOCKED →
+        status=PENDING): второй процесс (деплой, отдельный воркер) ту же задачу не
+        увидит, звонок не задвоится. За проход — не больше AGENT_BATCH_SIZE задач,
+        исполняются параллельно, но не больше AGENT_CONCURRENCY одновременно, каждая
+        в своей сессии БД. Остальные ждут следующего прохода — нагрузка ровная,
+        без лавины звонков с одного номера. Запросы бронирования и уборки —
+        в потоке (asyncio.to_thread), чтобы не держать event loop.
+        """
         now = datetime.utcnow()
 
-        def _fetch_due_ids():
-            # Опрос раз в 30 с — в отдельном потоке, чтобы запрос к БД не держал
-            # event loop. Если задач нет (обычный случай), сессия в loop не открывается.
-            sdb = SessionLocal()
+        if (now - self._last_sweep).total_seconds() >= SWEEP_INTERVAL_SECONDS:
+            self._last_sweep = now
             try:
-                # 1. AGENT TASKS (is_agent_task=True)
-                agent_ids = [r[0] for r in sdb.query(Task.id).filter(
-                    Task.status == TaskStatus.SCHEDULED,
-                    Task.scheduled_time <= now,
-                    Task.is_agent_task == True
-                ).all()]
-                # 2. REGULAR TASKS (is_agent_task=False or NULL)
-                regular_ids = [r[0] for r in sdb.query(Task.id).filter(
-                    Task.status == TaskStatus.SCHEDULED,
-                    Task.scheduled_time <= now,
-                    Task.is_agent_task != True
-                ).all()]
-                return agent_ids, regular_ids
-            finally:
-                sdb.close()
+                reserve_calls = await asyncio.to_thread(self._sweep_stuck, now)
+            except Exception as e:
+                logger.error(f"[TASK-SCHEDULER] Sweep error: {e}", exc_info=True)
+                reserve_calls = []
+            for call_id, config_id, openai_key in reserve_calls:
+                # Резервный поллер звонка погиб с процессом — разбираем звонок сейчас.
+                asyncio.create_task(PostCallOrchestrator.poll_and_run(
+                    agent_call_id=call_id, agent_config_id=config_id,
+                    user_openai_key=openai_key, retries=1, delay=1,
+                ))
 
         try:
-            agent_ids, regular_ids = await asyncio.to_thread(_fetch_due_ids)
+            agent_ids = await asyncio.to_thread(self._claim_due_agent_tasks, now)
+            regular_ids = await asyncio.to_thread(self._claim_due_regular_tasks, now)
         except Exception as e:
-            logger.error(f"[TASK-SCHEDULER] Error fetching due tasks: {e}", exc_info=True)
+            logger.error(f"[TASK-SCHEDULER] Error claiming due tasks: {e}", exc_info=True)
             return
 
         if not agent_ids and not regular_ids:
             logger.debug(f"[TASK-SCHEDULER] No pending tasks at {now}")
             return
 
-        db = SessionLocal()
+        logger.info(
+            f"[TASK-SCHEDULER] Claimed {len(agent_ids) + len(regular_ids)} tasks "
+            f"({len(agent_ids)} agent, {len(regular_ids)} regular)"
+        )
 
-        try:
-            # Перечитываем задачи в рабочей сессии; повторная проверка статуса —
-            # на случай, если задачу уже забрали между двумя запросами.
-            agent_tasks = db.query(Task).filter(
-                Task.id.in_(agent_ids), Task.status == TaskStatus.SCHEDULED
-            ).all() if agent_ids else []
-            regular_tasks = db.query(Task).filter(
-                Task.id.in_(regular_ids), Task.status == TaskStatus.SCHEDULED
-            ).all() if regular_ids else []
+        if agent_ids:
+            await asyncio.gather(
+                *(self._run_claimed_agent_task(tid) for tid in agent_ids),
+                return_exceptions=True,
+            )
 
-            total = len(agent_tasks) + len(regular_tasks)
-            if not total:
-                return
+        for tid in regular_ids:
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(Task.id == tid).first()
+                if task is not None:
+                    await self.execute_task(task, db)
+            except Exception as e:
+                logger.error(f"[TASK-SCHEDULER] Error in regular task {tid}: {e}", exc_info=True)
+            finally:
+                db.close()
 
-            logger.info(f"[TASK-SCHEDULER] Found {total} tasks ({len(agent_tasks)} agent, {len(regular_tasks)} regular)")
-
-            for task in agent_tasks:
+    async def _run_claimed_agent_task(self, task_id):
+        """Исполнить забронированную задачу агента в своей сессии, под семафором."""
+        async with self._agent_semaphore:
+            db = SessionLocal()
+            try:
+                task = db.query(Task).filter(Task.id == task_id).first()
+                if task is None or task.status != TaskStatus.PENDING:
+                    return
                 await self.execute_agent_task(task, db)
+            except Exception as e:
+                logger.error(f"[TASK-SCHEDULER] Error running agent task {task_id}: {e}", exc_info=True)
+            finally:
+                db.close()
 
-            for task in regular_tasks:
-                await self.execute_task(task, db)
+    @staticmethod
+    def _claim_due_agent_tasks(now: datetime) -> list:
+        """
+        Забронировать до AGENT_BATCH_SIZE наступивших задач агента (синхронно, в потоке).
 
-        except Exception as e:
-            logger.error(f"[TASK-SCHEDULER] Error checking tasks: {e}", exc_info=True)
+        Пропускаются: задачи выключенных агентов (ждут включения), контакты, по
+        которым прямо сейчас идёт звонок, разбор или другая задача (не звоним
+        человеку дважды параллельно). Не больше одной задачи на контакт за проход.
+        """
+        sdb = SessionLocal()
+        try:
+            # Бронирование целиком — под транзакционной advisory-блокировкой: иначе
+            # два процесса, пропуская строки друг друга (SKIP LOCKED), взяли бы две
+            # РАЗНЫЕ задачи одного контакта и позвонили бы ему одновременно.
+            sdb.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": CLAIM_LOCK_KEY})
+            busy_contact = exists().where(and_(
+                AgentCall.agent_contact_id == Task.agent_contact_id,
+                AgentCall.status.in_(("calling", "finalizing")),
+            ))
+            other_task = aliased(Task)
+            contact_in_work = exists().where(and_(
+                other_task.agent_contact_id == Task.agent_contact_id,
+                other_task.status == TaskStatus.PENDING,
+            ))
+            inactive_agent = exists().where(and_(
+                AgentContact.id == Task.agent_contact_id,
+                AgentConfig.id == AgentContact.agent_config_id,
+                AgentConfig.is_active == False,  # noqa: E712
+            ))
+            rows = sdb.query(Task.id, Task.agent_contact_id).filter(
+                Task.status == TaskStatus.SCHEDULED,
+                Task.scheduled_time <= now,
+                Task.is_agent_task == True,  # noqa: E712
+                ~inactive_agent,
+                ~busy_contact,
+                ~contact_in_work,
+            ).order_by(Task.scheduled_time.asc()).limit(AGENT_BATCH_SIZE * 3).with_for_update(
+                skip_locked=True, of=Task
+            ).all()
+
+            picked, seen_contacts = [], set()
+            for task_id, contact_id in rows:
+                if contact_id in seen_contacts:
+                    continue
+                seen_contacts.add(contact_id)
+                picked.append(task_id)
+                if len(picked) >= AGENT_BATCH_SIZE:
+                    break
+
+            if picked:
+                sdb.query(Task).filter(Task.id.in_(picked)).update(
+                    {"status": TaskStatus.PENDING, "call_started_at": now},
+                    synchronize_session=False,
+                )
+            sdb.commit()
+            return picked
+        except Exception:
+            safe_rollback(sdb)
+            raise
         finally:
-            db.close()
-    
+            sdb.close()
+
+    @staticmethod
+    def _claim_due_regular_tasks(now: datetime) -> list:
+        """Забронировать до REGULAR_BATCH_SIZE наступивших обычных задач CRM."""
+        sdb = SessionLocal()
+        try:
+            ids = [r[0] for r in sdb.query(Task.id).filter(
+                Task.status == TaskStatus.SCHEDULED,
+                Task.scheduled_time <= now,
+                Task.is_agent_task != True,  # noqa: E712
+            ).order_by(Task.scheduled_time.asc()).limit(REGULAR_BATCH_SIZE).with_for_update(
+                skip_locked=True, of=Task
+            ).all()]
+            if ids:
+                sdb.query(Task).filter(Task.id.in_(ids)).update(
+                    {"status": TaskStatus.PENDING}, synchronize_session=False,
+                )
+            sdb.commit()
+            return ids
+        except Exception:
+            safe_rollback(sdb)
+            raise
+        finally:
+            sdb.close()
+
+    @staticmethod
+    def _sweep_stuck(now: datetime) -> list:
+        """
+        Уборка зависшего после рестарта процесса (синхронно, в потоке).
+
+        - Задача агента в PENDING дольше STUCK_TASK_MINUTES: процесс умер между
+          бронированием и итогом. Звонок, который не успели набрать (нет id сессии
+          Voximplant), возвращается в очередь один раз; сообщения и проверки ответа
+          — FAILED (сообщение могло уже уйти, повтор задвоил бы его).
+        - AgentCall в 'calling' дольше STUCK_CALL_MINUTES: если звонок был набран —
+          отдаём его резервному разбору (возвращается списком, запускает вызывающий);
+          иначе — 'failed'.
+        - AgentCall в 'finalizing' дольше STUCK_FINALIZING_MINUTES: разбор умер с
+          процессом — возвращаем в 'calling' и тоже отдаём резервному разбору.
+
+        Возвращает [(agent_call_id, agent_config_id, user_openai_key)] для разбора.
+        """
+        sdb = SessionLocal()
+        reserve = []
+        try:
+            task_cutoff = now - timedelta(minutes=STUCK_TASK_MINUTES)
+            stuck_tasks = sdb.query(Task).filter(
+                Task.status == TaskStatus.PENDING,
+                Task.is_agent_task == True,  # noqa: E712
+                Task.call_started_at < task_cutoff,
+            ).limit(200).all()
+            for task in stuck_tasks:
+                agent_call = sdb.query(AgentCall).filter(AgentCall.id == task.agent_call_id).first() \
+                    if task.agent_call_id else None
+                is_call = (task.channel or "call") == "call"
+                dialed = bool(agent_call and agent_call.call_session_id)
+                if is_call and not dialed and task.call_result != REQUEUED_MARK:
+                    task.status = TaskStatus.SCHEDULED
+                    task.scheduled_time = now
+                    task.call_result = REQUEUED_MARK
+                    task.agent_call_id = None
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.call_result = json.dumps({"error": "interrupted_by_restart"})
+                    task.call_completed_at = now
+                if agent_call is not None and agent_call.status == "calling" and not dialed:
+                    agent_call.status = "failed"
+                    agent_call.completed_at = now
+            if stuck_tasks:
+                logger.warning(f"[TASK-SCHEDULER] 🧹 Swept {len(stuck_tasks)} stuck PENDING agent tasks")
+
+            fin_cutoff = now - timedelta(minutes=STUCK_FINALIZING_MINUTES)
+            stuck_fin = sdb.query(AgentCall).filter(
+                AgentCall.status == "finalizing",
+                AgentCall.started_at < fin_cutoff,
+            ).limit(100).all()
+            for call in stuck_fin:
+                call.status = "calling"
+
+            call_cutoff = now - timedelta(minutes=STUCK_CALL_MINUTES)
+            stuck_calls = sdb.query(AgentCall).filter(
+                AgentCall.status == "calling",
+                AgentCall.started_at < call_cutoff,
+            ).limit(100).all()
+            stuck_fin_ids = {c.id for c in stuck_fin}
+            for call in stuck_calls + [c for c in stuck_fin if c not in stuck_calls]:
+                agent_config = sdb.query(AgentConfig).filter(AgentConfig.id == call.agent_config_id).first() \
+                    if call.agent_config_id else None
+                user = sdb.query(User).filter(User.id == call.user_id).first()
+                can_orchestrate = agent_config is not None and (
+                    agent_config.uses_hardcoded_prompt or (user and user.openai_api_key)
+                )
+                if (call.call_session_id or call.id in stuck_fin_ids) and can_orchestrate:
+                    reserve.append((str(call.id), str(agent_config.id), (user.openai_api_key or "") if user else ""))
+                else:
+                    call.status = "failed"
+                    call.completed_at = now
+            if stuck_fin or stuck_calls:
+                logger.warning(
+                    f"[TASK-SCHEDULER] 🧹 Stuck agent calls: {len(stuck_calls)} calling, "
+                    f"{len(stuck_fin)} finalizing → {len(reserve)} to reserve PostCall"
+                )
+            sdb.commit()
+            return reserve
+        except Exception:
+            safe_rollback(sdb)
+            raise
+        finally:
+            sdb.close()
+
+    def _agent_task_may_run_now(self, task: Task, agent_contact, agent_config, db: Session) -> bool:
+        """
+        Проверки момента исполнения (любой канал: звонок, сообщение, проверка ответа).
+        Возвращает False, если задачу сейчас выполнять нельзя — тогда она уже
+        отменена или возвращена в очередь на новое время.
+
+        - «Не звонить» → CANCELLED (стадию могли поставить после постановки задачи);
+        - пауза контакта (memory.snooze_until) → переносим на конец паузы;
+        - нерабочие часы агента (МСК) → переносим на утро со сдвигом на длину ночи,
+          чтобы ночная очередь утром ушла с прежним интервалом, а не пачкой.
+        """
+        now = datetime.now(timezone.utc)
+
+        if (agent_contact.status or "") == "do_not_call":
+            task.status = TaskStatus.CANCELLED
+            task.call_result = json.dumps({"skipped": "do_not_call"})
+            task.call_completed_at = datetime.utcnow()
+            db.commit()
+            logger.info(f"[TASK-SCHEDULER] 🚫 Agent task {task.id} cancelled: contact is do_not_call")
+            return False
+
+        memory = agent_contact.memory if isinstance(agent_contact.memory, dict) else {}
+        snooze_until = _parse_utc(memory.get("snooze_until"))
+        if snooze_until and snooze_until > now:
+            new_time, _ = adjust_to_working_hours(
+                snooze_until, agent_config.working_hours_start, agent_config.working_hours_end
+            )
+            self._requeue(task, new_time, db)
+            logger.info(f"[TASK-SCHEDULER] 💤 Agent task {task.id} moved to {new_time}: contact snoozed")
+            return False
+
+        wh_start, wh_end = agent_config.working_hours_start, agent_config.working_hours_end
+        if not in_working_hours(now.astimezone(MSK).hour, wh_start, wh_end):
+            scheduled = task.scheduled_time or now
+            new_time = defer_out_of_hours(scheduled, now, wh_start, wh_end)
+            self._requeue(task, new_time, db)
+            logger.info(
+                f"[TASK-SCHEDULER] 🌙 Agent task {task.id} ({task.channel or 'call'}) moved to {new_time}: "
+                f"outside working hours {wh_start}-{wh_end} MSK"
+            )
+            return False
+
+        return True
+
+    @staticmethod
+    def _requeue(task: Task, new_time: datetime, db: Session) -> None:
+        task.status = TaskStatus.SCHEDULED
+        task.scheduled_time = new_time
+        task.call_started_at = None
+        db.commit()
+
+    @staticmethod
+    def _wallet_allows_call(user, assistant_type: str, db: Session) -> bool:
+        """Тот же шлагбаум, что в /api/telephony/outbound-config (не меньше 3 минут на балансе)."""
+        try:
+            from backend.api.telephony import resolve_scenario_keys, LIVE_TARIFF_CODE
+            _keys, allowed, _mode = resolve_scenario_keys(
+                db, user, assistant_type, "[TASK-SCHEDULER]",
+                tariff_code=LIVE_TARIFF_CODE if assistant_type == "openai" else None,
+            )
+            return bool(allowed)
+        except Exception as e:
+            # Проверка не должна ронять звонок: шлагбаум сценария всё равно сработает.
+            logger.warning(f"[TASK-SCHEDULER] Wallet precheck failed (allowing call): {e}")
+            safe_rollback(db)
+            return True
+
+    @staticmethod
+    async def _notify_wallet_empty(user, agent_config, agent_contact, db: Session) -> None:
+        """Одно уведомление владельцу в час: звонки агента стоят из-за баланса."""
+        key = str(user.id)
+        now = datetime.utcnow()
+        last = _wallet_notified_at.get(key)
+        if last and now - last < WALLET_NOTIFY_INTERVAL:
+            return
+        _wallet_notified_at[key] = now
+        try:
+            from backend.services.agent_tools import fn_send_telegram_notification
+            await fn_send_telegram_notification(
+                {"message": (
+                    "💳 Звонки агента остановлены: на кошельке недостаточно средств. "
+                    f"Отменён звонок контакту {agent_contact.name or agent_contact.phone}. "
+                    "Пополните баланс — новые звонки пойдут сразу; отменённые нужно поставить заново."
+                )},
+                agent_config, db,
+            )
+        except Exception as e:
+            logger.warning(f"[TASK-SCHEDULER] Wallet notify failed: {e}")
+            safe_rollback(db)
+
     def _get_assistant_info(self, task: Task, db: Session) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """
         Получить информацию об ассистенте из задачи.
@@ -302,15 +612,16 @@ class TaskScheduler:
                 ).order_by(AgentConfig.created_at.asc()).first()
 
             # Skip if the agent is missing or inactive (toggle off).
-            # Leave the task SCHEDULED so it runs once the agent is re-activated.
+            # Задача уже забронирована (PENDING) — возвращаем в очередь, она
+            # выполнится, когда агента включат.
             if not agent_config or not agent_config.is_active:
                 logger.info(f"[TASK-SCHEDULER] Skipping agent task {task.id}: agent missing or inactive")
-                return  # не помечаем как failed — просто пропускаем, ждём активации
+                task.status = TaskStatus.SCHEDULED
+                db.commit()
+                return
 
-            # Lock task immediately
-            task.status = TaskStatus.PENDING
-            task.call_started_at = datetime.utcnow()
-            db.commit()
+            if not self._agent_task_may_run_now(task, agent_contact, agent_config, db):
+                return
 
             # Get user
             user = db.query(User).filter(User.id == task.user_id).first()
@@ -348,6 +659,17 @@ class TaskScheduler:
                 task.status = TaskStatus.FAILED
                 task.call_result = "Assistant not found"
                 db.commit()
+                return
+
+            # Кошелёк — до PreCall и набора: без денег сценарий всё равно не стартует,
+            # а PreCall/PostCall «недозвона» тратили бы модель и ставили новый звонок.
+            if not self._wallet_allows_call(user, assistant_type, db):
+                task.status = TaskStatus.CANCELLED
+                task.call_result = json.dumps({"error": "wallet_empty"})
+                task.call_completed_at = datetime.utcnow()
+                db.commit()
+                logger.warning(f"[TASK-SCHEDULER] 💳 Agent task {task.id} cancelled: wallet empty")
+                await self._notify_wallet_empty(user, agent_config, agent_contact, db)
                 return
 
             # Create AgentCall record
@@ -472,16 +794,6 @@ class TaskScheduler:
                 logger.info(
                     f"[TASK-SCHEDULER] 🔎 Reply check {task.id}: client replied via {reply['channel']}, nothing to do"
                 )
-                return
-
-            # «Не звонить» — клиента больше не трогаем, прогон не нужен.
-            if (agent_contact.status or "") == "do_not_call":
-                task.status = TaskStatus.COMPLETED
-                task.post_call_decision = "NO_ANSWER"
-                task.call_result = json.dumps({"replied": False, "skipped": "do_not_call"}, ensure_ascii=False)
-                task.call_completed_at = datetime.utcnow()
-                db.commit()
-                logger.info(f"[TASK-SCHEDULER] 🔎 Reply check {task.id}: contact is do_not_call, skipped")
                 return
 
             # Прогон реализован только для v3-агентов (OpenRouter): тулза
