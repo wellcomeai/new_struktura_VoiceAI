@@ -36,6 +36,42 @@ function fillCallerIdSelect(selId){
   if(agentData.default_caller_id) sel.value = agentData.default_caller_id;
 }
 
+// ── РАБОЧИЕ ЧАСЫ (МСК) ──
+// Бэкенд хранит часы 0–23: окно [start, end), start == end — круглосуточно,
+// end = 0 — «до 24:00» (окно через полночь, см. timezone_utils.in_working_hours).
+function fillWorkingHours(){
+  const hh = h => String(h).padStart(2, '0') + ':00';
+  const startSel = document.getElementById('i-wh-start');
+  const endSel = document.getElementById('i-wh-end');
+  if(!startSel || !endSel) return;
+  startSel.innerHTML = Array.from({length: 24}, (_, h) => `<option value="${h}">${hh(h)}</option>`).join('');
+  endSel.innerHTML = Array.from({length: 24}, (_, i) => {
+    const h = i + 1;
+    return `<option value="${h % 24}">${h === 24 ? '24:00' : hh(h)}</option>`;
+  }).join('');
+  const start = Number.isInteger(agentData.working_hours_start) ? agentData.working_hours_start : 9;
+  const end = Number.isInteger(agentData.working_hours_end) ? agentData.working_hours_end : 21;
+  const allDay = start === end;
+  document.getElementById('i-wh-24').checked = allDay;
+  startSel.value = String(allDay ? 9 : start);
+  endSel.value = String(allDay ? 21 : end);
+  onWorkingHours24Toggle();
+}
+function onWorkingHours24Toggle(){
+  const allDay = document.getElementById('i-wh-24').checked;
+  const range = document.getElementById('i-wh-range');
+  if(range) range.style.display = allDay ? 'none' : '';
+}
+function readWorkingHours(){
+  const startSel = document.getElementById('i-wh-start');
+  if(!startSel) return {};
+  if(document.getElementById('i-wh-24').checked) return { working_hours_start: 0, working_hours_end: 0 };
+  return {
+    working_hours_start: parseInt(startSel.value, 10),
+    working_hours_end: parseInt(document.getElementById('i-wh-end').value, 10),
+  };
+}
+
 // ── TOGGLE ──
 async function toggleActive(e){
   const want = e.target.checked;
@@ -359,6 +395,7 @@ function openInstructionsModal(){
   ms.onchange();
 
   fillCallerIdSelect('i-caller-id');
+  fillWorkingHours();
 
   // Публичный API — статус подгружаем асинхронно (не блокируем открытие модалки)
   const pubWrap = document.getElementById('i-public-access');
@@ -373,6 +410,11 @@ function closeInstructionsModal(){
 }
 
 async function saveInstructions(){
+  const wh = readWorkingHours();
+  if(!document.getElementById('i-wh-24')?.checked && wh.working_hours_start === wh.working_hours_end){
+    showToast('Рабочие часы: начало и конец совпадают. Для работы без перерыва включите «Круглосуточно».', 'error');
+    return;
+  }
   const btn = document.getElementById('instructions-save-btn');
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:15px;height:15px;border-width:2px"></div> Сохранение...';
@@ -385,6 +427,7 @@ async function saveInstructions(){
     inbound_first_phrase: document.getElementById('i-inbound_first_phrase').value.trim() || null,
     orchestrator_model: document.getElementById('i-orchestrator_model').value,
     default_caller_id: document.getElementById('i-caller-id').value || null,
+    ...wh,
     ...readVoiceBody(iSelectedType || agentData.assistant_type || 'gemini', I_VOICE_IDS),
   };
   const curType = agentData.assistant_type || 'gemini';

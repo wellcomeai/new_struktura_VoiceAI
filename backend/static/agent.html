@@ -423,6 +423,21 @@
             <select class="form-select" id="i-caller-id"><option value="">Автоматически</option></select>
           </div>
           <div class="form-group">
+            <label class="form-label">Рабочие часы агента (по московскому времени) <span class="hint" tabindex="0" data-hint="В это время агент звонит и пишет клиентам. Ночью задачи ждут утра, ответ на сообщение клиента уходит сразу."><i class="far fa-circle-question"></i></span></label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px">
+              <span class="switch">
+                <input type="checkbox" id="i-wh-24" onchange="onWorkingHours24Toggle()">
+                <span class="slider"></span>
+              </span>
+              <span style="font-size:13px;font-weight:600;color:var(--text)">Круглосуточно</span>
+            </label>
+            <div class="form-row" id="i-wh-range">
+              <div class="form-group"><label class="form-label">С</label><select class="form-select" id="i-wh-start"></select></div>
+              <div class="form-group"><label class="form-label">До</label><select class="form-select" id="i-wh-end"></select></div>
+            </div>
+            <div class="form-hint">Время указывается по Москве. Если ваши клиенты в другом часовом поясе, пересчитайте сами: например, Иркутск — МСК+5, чтобы звонить там с 9 до 20, поставьте с 4:00 до 15:00 по Москве. Задачи, выпавшие на нерабочее время, уходят в начале окна.</div>
+          </div>
+          <div class="form-group">
             <label class="form-label">Первая фраза для входящих звонков</label>
             <textarea class="form-textarea" id="i-inbound_first_phrase" rows="2"
                       placeholder="Например: «Здравствуйте, {name}! Чем могу помочь?»"></textarea>
