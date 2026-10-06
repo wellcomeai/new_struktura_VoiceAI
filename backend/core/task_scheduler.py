@@ -18,7 +18,7 @@ import httpx
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any, Tuple
-from sqlalchemy import and_, exists, text
+from sqlalchemy import and_, exists, or_, text
 from sqlalchemy.orm import aliased
 
 from backend.core.logging import get_logger
@@ -64,6 +64,14 @@ STUCK_TASK_MINUTES = 15      # задача в PENDING дольше — проц
 STUCK_CALL_MINUTES = 90      # AgentCall в 'calling' дольше — поллер погиб
 STUCK_FINALIZING_MINUTES = 90
 REQUEUED_MARK = "requeued_after_restart"
+# Уборщик трогает только свежее зависшее. Старее — история до появления уборщика:
+# такие записи закрываются молча, без разбора и без повторного звонка — иначе
+# агент начал бы действовать по звонкам недельной давности (перезвоны, сообщения).
+SWEEP_MAX_AGE = timedelta(hours=6)
+STALE_MARK = "stale_closed_by_sweeper"
+# Резервных разборов за один проход уборщика — не больше, и строго по очереди:
+# каждый держит соединение с БД, сотня параллельных выбрала пул целиком.
+RESERVE_PER_SWEEP = 5
 CLAIM_LOCK_KEY = 7240011     # pg_advisory_xact_lock для бронирования задач агента
 
 # Владельцу о пустом кошельке — не чаще раза в час (в памяти процесса).
@@ -186,12 +194,9 @@ class TaskScheduler:
             except Exception as e:
                 logger.error(f"[TASK-SCHEDULER] Sweep error: {e}", exc_info=True)
                 reserve_calls = []
-            for call_id, config_id, openai_key in reserve_calls:
-                # Резервный поллер звонка погиб с процессом — разбираем звонок сейчас.
-                asyncio.create_task(PostCallOrchestrator.poll_and_run(
-                    agent_call_id=call_id, agent_config_id=config_id,
-                    user_openai_key=openai_key, retries=1, delay=1,
-                ))
+            if reserve_calls:
+                # Резервный поллер звонка погиб с процессом — разбираем по одному.
+                asyncio.create_task(self._run_reserve_postcalls(reserve_calls))
 
         try:
             agent_ids = await asyncio.to_thread(self._claim_due_agent_tasks, now)
@@ -225,6 +230,18 @@ class TaskScheduler:
                 logger.error(f"[TASK-SCHEDULER] Error in regular task {tid}: {e}", exc_info=True)
             finally:
                 db.close()
+
+    @staticmethod
+    async def _run_reserve_postcalls(reserve_calls: list) -> None:
+        """Резервные разборы зависших звонков — последовательно, чтобы не выбрать пул БД."""
+        for call_id, config_id, openai_key in reserve_calls:
+            try:
+                await PostCallOrchestrator.poll_and_run(
+                    agent_call_id=call_id, agent_config_id=config_id,
+                    user_openai_key=openai_key, retries=1, delay=1,
+                )
+            except Exception as e:
+                logger.error(f"[TASK-SCHEDULER] Reserve PostCall {call_id} failed: {e}", exc_info=True)
 
     async def _run_claimed_agent_task(self, task_id):
         """Исполнить забронированную задачу агента в своей сессии, под семафором."""
@@ -340,68 +357,90 @@ class TaskScheduler:
           иначе — 'failed'.
         - AgentCall в 'finalizing' дольше STUCK_FINALIZING_MINUTES: разбор умер с
           процессом — возвращаем в 'calling' и тоже отдаём резервному разбору.
+        - Всё, что старше SWEEP_MAX_AGE, — история: закрывается FAILED / 'failed'
+          без разбора и без повторного звонка. Резервных разборов за проход — не
+          больше RESERVE_PER_SWEEP, вызывающий гоняет их последовательно.
 
         Возвращает [(agent_call_id, agent_config_id, user_openai_key)] для разбора.
         """
         sdb = SessionLocal()
         reserve = []
         try:
+            fresh_from = now - SWEEP_MAX_AGE
+
+            # 1. Задачи агента, зависшие в PENDING.
             task_cutoff = now - timedelta(minutes=STUCK_TASK_MINUTES)
             stuck_tasks = sdb.query(Task).filter(
                 Task.status == TaskStatus.PENDING,
                 Task.is_agent_task == True,  # noqa: E712
                 Task.call_started_at < task_cutoff,
-            ).limit(200).all()
+            ).limit(500).all()
+            requeued = failed = 0
             for task in stuck_tasks:
                 agent_call = sdb.query(AgentCall).filter(AgentCall.id == task.agent_call_id).first() \
                     if task.agent_call_id else None
                 is_call = (task.channel or "call") == "call"
                 dialed = bool(agent_call and agent_call.call_session_id)
-                if is_call and not dialed and task.call_result != REQUEUED_MARK:
+                started = task.call_started_at.replace(tzinfo=None) if task.call_started_at else None
+                is_fresh = started is not None and started >= fresh_from
+                if is_call and not dialed and is_fresh and task.call_result != REQUEUED_MARK:
                     task.status = TaskStatus.SCHEDULED
                     task.scheduled_time = now
                     task.call_result = REQUEUED_MARK
                     task.agent_call_id = None
+                    requeued += 1
                 else:
                     task.status = TaskStatus.FAILED
-                    task.call_result = json.dumps({"error": "interrupted_by_restart"})
+                    task.call_result = json.dumps(
+                        {"error": "interrupted_by_restart" if is_fresh else STALE_MARK}
+                    )
                     task.call_completed_at = now
+                    failed += 1
                 if agent_call is not None and agent_call.status == "calling" and not dialed:
                     agent_call.status = "failed"
                     agent_call.completed_at = now
             if stuck_tasks:
-                logger.warning(f"[TASK-SCHEDULER] 🧹 Swept {len(stuck_tasks)} stuck PENDING agent tasks")
+                logger.warning(
+                    f"[TASK-SCHEDULER] 🧹 Stuck PENDING agent tasks: {requeued} requeued, {failed} failed"
+                )
 
+            # 2. Звонки, зависшие в calling / finalizing.
             fin_cutoff = now - timedelta(minutes=STUCK_FINALIZING_MINUTES)
-            stuck_fin = sdb.query(AgentCall).filter(
-                AgentCall.status == "finalizing",
-                AgentCall.started_at < fin_cutoff,
-            ).limit(100).all()
-            for call in stuck_fin:
-                call.status = "calling"
-
             call_cutoff = now - timedelta(minutes=STUCK_CALL_MINUTES)
             stuck_calls = sdb.query(AgentCall).filter(
-                AgentCall.status == "calling",
-                AgentCall.started_at < call_cutoff,
-            ).limit(100).all()
-            stuck_fin_ids = {c.id for c in stuck_fin}
-            for call in stuck_calls + [c for c in stuck_fin if c not in stuck_calls]:
+                or_(
+                    and_(AgentCall.status == "calling", AgentCall.started_at < call_cutoff),
+                    and_(AgentCall.status == "finalizing", AgentCall.started_at < fin_cutoff),
+                ),
+            ).order_by(AgentCall.started_at.desc()).limit(500).all()
+            stale = 0
+            for call in stuck_calls:
+                is_fresh = call.started_at is not None and call.started_at >= fresh_from
+                if not is_fresh or len(reserve) >= RESERVE_PER_SWEEP:
+                    if not is_fresh:
+                        # История: закрываем без разбора, агент по ней не действует.
+                        call.status = "failed"
+                        call.completed_at = now
+                        call.call_result = STALE_MARK
+                        stale += 1
+                    continue  # свежие сверх лимита — в следующий проход
                 agent_config = sdb.query(AgentConfig).filter(AgentConfig.id == call.agent_config_id).first() \
                     if call.agent_config_id else None
                 user = sdb.query(User).filter(User.id == call.user_id).first()
                 can_orchestrate = agent_config is not None and (
                     agent_config.uses_hardcoded_prompt or (user and user.openai_api_key)
                 )
-                if (call.call_session_id or call.id in stuck_fin_ids) and can_orchestrate:
+                was_finalizing = call.status == "finalizing"
+                if (call.call_session_id or was_finalizing) and can_orchestrate:
+                    call.status = "calling"  # poll_and_run забирает только 'calling'
                     reserve.append((str(call.id), str(agent_config.id), (user.openai_api_key or "") if user else ""))
                 else:
                     call.status = "failed"
                     call.completed_at = now
-            if stuck_fin or stuck_calls:
+            if stuck_calls:
                 logger.warning(
-                    f"[TASK-SCHEDULER] 🧹 Stuck agent calls: {len(stuck_calls)} calling, "
-                    f"{len(stuck_fin)} finalizing → {len(reserve)} to reserve PostCall"
+                    f"[TASK-SCHEDULER] 🧹 Stuck agent calls: {len(stuck_calls)} found, {stale} stale closed "
+                    f"without analysis, {len(reserve)} to reserve PostCall"
                 )
             sdb.commit()
             return reserve
