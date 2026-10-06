@@ -27,6 +27,7 @@ import asyncio
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
+from backend.core.loop_bridge import await_in_loop, spawn_in_loop
 from backend.services import provider_keys  # ✅ v6.0: серверные ключи
 from backend.db.session import get_db, SessionLocal
 from backend.models.assistant import AssistantConfig
@@ -1162,11 +1163,16 @@ def voximplant_transcript_webhook(
 # =============================================================================
 
 @router.post("/log")
-async def log_conversation_data(
+def log_conversation_data(
     request_data: Dict[str, Any],
     db: Session = Depends(get_db)
 ):
     """
+    Синхронный `def`: FastAPI выполняет его в отдельном потоке, поэтому десятки
+    запросов к БД (диалог, списание, AgentCall) не останавливают event loop с
+    живыми звонками. Асинхронные вызовы (стоимость, запись в R2, Google Sheets)
+    идут через await_in_loop, фоновые задачи — через spawn_in_loop.
+
     Эндпоинт для логирования данных разговора из Voximplant.
     
     🆕 v2.2: Сохраняет данные И в Google Sheets И в БД
@@ -1404,11 +1410,11 @@ async def log_conversation_data(
 
                 if api_credentials:
                     # Запрашиваем полную стоимость
-                    cost_result = await get_full_call_cost(
+                    cost_result = await_in_loop(get_full_call_cost(
                         call_session_history_id=call_session_history_id,
                         account_id=api_credentials["account_id"],
                         api_key=api_credentials["api_key"]
-                    )
+                    ))
 
                     # Лог сессии доступен даже если стоимость ещё не посчитана
                     if cost_result.get("log_file_url"):
@@ -1504,12 +1510,12 @@ async def log_conversation_data(
                         logger.info(f"[VOXIMPLANT-v3.9] 📤 Загрузка в R2 Storage...")
                         
                         # Передаём credentials в R2StorageService
-                        permanent_record_url = await R2StorageService.upload_recording(
+                        permanent_record_url = await_in_loop(R2StorageService.upload_recording(
                             record_url=record_url,
                             call_id=call_id or chat_id or str(uuid.uuid4()),
                             assistant_id=assistant_id,
                             voximplant_credentials=voximplant_credentials
-                        )
+                        ))
                         
                         if permanent_record_url:
                             r2_saved = True
@@ -1672,8 +1678,7 @@ async def log_conversation_data(
                         
                         logger.info(f"[VOXIMPLANT-v3.9] 📱 Telegram config found, scheduling notification...")
                         
-                        asyncio.create_task(
-                            send_call_notification_safe(
+                        spawn_in_loop(send_call_notification_safe(
                                 bot_token=user.telegram_bot_token,
                                 chat_id=user.telegram_chat_id,
                                 assistant_name=assistant.name,
@@ -1683,8 +1688,7 @@ async def log_conversation_data(
                                 dialog=dialog,
                                 record_url=permanent_record_url,
                                 call_direction=call_direction
-                            )
-                        )
+                            ))
                         
                         telegram_notification_scheduled = True
                         logger.info(f"[VOXIMPLANT-v3.9] 📤 Telegram notification scheduled")
@@ -1707,8 +1711,7 @@ async def log_conversation_data(
 
                         logger.info(f"[VOXIMPLANT-v3.9] 🔗 Webhook config found, scheduling notification...")
 
-                        asyncio.create_task(
-                            send_webhook_safe(
+                        spawn_in_loop(send_webhook_safe(
                                 db=SessionLocal(),  # ⚠️ Новая сессия для async task
                                 webhook_url=user.webhook_url,
                                 webhook_enabled=user.webhook_enabled,
@@ -1722,8 +1725,7 @@ async def log_conversation_data(
                                 duration_seconds=call_duration,
                                 call_cost=call_cost,
                                 record_url=permanent_record_url,
-                            )
-                        )
+                            ))
 
                         webhook_notification_scheduled = True
                         logger.info(f"[VOXIMPLANT-v3.9] 📤 Webhook notification scheduled")
@@ -1749,15 +1751,13 @@ async def log_conversation_data(
                 try:
                     logger.info(f"[VOXIMPLANT-v3.9] 📅 Планируем отложенный пересчёт через 15 секунд...")
                     
-                    asyncio.create_task(
-                        delayed_cost_recalculation(
+                    spawn_in_loop(delayed_cost_recalculation(
                             conversation_id=str(db_result.id),
                             call_session_history_id=call_session_history_id,
                             account_id=api_credentials["account_id"],
                             api_key=api_credentials["api_key"],
                             delay_seconds=15
-                        )
-                    )
+                        ))
                     
                     delayed_recalc_scheduled = True
                     logger.info(f"[VOXIMPLANT-v3.9] ✅ Отложенный пересчёт запланирован")
@@ -1801,9 +1801,7 @@ async def log_conversation_data(
                         )
                         if pending_call:
                             logger.info(f"[VOXIMPLANT-AGENT] 🤖 Финализируем AgentCall {pending_call.id} по транскрипту из /log")
-                            asyncio.create_task(
-                                PostCallOrchestrator.finalize_from_webhook(str(pending_call.id))
-                            )
+                            spawn_in_loop(PostCallOrchestrator.finalize_from_webhook(str(pending_call.id)))
                         else:
                             logger.info(f"[VOXIMPLANT-AGENT] ℹ️ Нет висящих AgentCall для номера ...{phone_suffix}")
                 except Exception as agent_fin_error:
@@ -1887,11 +1885,9 @@ async def log_conversation_data(
 
                         # 4. Запускаем PostCall как у исходящих, но с пометкой inbound.
                         logger.info(f"[VOXIMPLANT-AGENT] 🤖📞 Входящий на агента — финализируем AgentCall {inbound_call.id}")
-                        asyncio.create_task(
-                            PostCallOrchestrator.finalize_from_webhook(
+                        spawn_in_loop(PostCallOrchestrator.finalize_from_webhook(
                                 str(inbound_call.id), call_direction="inbound"
-                            )
-                        )
+                            ))
                     elif not agent_config:
                         logger.info(f"[VOXIMPLANT-AGENT] ℹ️ Входящий: ассистент {assistant.id} не принадлежит агенту, PostCall не требуется")
                 except Exception as inbound_agent_error:
@@ -1906,7 +1902,7 @@ async def log_conversation_data(
                 logger.info(f"[VOXIMPLANT-v3.9] 📊 Запись в Google Sheets: {log_sheet_id}")
                 
                 try:
-                    sheets_result = await GoogleSheetsService.log_conversation(
+                    sheets_result = await_in_loop(GoogleSheetsService.log_conversation(
                         sheet_id=log_sheet_id,
                         user_message=user_message,
                         assistant_message=assistant_message,
@@ -1915,7 +1911,7 @@ async def log_conversation_data(
                         caller_number=normalized_phone,
                         call_cost=call_cost,
                         call_duration=call_duration
-                    )
+                    ))
                     
                     if sheets_result:
                         logger.info(f"[VOXIMPLANT-v3.9] ✅ Данные записаны в Google Sheets")

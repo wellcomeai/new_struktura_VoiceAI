@@ -4332,10 +4332,6 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
                          (см. SCOPED_CONTACT_TOOLS), память агента — без правок владельца.
     Returns JSON string with result.
     """
-    agent_config_id = context.get("agent_config_id")
-    user_id = context.get("user_id")
-    user = context.get("user")
-
     allowed = context.get("allowed_tools")
     if allowed is not None and tool_name not in allowed:
         logger.warning(f"[AGENT-TOOLS] Tool '{tool_name}' is not in this run's tool set, refused")
@@ -4347,6 +4343,75 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
     tool_args, scope_error = _scope_tool_args(tool_name, tool_args, context, db)
     if scope_error:
         return json.dumps(scope_error, ensure_ascii=False)
+
+    if tool_name in THREADED_TOOLS and db is not None:
+        # Инструмент только с БД: выполняем в потоке со своей сессией, чтобы
+        # синхронные запросы (поиск по базе, массовые действия) не держали event
+        # loop с живыми звонками. Сессия вызывающего не делится между потоками.
+        # Её транзакцию закрываем заранее: если она держит блокировку строки, в
+        # которую пишет инструмент, поток ждал бы loop, а loop — поток.
+        try:
+            db.commit()
+        except Exception as e:
+            logger.warning(f"[AGENT-TOOLS] commit before threaded tool failed: {e}")
+            safe_rollback(db)
+        result_str = await asyncio.to_thread(_run_tool_in_own_session, tool_name, tool_args, context)
+        _expire_clean_objects(db)
+        return result_str
+
+    return await _dispatch_tool(tool_name, tool_args, context, db)
+
+
+# Инструменты, которые работают только с БД и получают id (не ORM-объекты
+# сессии вызывающего), — исполняются в потоке (см. execute_tool). Те, что ходят
+# в сеть (Telegram/MAX/SMS/вебхук/Pinecone) или берут agent_config из контекста,
+# остаются в event loop.
+THREADED_TOOLS = {
+    "create_agent_contact", "create_agent_task", "update_contact_memory",
+    "update_agent_memory", "update_contact_info", "move_contact_stage",
+    "get_agent_contacts", "get_contact_call_history", "get_contact_timeline",
+    "get_agent_tasks", "delete_agent_task", "get_agent_stats", "find_contact",
+    "search_contacts", "get_contact_details", "get_contacts_by_stage",
+    "bulk_create_contacts", "delete_agent_contact", "append_contact_note",
+    "update_agent_task", "get_upcoming_schedule", "bulk_schedule_calls",
+    "bulk_move_contacts_stage", "bulk_cancel_calls", "trigger_immediate_call",
+    "snooze_contact", "get_call_transcript", "get_period_report", "get_failed_calls",
+    "telegram_get_thread", "max_get_thread", "get_agent_files", "schedule_reply_check",
+}
+
+
+def _run_tool_in_own_session(tool_name: str, tool_args: dict, context: dict) -> str:
+    """Выполнить инструмент в текущем (рабочем) потоке со своей сессией БД."""
+    from backend.db.session import SessionLocal
+    tdb = SessionLocal()
+    try:
+        # Собственный короткий loop потока: инструменты из THREADED_TOOLS не
+        # трогают объекты основного loop (их внутренний asyncio.to_thread работает).
+        return asyncio.run(_dispatch_tool(tool_name, tool_args, context, tdb))
+    finally:
+        tdb.close()
+
+
+def _expire_clean_objects(db: Session) -> None:
+    """
+    После инструмента в другой сессии: устаревшие копии объектов вызывающей сессии
+    (контакт, агент) перечитаются при следующем обращении. Объекты с несохранёнными
+    правками не трогаем — иначе правки потерялись бы.
+    """
+    try:
+        pending = set(db.dirty) | set(db.new) | set(db.deleted)
+        for obj in list(db.identity_map.values()):
+            if obj not in pending:
+                db.expire(obj)
+    except Exception as e:
+        logger.warning(f"[AGENT-TOOLS] expire after threaded tool failed: {e}")
+
+
+async def _dispatch_tool(tool_name: str, tool_args: dict, context: dict, db: Session) -> str:
+    """Исполнить инструмент по имени (без проверок allowlist/scope — они в execute_tool)."""
+    agent_config_id = context.get("agent_config_id")
+    user_id = context.get("user_id")
+    user = context.get("user")
 
     try:
         if tool_name == "create_agent_contact":

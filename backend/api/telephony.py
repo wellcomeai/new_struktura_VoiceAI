@@ -90,7 +90,7 @@ import asyncio
 
 from fastapi.responses import StreamingResponse
 
-from backend.db.session import get_db
+from backend.db.session import get_db, SessionLocal
 from backend.core.dependencies import get_current_user
 from backend.core.logging import get_logger
 from backend.core.config import settings
@@ -6633,16 +6633,44 @@ async def admin_enable_sms_all(
 # =============================================================================
 
 @router.post("/webhook/sms")
-async def webhook_sms(request: Request, db: Session = Depends(get_db)):
+async def webhook_sms(request: Request):
     """
     Публичный webhook для приёма входящих SMS от Voximplant.
     Всегда возвращает {"status": "ok"} — ошибки только логируются.
+
+    Запись в БД — в отдельном потоке (_save_inbound_sms), чтобы синхронные
+    запросы не останавливали event loop с живыми звонками; разбор агентом
+    запускается фоновой задачей уже в loop.
     """
+    import asyncio
+    from backend.services.agent_orchestrator import handle_inbound_sms
+
     try:
         payload = await request.json()
         callbacks = payload.get("callbacks", [])
         logger.info(f"[TELEPHONY-SMS] Received webhook with {len(callbacks)} callback(s)")
+        sms_ids = await asyncio.to_thread(_save_inbound_sms, callbacks)
+    except Exception as e:
+        logger.error(f"[TELEPHONY-SMS] Webhook error: {e}", exc_info=True)
+        return {"status": "ok"}
 
+    # ✅ Event-driven: запускаем оркестратор агента на анализ входящего
+    # SMS (перезвонить / ответить / завести контакт / сменить стадию).
+    # handler открывает собственную сессию БД — безопасно для create_task.
+    for sms_id in sms_ids:
+        try:
+            asyncio.create_task(handle_inbound_sms(sms_id))
+        except Exception as trigger_err:
+            logger.error(f"[TELEPHONY-SMS] failed to schedule agent handler: {trigger_err}")
+
+    return {"status": "ok"}
+
+
+def _save_inbound_sms(callbacks: list) -> list:
+    """Сохранить входящие SMS из колбэков Voximplant (синхронно, в потоке). Возвращает id записей."""
+    saved = []
+    db = SessionLocal()
+    try:
         for cb in callbacks:
             try:
                 if cb.get("type") != "sms_inbound":
@@ -6687,25 +6715,14 @@ async def webhook_sms(request: Request, db: Session = Depends(get_db)):
                     f"[TELEPHONY-SMS] SMS saved: id={sms_message.id}, "
                     f"child_account={child_account.id}"
                 )
-
-                # ✅ Event-driven: запускаем оркестратор агента на анализ входящего
-                # SMS (перезвонить / ответить / завести контакт / сменить стадию).
-                # handler открывает собственную сессию БД — безопасно для create_task.
-                try:
-                    import asyncio
-                    from backend.services.agent_orchestrator import handle_inbound_sms
-                    asyncio.create_task(handle_inbound_sms(str(sms_message.id)))
-                except Exception as trigger_err:
-                    logger.error(f"[TELEPHONY-SMS] failed to schedule agent handler: {trigger_err}")
+                saved.append(str(sms_message.id))
 
             except Exception as e:
                 logger.error(f"[TELEPHONY-SMS] Error processing callback: {e}", exc_info=True)
                 db.rollback()
-
-    except Exception as e:
-        logger.error(f"[TELEPHONY-SMS] Webhook error: {e}", exc_info=True)
-
-    return {"status": "ok"}
+    finally:
+        db.close()
+    return saved
 
 
 @router.get("/sms")
