@@ -430,8 +430,11 @@ class TaskScheduler:
                 can_orchestrate = agent_config is not None and (
                     agent_config.uses_hardcoded_prompt or (user and user.openai_api_key)
                 )
-                was_finalizing = call.status == "finalizing"
-                if (call.call_session_id or was_finalizing) and can_orchestrate:
+                # Резервный разбор умеет только исходящий звонок (ищет транскрипт по
+                # номеру). Входящие сообщения/звонки, рассылки и проверки ответа он
+                # разобрал бы как звонок — такие закрываем без разбора.
+                is_outbound_call = bool(call.call_session_id) and (call.direction or "outbound") == "outbound"
+                if is_outbound_call and can_orchestrate:
                     call.status = "calling"  # poll_and_run забирает только 'calling'
                     reserve.append((str(call.id), str(agent_config.id), (user.openai_api_key or "") if user else ""))
                 else:
