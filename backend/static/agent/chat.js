@@ -25,8 +25,8 @@ const CHAT_SUGGESTIONS = [
   { icon:'fa-calendar-check',   label:'Отчёт за месяц',        prompt:'Сделай отчёт по звонкам за последний месяц' },
   { icon:'fa-clock-rotate-left',label:'Последние звонки',      prompt:'Покажи историю последних звонков' },
   { icon:'fa-bullseye',         label:'Конверсия',             prompt:'Какая у меня конверсия звонков за неделю?' },
-  { icon:'fa-user',             label:'Добавить контакт',      prompt:'Хочу добавить новый контакт в базу обзвона' },
-  { icon:'fa-file-import',      label:'Импорт списка',         prompt:'Помоги загрузить список контактов для обзвона' },
+  { icon:'fa-user',             label:'Добавить контакт',      prompt:'Хочу добавить новый контакт в базу' },
+  { icon:'fa-file-import',      label:'Импорт списка',         prompt:'Помоги загрузить список контактов' },
   { icon:'fa-rocket',           label:'Обзвонить новых',       prompt:'Запланируй обзвон всех новых контактов' },
   { icon:'fa-phone-volume',     label:'Позвонить сейчас',      prompt:'Позвони контакту прямо сейчас' },
   { icon:'fa-circle-pause',     label:'Пауза по контакту',     prompt:'Поставь контакт на паузу — не звонить какое-то время' },
@@ -60,7 +60,7 @@ function renderWelcome(){
   wrap.innerHTML =
     `<img class="chat-welcome-img" src="/static/images/IMG_2820.PNG" alt="Voicyfy">
      <div class="chat-welcome-title">Привет!<br>Я ваш агент Voicyfy</div>
-     <div class="chat-welcome-sub">Помогаю управлять обзвоном: контакты, задачи, звонки и аналитика.<br>Выберите подсказку или напишите запрос сами.</div>
+     <div class="chat-welcome-sub">Веду ваших клиентов: звонки, Telegram, MAX и SMS, задачи и аналитика.<br>Выберите подсказку или напишите запрос сами.</div>
      <div class="chat-tiles">${tiles}</div>`;
   msgs.appendChild(wrap);
 }

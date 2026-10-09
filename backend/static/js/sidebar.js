@@ -34,7 +34,7 @@
   var MENU = [
     { section: 'Основное' },
     { href: '/static/dashboard.html', icon: 'fas fa-home', lucide: 'house', label: 'Дашборд', id: 'dashboard-nav-item' },
-    { href: '/static/agent.html', icon: 'fas fa-headset', lucide: 'headset', label: 'Агент обзвона', id: 'agent-nav-item' },
+    { href: '/static/agent.html', icon: 'fas fa-headset', lucide: 'headset', label: 'Агент', id: 'agent-nav-item' },
     { href: '/static/voice-assistants.html', icon: 'fas fa-robot', lucide: 'audio-lines', label: 'Голосовые ассистенты', id: 'assistants-nav-item',
       aliases: ['/static/agents.html', '/static/gemini-agents.html', '/static/cartesia-agents.html',
                 '/static/yandex-agents.html', '/static/cascade.html', '/static/fish-agents.html',

@@ -48,7 +48,7 @@ async function renderWizard(){
 }
 
 async function renderStep0(c){
-  c.innerHTML = '<h2>Создание агента</h2><p class="hint">Загрузка...</p>';
+  c.innerHTML = '<h2>Создание агента</h2><p class="wz-lead">Загрузка...</p>';
   const [ur, tr] = await Promise.all([ apiFetch('/api/users/me'), apiFetch('/api/telephony/status').catch(()=>null) ]);
   wizardUser = ur && ur.status===200 ? await ur.json() : {};
   wizardTele = tr && tr.status===200 ? await tr.json() : { is_verified:false };
@@ -77,7 +77,7 @@ const TYPE_DEFS = [
   { type:'cascade', name:'Cascade', desc:'Лучшее русское звучание. Бесплатно — платите только за связь.' },
   { type:'fish', name:'Fish Audio', desc:'Премиальный русский синтез: OpenAI ведёт диалог, Fish озвучивает.' },
   { type:'yandex', name:'Yandex SpeechKit', desc:'Голоса Yandex SpeechKit, российская инфраструктура.' },
-  { type:'openai', name:'OpenAI Realtime', desc:'gpt-realtime — премиум-качество голоса.' },
+  { type:'openai', name:'OpenAI GPT-Live', desc:'gpt-live-1 — живой диалог премиум-качества.' },
 ];
 
 let wizardTariffs = null, wizardTariffsLoading = false;
@@ -119,7 +119,8 @@ function drawStep0(c){
   const ks = keyState(sel);
   const canNext = sel && ks.ok && tele;
 
-  c.innerHTML = `<h2>Создание агента</h2><p class="hint">Выберите тип голосового ассистента.</p>
+  c.innerHTML = `<h2>Создание агента</h2><p class="wz-lead">Ваш ИИ-сотрудник: принимает и совершает звонки, переписывается в мессенджерах и помнит всю историю общения с каждым клиентом. Выберите голосовую модель — ею агент будет говорить в звонках.</p>
+    <div class="wz-channels"><span><i class="fas fa-phone-volume"></i> Входящие и исходящие</span><span><i class="fab fa-telegram"></i> Telegram</span><span><i class="fas fa-comment-dots"></i> MAX</span><span><i class="fas fa-comment-sms"></i> SMS</span></div>
     ${cards}
     ${teleBanner}
     <div class="wizard-actions"><div></div><button class="btn btn-primary" ${canNext?'':'disabled'} onclick="wizardStep=1;renderWizard()">Далее <i class="fas fa-arrow-right"></i></button></div>`;
@@ -141,15 +142,15 @@ async function saveWizardKeys(type){
 }
 
 const WIZ_DOCS = [ null,
-  { key:'doc_who_am_i', title:'Кто мы', hint:'Опишите компанию: название, сфера, УТП, средний чек.', ph:'Мы — компания «Ромашка», продаём CRM для малого бизнеса...' },
-  { key:'doc_who_we_call', title:'Кому звоним', hint:'Портрет клиента: должность, боли, возражения.', ph:'Руководители отделов продаж в компаниях от 20 человек...' },
+  { key:'doc_who_am_i', title:'Кто мы', hint:'Опишите компанию: название, сфера, чем отличаетесь, адрес и часы работы, если важны клиентам.', ph:'Клиника: мы — медцентр «Здоровье» в Казани, работаем ежедневно с 8 до 21...\nПродажи: мы — «Ромашка», продаём CRM для малого бизнеса...' },
+  { key:'doc_who_we_call', title:'С кем общаемся', hint:'Ваши клиенты: кто звонит и пишет вам или кому звоните вы, с какими задачами, частые вопросы и возражения.', ph:'Клиника: пациенты, которые звонят записаться к врачу и уточнить цены...\nПродажи: руководители отделов продаж в компаниях от 20 человек...' },
   { key:'doc_how_we_talk', title:'Как говорим', hint:'Стиль общения и имя агента.', ph:'Дружелюбно, кратко, без давления...', extra:true },
-  { key:'doc_what_we_offer', title:'Что предлагаем', hint:'Продукты, цены, акции.', ph:'Тариф «Старт» — 5 000 ₽/мес...' },
-  { key:'doc_rules_and_goals', title:'Правила и цели', hint:'KPI, лимиты, что считать успехом.', ph:'Цель: назначить встречу. Макс 3 попытки...' },
+  { key:'doc_what_we_offer', title:'Что предлагаем', hint:'Услуги или продукты, цены, акции — то, о чём агент рассказывает клиентам.', ph:'Клиника: приём терапевта — 2 500 ₽, анализы...\nПродажи: тариф «Старт» — 5 000 ₽/мес...' },
+  { key:'doc_rules_and_goals', title:'Правила и цели', hint:'Что считать успехом, как вести клиента дальше, чего не делать, когда передать человеку.', ph:'Клиника: записать на приём, за час до визита уточнить, придёт ли пациент...\nПродажи: назначить встречу, не больше 3 попыток дозвона...' },
 ];
 function renderDocStep(c){
   const s = WIZ_DOCS[wizardStep];
-  c.innerHTML = `<h2>Шаг ${wizardStep}: ${s.title}</h2><p class="hint">${s.hint}</p>
+  c.innerHTML = `<h2>Шаг ${wizardStep}: ${s.title}</h2><p class="wz-lead">${s.hint}</p>
     ${s.extra?`<div class="form-group"><label class="form-label">Имя агента *</label><input type="text" class="form-input" id="w-name" value="${esc(wizardData.name||'')}" placeholder="Алина"></div>`:''}
     <div class="form-group"><textarea class="form-textarea" id="w-ta" rows="6" placeholder="${esc(s.ph)}">${esc(wizardData[s.key]||'')}</textarea></div>
     <div class="wizard-actions"><button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button><button class="btn btn-primary" onclick="wizardNextDoc()">Далее <i class="fas fa-arrow-right"></i></button></div>`;
@@ -174,8 +175,8 @@ function wizardBack(){
 }
 
 function renderInstructionsStep(c){
-  c.innerHTML = `<h2>Инструкции для оркестратора</h2><p class="hint">Опционально. Правила планирования звонков и работы с контактами для текстового мозга-оркестратора. В живом телефонном разговоре НЕ используются — для этого поле инструкций голосового агента на следующем шаге.</p>
-    <div class="form-group"><textarea class="form-textarea" id="w-instr" rows="6" placeholder="Например: «перед обзвоном новых контактов проверяй дубли», «не планируй звонки в выходные».">${esc(wizardData.additional_instructions||'')}</textarea></div>
+  c.innerHTML = `<h2>Инструкции для оркестратора</h2><p class="wz-lead">Опционально. Правила для текстового мозга-оркестратора: как планировать звонки и сообщения, как вести клиентов. В живом телефонном разговоре НЕ используются — для этого поле инструкций голосового агента на следующем шаге.</p>
+    <div class="form-group"><textarea class="form-textarea" id="w-instr" rows="6" placeholder="Например: «перед первым контактом проверяй дубли», «не звони и не пиши в выходные», «за час до записи напоминай клиенту».">${esc(wizardData.additional_instructions||'')}</textarea></div>
     <div class="wizard-actions"><button class="btn btn-secondary" onclick="wizardBack()"><i class="fas fa-arrow-left"></i> Назад</button><button class="btn btn-primary" onclick="wizardNextInstr()">Далее <i class="fas fa-arrow-right"></i></button></div>`;
 }
 function wizardNextInstr(){ const ta=document.getElementById('w-instr'); wizardData.additional_instructions=ta?ta.value:''; persistWizard(); wizardStep=7; renderWizard(); }
@@ -183,7 +184,7 @@ function wizardNextInstr(){ const ta=document.getElementById('w-instr'); wizardD
 async function renderModelStep(c){
   if(!orchestratorModels.length){ const r=await apiFetch(API+'/orchestrator-models'); if(r&&r.status===200){ const d=await r.json(); orchestratorModels=d.models||[]; if(!wizardData.orchestrator_model) wizardData.orchestrator_model=d.default; } }
   if(!wizardData.orchestrator_model && orchestratorModels.length){ const def=orchestratorModels.find(m=>m.is_default); wizardData.orchestrator_model = def?def.slug:orchestratorModels[0].slug; }
-  c.innerHTML = `<h2>Модель и голос</h2><p class="hint">Модель оркестратора управляет агентом: планирует звонки, анализирует результаты, отвечает в чате. Голос — то, чем агент говорит в звонке. Биллинг включён в подписку Voicyfy.</p>
+  c.innerHTML = `<h2>Модель и голос</h2><p class="wz-lead">Модель оркестратора управляет агентом: ставит задачи, планирует звонки и сообщения, разбирает разговоры, отвечает вам в чате. Голос — то, чем агент говорит в звонке. Биллинг включён в подписку Voicyfy.</p>
     <div class="form-group"><label class="form-label">Модель</label><select class="form-select" id="w-model">${modelOptionsHtml(orchestratorModels, wizardData.orchestrator_model)}</select><div class="form-hint" id="w-model-desc"></div></div>
     ${voiceControlHtml(wizardData.assistant_type || 'gemini', { voice: wizardData.voice, cartesia_voice_id: wizardData.cartesia_voice_id, voice_speed: wizardData.voice_speed, fish_voice_id: wizardData.fish_voice_id, fish_latency: wizardData.fish_latency }, W_VOICE_IDS)}
     <div class="form-group"><label class="form-label">Инструкции для голосового агента</label><textarea class="form-textarea" id="w-voice-instr" rows="4" placeholder="Например: «говори коротко, не дави», «если спросят про цену — назови диапазон».">${esc(wizardData.voice_additional_instructions||'')}</textarea><div class="form-hint">Правила поведения именно в живом разговоре по телефону. Опционально.</div></div>
@@ -200,7 +201,7 @@ function submitCreate(){
 
 async function renderCreation(c){
   const typeName = { gemini:'Gemini', openai:'OpenAI', cartesia:'Cartesia', yandex:'Yandex', cascade:'Cascade', fish:'Fish' }[wizardData.assistant_type]||'';
-  c.innerHTML = `<h2>Создание агента</h2><p class="hint">Настройка вашего агента...</p>
+  c.innerHTML = `<h2>Создание агента</h2><p class="wz-lead">Настройка вашего агента...</p>
     <ul class="creation-list">
       <li class="creation-item pending" id="cr-docs"><div class="creation-icon"></div>Сохранение документов</li>
       <li class="creation-item pending" id="cr-voice"><div class="creation-icon"></div>Создание голосового агента (${typeName})</li>
@@ -241,6 +242,10 @@ async function renderCreation(c){
         note.innerHTML = 'Тестовый период уже использован. Агент доступен на тарифе <b>Profi</b>. <button class="sub-action" onclick="location.href=\'/static/dashboard.html\'">Перейти к тарифам</button>';
       }
       succ.appendChild(note);
+      const tip = document.createElement('div');
+      tip.className = 'wz-tip';
+      tip.innerHTML = '<i class="fas fa-phone-volume"></i><div>Чтобы агент принимал входящие звонки, привяжите к нему номер в разделе <a href="/static/telephony.html">Телефония</a>. Исходящие звонки и сообщения работают сразу.</div>';
+      succ.appendChild(tip);
     } else {
       const err = await r?.json().catch(()=>({}));
       document.getElementById('cr-error').style.display='block';

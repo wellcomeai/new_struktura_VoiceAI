@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- /static/agent.html — Voicyfy Agent (автономный агент обзвона).
+<!-- /static/agent.html — Voicyfy Agent (ИИ-сотрудник: звонки, Telegram, MAX, SMS).
      v7: интерфейс на дизайн-системе Voicyfy (/static/css/voicyfy.css + /static/js/ui.js).
      Страница живёт отдельным окном без общего сайдбара ЛК: логотип ведёт на дашборд.
      Раскладка: панель «Работа» | чат с оркестратором | панель «Агент», обе панели
@@ -31,11 +31,11 @@
   <p>Загрузка агента…</p>
 </div>
 
-<!-- ONBOARDING (обязательная карусель-обучение перед мастером, 5 слайдов) -->
+<!-- ONBOARDING (обязательная карусель-обучение перед мастером, 6 слайдов) -->
 <div class="ob-overlay hidden" id="onboarding-overlay">
   <div class="ob-card">
     <div class="ob-top">
-      <div class="ob-brand"><div class="nav-logo-icon"><i class="fas fa-microphone-lines"></i></div><span>Voicyfy</span></div>
+      <div class="vf-logo"><img src="/static/images/IMG_2820.PNG" alt=""><span class="wordmark">Voicyfy</span></div>
       <button class="ob-skip" onclick="obSkip()">Пропустить <i class="fas fa-xmark"></i></button>
     </div>
     <div id="ob-content"></div>
@@ -47,11 +47,8 @@
 <!-- WIZARD -->
 <div class="wizard-overlay hidden" id="wizard-overlay">
   <div class="wizard-card">
-    <div class="wizard-logo">
-      <div class="nav-logo-icon"><i class="fas fa-microphone-lines"></i></div>
-      <div class="wizard-logo-text">Voicyfy</div>
-    </div>
-    <div class="wizard-sub">Создание автономного агента для звонков</div>
+    <div class="wizard-logo"><div class="vf-logo"><img src="/static/images/IMG_2820.PNG" alt=""><span class="wordmark">Voicyfy</span></div></div>
+    <div class="wizard-sub">Создание ИИ-агента</div>
     <div class="wizard-progress" id="wizard-progress"></div>
     <div id="wizard-content"></div>
   </div>
@@ -401,7 +398,7 @@
           <div class="form-group">
             <label class="form-label">Инструкции для оркестратора</label>
             <textarea class="form-textarea" id="i-additional_instructions" rows="6"
-                      placeholder="Например: «перед обзвоном новых контактов всегда проверяй дубли», «не планируй звонки в выходные»."></textarea>
+                      placeholder="Например: «перед первым контактом проверяй дубли», «не звони и не пиши в выходные», «за час до записи напоминай клиенту»."></textarea>
             <div class="form-hint">Правила планирования и работы с контактами, которые не вписываются в документы компании.</div>
           </div>
           <div class="form-group">

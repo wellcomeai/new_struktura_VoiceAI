@@ -1,9 +1,10 @@
 /* ============================================================================
  * agent/onboarding.js — Обучающая карусель перед мастером создания агента.
- * Вариант A: 5 обязательных слайдов про суть автономного агента, который
- * заменяет первую линию продаж (что это · Pre-Call · живой разговор ·
- * Post-Call + память · управление словами). Показывается ВСЕГДА при создании
- * (с кнопкой «Пропустить»), перед wizard.showWizard() → renderWizard().
+ * 6 слайдов: ИИ-сотрудник в четырёх каналах · хронология клиента · сам ставит
+ * себе задачи · пример «продажи» · пример «клиника» · управление в чате.
+ * Агент не только для исходящего обзвона: входящие и исходящие, роль задаёт
+ * владелец. Показывается ВСЕГДА при создании (с кнопкой «Пропустить»), перед
+ * wizard.showWizard() → renderWizard().
  *
  * Часть страницы /static/agent.html (Voicyfy Agent).
  * Классический скрипт (НЕ ES-модуль): функции и состояние — глобальные.
@@ -12,71 +13,91 @@
 
 let obStep = 0;
 let obOnDone = null;
-const OB_TOTAL = 5;
+
+// Каналы агента — значок + подпись (MAX своей иконки в Font Awesome не имеет)
+const OB_CH = {
+  call: '<i class="fas fa-phone"></i> Звонок',
+  tg:   '<i class="fab fa-telegram"></i> Telegram',
+  max:  '<i class="fas fa-comment-dots"></i> MAX',
+  sms:  '<i class="fas fa-comment-sms"></i> SMS',
+};
 
 // Иллюстрации — стилизованные мокапы реальных экранов Voicyfy (без картинок).
 const OB_SLIDES = [
   {
-    badge: 'Автономный сотрудник',
-    title: 'Это не виджет и не автоответчик',
-    text: 'Агент Voicyfy сам звонит по вашей базе, ведёт живой разговор, квалифицирует контакт и решает что делать дальше. Он заменяет первую линию продаж — а вы только ставите цели.',
+    badge: 'ИИ-сотрудник',
+    title: 'Не робот для звонков, а ваш сотрудник',
+    text: 'Агент звонит и принимает звонки, переписывается в Telegram и MAX, отправляет SMS — и помнит всю хронологию по каждому клиенту. Работает и на входящих, и на исходящих: роль вы задаёте сами.',
     art: () => `<div class="ob-art ob-art-intro">
-      <div class="ob-orb"><i class="fas fa-headset"></i><span class="ob-pulse"></span></div>
+      <div class="ob-orb"><i class="fas fa-user-tie"></i><span class="ob-pulse"></span></div>
       <div class="ob-chips">
-        <span class="ob-chip"><i class="fas fa-phone-volume"></i> Звонит сам</span>
-        <span class="ob-chip"><i class="fas fa-comments"></i> Ведёт диалог</span>
-        <span class="ob-chip"><i class="fas fa-filter"></i> Квалифицирует</span>
+        <span class="ob-chip"><i class="fas fa-phone-volume"></i> Входящие и исходящие</span>
+        <span class="ob-chip">${OB_CH.tg}</span>
+        <span class="ob-chip">${OB_CH.max}</span>
+        <span class="ob-chip">${OB_CH.sms}</span>
       </div>
     </div>`,
   },
   {
-    badge: 'Pre-Call',
-    title: 'Думает перед каждым звонком',
-    text: 'Перед звонком оркестратор готовит стратегию: первую фразу, тон и тактику — опираясь на память о контакте и прошлые разговоры. Каждый звонок персональный, а не скрипт по бумажке.',
+    badge: 'Память',
+    title: 'Помнит всю историю клиента',
+    text: 'Когда, о чём и в каком канале вы общались — агент видит единую хронологию. Позвонил клиент после переписки в Telegram — агент продолжит с того места, где остановились.',
     art: () => `<div class="ob-mock">
-      <div class="ob-mock-head"><i class="fas fa-brain"></i> Стратегия звонка · Pre-Call</div>
-      <div class="ob-row"><span class="ob-k">Первая фраза</span><span class="ob-v">«Иван, добрый день! Это Алина из…»</span></div>
-      <div class="ob-row"><span class="ob-k">Тон</span><span class="ob-v">деловой, без давления</span></div>
-      <div class="ob-row"><span class="ob-k">Тактика</span><span class="ob-v">напомнить о прошлом интересе к CRM</span></div>
-      <div class="ob-row"><span class="ob-k">Помнит</span><span class="ob-v">2 звонка · просил перезвонить в среду</span></div>
+      <div class="ob-mock-head"><i class="fas fa-timeline"></i> Анна Смирнова · хронология</div>
+      <div class="ob-row"><span class="ob-k">12 мар</span><span class="ob-ch">${OB_CH.call}</span><span class="ob-v">спросила цены, попросила прислать КП</span></div>
+      <div class="ob-row"><span class="ob-k">12 мар</span><span class="ob-ch">${OB_CH.tg}</span><span class="ob-v">отправил КП файлом</span></div>
+      <div class="ob-row"><span class="ob-k">15 мар</span><span class="ob-ch">${OB_CH.max}</span><span class="ob-v">«вернусь после праздников»</span></div>
+      <div class="ob-row"><span class="ob-k">11 мая</span><span class="ob-ch">${OB_CH.call}</span><span class="ob-v">договорились о встрече</span></div>
     </div>`,
   },
   {
-    badge: 'Живой разговор',
-    title: 'Говорит как человек',
-    text: 'Голосовой агент ведёт настоящий телефонный диалог в реальном времени, при необходимости находит ответы в вашей Базе знаний и сам завершает звонок.',
+    badge: 'Сам ставит задачи',
+    title: 'Ведёт клиента хоть целый год',
+    text: 'После каждого разговора агент решает, что делать дальше, и сам ставит себе задачи: перезвонить, когда просили, напомнить о встрече, проверить, ответил ли клиент. Ни один контакт не теряется.',
+    art: () => `<div class="ob-mock">
+      <div class="ob-mock-head"><i class="fas fa-list-check"></i> Задачи агента · поставил сам</div>
+      <div class="ob-row"><span class="ob-k">через 3 дня</span><span class="ob-v">проверить, ответила ли в Telegram</span></div>
+      <div class="ob-row"><span class="ob-k">10 мая</span><span class="ob-v">позвонить после праздников, как просила</span></div>
+      <div class="ob-row"><span class="ob-k">за час</span><span class="ob-v">напомнить о встрече по SMS</span></div>
+      <div class="ob-row"><span class="ob-k">через месяц</span><span class="ob-v">спросить, как идёт внедрение</span></div>
+    </div>`,
+  },
+  {
+    badge: 'Пример · продажи',
+    title: 'Менеджер по продажам',
+    text: 'Обзванивает холодную базу: выясняет потребность, отвечает на возражения, назначает встречу и отправляет КП в мессенджер. Кто попросил «позже» — получит звонок ровно тогда, когда просил.',
     art: () => `<div class="ob-mock ob-talk">
-      <div class="ob-bubble agent">Иван, удобно сейчас пару минут?</div>
-      <div class="ob-bubble client">Да, слушаю</div>
-      <div class="ob-bubble agent">Подскажу по тарифам <span class="ob-kb"><i class="fas fa-database"></i> ищу в Базе знаний</span></div>
+      <div class="ob-bubble agent">Иван, добрый день! Это Алина из «Ромашки». Удобно пару минут?</div>
+      <div class="ob-bubble client">Сейчас занят, наберите в четверг</div>
+      <div class="ob-bubble agent">Конечно! Наберу в четверг в 11:00, а пока пришлю короткое описание в Telegram</div>
+      <div class="ob-note"><i class="fas fa-calendar-plus"></i> Задача: звонок в четверг 11:00 · <i class="fab fa-telegram"></i> отправлено</div>
     </div>`,
   },
   {
-    badge: 'Post-Call + Память',
-    title: 'Сам учится после разговора',
-    text: 'После звонка агент разбирает диалог: обновляет память о контакте, двигает его по воронке и планирует перезвон. Каждый контакт со временем известен агенту всё лучше — без вашего участия.',
-    art: () => `<div class="ob-mock">
-      <div class="ob-mock-head"><i class="fas fa-rotate"></i> После звонка · автоматически</div>
-      <div class="ob-row"><span class="ob-k">Итог</span><span class="ob-v">заинтересован, ждёт КП</span></div>
-      <div class="ob-row"><span class="ob-k">Память</span><span class="ob-v">+ ЛПР, бюджет до 50к, звонить после 15:00</span></div>
-      <div class="ob-row"><span class="ob-k">Перезвон</span><span class="ob-v">запланирован на пятницу 16:00</span></div>
-      <div class="ob-funnel">
-        <span class="ob-stage">new</span><i class="fas fa-arrow-right-long"></i><span class="ob-stage on">active</span><i class="fas fa-arrow-right-long"></i><span class="ob-stage">success</span>
-      </div>
+    badge: 'Пример · клиника',
+    title: 'Администратор клиники',
+    text: 'Принимает входящие звонки, отвечает на вопросы и записывает на приём. За час до визита сам уточняет у пациента, придёт ли он, а при отмене — предлагает другое время.',
+    art: () => `<div class="ob-mock ob-talk">
+      <div class="ob-bubble client">Здравствуйте, хочу записаться к терапевту</div>
+      <div class="ob-bubble agent">Есть завтра в 15:00 — записываю вас?</div>
+      <div class="ob-note"><i class="fas fa-clock"></i> Завтра, 14:00 · агент сам перезванивает</div>
+      <div class="ob-bubble agent">Напоминаю о приёме в 15:00 — вы придёте?</div>
+      <div class="ob-bubble client">Да, буду</div>
     </div>`,
   },
   {
     badge: 'Управление словами',
     title: 'Командуете на простом языке',
-    text: 'Через чат вы управляете всей базой обычными словами: «обзвони всех новых завтра с 10», «кому не дозвонились». Контакты, задачи и воронка ведутся автоматически и принадлежат только этому агенту.',
+    text: 'Через чат вы управляете всей базой обычными словами. Контакты, задачи и воронка ведутся автоматически и принадлежат только этому агенту.',
     art: () => `<div class="ob-mock ob-talk">
-      <div class="ob-bubble client">Обзвони всех новых завтра с 10:00</div>
-      <div class="ob-bubble agent">Готово — запланировал 12 звонков, интервал 15 мин ✅</div>
-      <div class="ob-bubble client">Кому не дозвонились на этой неделе?</div>
-      <div class="ob-bubble agent">7 контактов в очереди на перезвон</div>
+      <div class="ob-bubble client">Напомни всем, кто записан на завтра</div>
+      <div class="ob-bubble agent">Готово — 9 напоминаний, отправлю за час до приёма ✅</div>
+      <div class="ob-bubble client">Кто не ответил на сообщения за неделю?</div>
+      <div class="ob-bubble agent">5 контактов — предлагаю им позвонить завтра с 10:00</div>
     </div>`,
   },
 ];
+const OB_TOTAL = OB_SLIDES.length;
 
 /**
  * Запустить обучающий модуль. onDone вызывается после прохождения/пропуска —

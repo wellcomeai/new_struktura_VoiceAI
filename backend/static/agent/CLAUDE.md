@@ -1,6 +1,6 @@
 # Voicyfy Agent — фронтенд страницы `/static/agent.html`
 
-Дашборд **автономного агента для обзвонов** (не путать с `agents.html` — страницей
+Дашборд **ИИ-агента** (звонки входящие и исходящие, Telegram, MAX, SMS; раньше — «агент обзвона») (не путать с `agents.html` — страницей
 управления OpenAI-ассистентами, у которой своя папка `agents/`).
 
 Голосовой ассистент агента — один из шести провайдеров:
@@ -84,7 +84,7 @@ mobile drawer, ~13 модалок). Стили вынесены в `agent.css`, 
 | `memory.js` | «Что агент запомнил» (блокнот оркестратора; в UI секции «Вы поручили / Агент заметил / Агент планирует» — `ui_label` из API) + плашки «Запомнил / Уточнил / Забыл» под ответом в чате (`memoryChipsFromStep`, `renderMemoryChips`, вызывает chat.js) | `loadAgentMemoryStatus`, `renderMemoryBlock`, `openMemoryModal`, `addMemoryNote`, `editMemoryNote`/`saveMemoryNote`, `deleteMemoryNote`, `clearAgentMemory`; состояние `agentMemoryState` | `/api/agent/memory` (GET/POST/DELETE), `/api/agent/memory/{id}` (PUT/DELETE) |
 | `knowledge-base.js` | База данных (векторная БД Pinecone) | `loadKnowledgeBaseStatus`, `renderKnowledgeBaseBlock`, `openKnowledgeBaseModal`, `saveKnowledgeBase`, `deleteKnowledgeBase`; состояние `knowledgeBaseState` | `/api/agent/knowledge-base` (GET/POST/DELETE) |
 | `connectors.js` | Внешние коннекторы (Google Календарь, Gmail через Composio) | `loadConnectors`, `renderConnectorsBlock`, `openConnectorsModal`, `renderConnectorsList`, `connectConnector`, `disconnectConnector`; состояние `connectorsState`, `CONNECTOR_META`. OAuth-возврат ловится через `postMessage` и `?connector=&status=` | `/api/agent/connectors` (GET / `{toolkit}/connect` POST / `callback` GET / `{toolkit}` DELETE) |
-| `onboarding.js` | Обучающая карусель перед мастером (5 слайдов про суть автономного агента). Показывается из `showWizard()` всегда при создании, с «Пропустить». | `startOnboarding(onDone)`, `renderOnboarding`, `obNext/obBack/obSkip`, `finishOnboarding`; состояние `obStep`, `OB_SLIDES` | — |
+| `onboarding.js` | Обучающая карусель перед мастером (6 слайдов: ИИ-сотрудник в четырёх каналах, хронология клиента, сам ставит задачи, примеры «продажи» и «клиника», управление в чате; без упора на исходящий обзвон). Показывается из `showWizard()` всегда при создании, с «Пропустить». | `startOnboarding(onDone)`, `renderOnboarding`, `obNext/obBack/obSkip`, `finishOnboarding`; состояние `obStep`, `OB_SLIDES` | — |
 | `wizard.js` | Мастер создания агента (9 шагов 0..8) | `showWizard` (→ `startOnboarding` → `openWizardSteps`), `renderWizard`, `renderStep0`, `saveWizardKeys`, `submitCreate`, `renderCreation`, `persistWizard`; состояние `wizardData`, `wizardStep` | `/api/agent/create` |
 | `init.js` | **Точки входа. Грузится последним.** | главный `DOMContentLoaded`, `window 'focus'` (рефреш кредитов), `keydown Esc` (закрыть модалки) | — |
 
