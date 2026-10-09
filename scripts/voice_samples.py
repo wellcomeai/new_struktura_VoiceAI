@@ -6,6 +6,7 @@
     python3 scripts/voice_samples.py openai           # только OpenAI
     python3 scripts/voice_samples.py gemini Kore Puck # выбранные голоса
     python3 scripts/voice_samples.py --no-upload      # без R2, файлы в ./voice_samples_out
+    python3 scripts/voice_samples.py --quiet          # без этапов, только итог по голосу
 
 Каждый голос произносит PHRASE и сохраняется одним WAV в исходном качестве
 (OpenAI и Gemini — PCM16 24 кГц, Fish — 44.1 кГц) по постоянному пути
@@ -38,6 +39,11 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.stdout.reconfigure(line_buffering=True)   # ход работы виден сразу, и через | tee тоже
+
+# Конфиг — первым, как в app.py: импорт backend.models до backend.core даёт
+# циклический импорт (models.file → core → task_scheduler → services → models.file)
+import backend.core.config  # noqa: E402,F401
 
 PHRASE = "Это мой пример голоса, которым я буду говорить на платформе Voicyfy."
 MAX_ATTEMPTS = 3
@@ -148,7 +154,7 @@ def is_verbatim(said: str, phrase: str = PHRASE) -> bool:
 # ═════════════════════════════════════════════════════════════════════
 # Провайдеры: каждый возвращает (pcm, rate, расшифровка)
 # ═════════════════════════════════════════════════════════════════════
-async def openai_sample(voice: str, phrase: str):
+async def openai_sample(voice: str, phrase: str, step):
     from backend.websockets.live_client import OpenAILiveClient
 
     api_key = os.getenv("OPENAI_API_KEY")
@@ -156,8 +162,10 @@ async def openai_sample(voice: str, phrase: str):
         raise RuntimeError("нет OPENAI_API_KEY")
     stub = SimpleNamespace(system_prompt=SAMPLE_PROMPT, voice=voice, functions=None)
     client = OpenAILiveClient(api_key, stub, client_id=f"voice-sample-{voice}", audio_rate=OPENAI_RATE)
+    t0 = time.monotonic()
     if not await client.connect():
         raise RuntimeError("Live не открыл сессию (подробности в логе выше)")
+    step(f"сессия открыта за {time.monotonic() - t0:.1f} с, жду речь…")
 
     audio = bytearray()
     said = []
@@ -168,12 +176,14 @@ async def openai_sample(voice: str, phrase: str):
         async for event in client.receive_events():
             etype = event.get("type")
             if etype == "session.output_audio.delta":
+                if last_audio[0] is None:
+                    step(f"речь пошла через {time.monotonic() - started:.1f} с")
                 audio.extend(base64.b64decode(event.get("delta") or ""))
                 last_audio[0] = time.monotonic()
             elif etype == "session.output_transcript.delta":
                 said.append(event.get("delta") or "")
             elif etype == "error":
-                print(f"  ⚠️ openai/{voice}: {json.dumps(event.get('error') or event, ensure_ascii=False)[:300]}")
+                step(f"⚠️ ошибка Live: {json.dumps(event.get('error') or event, ensure_ascii=False)[:300]}", always=True)
 
     reader = asyncio.create_task(read())
     try:
@@ -184,7 +194,7 @@ async def openai_sample(voice: str, phrase: str):
             if last_audio[0] and now - last_audio[0] >= OPENAI_END_SILENCE_S:
                 break
             if now - started >= OPENAI_MAX_S:
-                print(f"  ⚠️ openai/{voice}: не закончил за {OPENAI_MAX_S} с")
+                step(f"⚠️ не закончил за {OPENAI_MAX_S} с", always=True)
                 break
             await client.send_audio(silence)
             await asyncio.sleep(OPENAI_SILENCE_TICK_MS / 1000)
@@ -194,7 +204,7 @@ async def openai_sample(voice: str, phrase: str):
     return bytes(audio), OPENAI_RATE, "".join(said)
 
 
-async def gemini_sample(voice: str, phrase: str, model: str = GEMINI_MODEL):
+async def gemini_sample(voice: str, phrase: str, step, model: str = GEMINI_MODEL):
     import websockets
 
     api_key = os.getenv("GEMINI_API_KEY")
@@ -214,6 +224,7 @@ async def gemini_sample(voice: str, phrase: str, model: str = GEMINI_MODEL):
     }}
     audio = bytearray()
     said = []
+    t0 = time.monotonic()
     async with websockets.connect(f"{GEMINI_URL}?key={api_key}", max_size=None, open_timeout=30) as ws:
         await ws.send(json.dumps(setup))
         deadline = time.monotonic() + GEMINI_MAX_S
@@ -223,6 +234,7 @@ async def gemini_sample(voice: str, phrase: str, model: str = GEMINI_MODEL):
             if "setupComplete" in msg:
                 if not ready:
                     ready = True
+                    step(f"сессия {model} открыта за {time.monotonic() - t0:.1f} с, жду речь…")
                     ask = f"Скажи дословно, слово в слово, и больше ничего: «{phrase}»"
                     # 3.1 принимает текст только через realtimeInput, 2.5 — через clientContent
                     await ws.send(json.dumps(
@@ -236,6 +248,8 @@ async def gemini_sample(voice: str, phrase: str, model: str = GEMINI_MODEL):
             for part in (content.get("modelTurn") or {}).get("parts") or []:
                 data = (part.get("inlineData") or {}).get("data")
                 if data:
+                    if not audio:
+                        step(f"речь пошла через {time.monotonic() - t0:.1f} с")
                     audio.extend(base64.b64decode(data))
             text = (content.get("outputTranscription") or {}).get("text")
             if text:
@@ -243,11 +257,11 @@ async def gemini_sample(voice: str, phrase: str, model: str = GEMINI_MODEL):
             if content.get("turnComplete"):
                 break
         else:
-            print(f"  ⚠️ gemini/{voice}: не закончил за {GEMINI_MAX_S} с")
+            step(f"⚠️ не закончил за {GEMINI_MAX_S} с", always=True)
     return bytes(audio), GEMINI_RATE, "".join(said)
 
 
-async def fish_sample(voice_id: str, phrase: str):
+async def fish_sample(voice_id: str, phrase: str, step):
     import msgpack
     import websockets
     from backend.models.fish_assistant import DEFAULT_FISH_MODEL, DEFAULT_FISH_LATENCY
@@ -261,7 +275,9 @@ async def fish_sample(voice_id: str, phrase: str):
         "temperature": 0.7, "prosody": {"speed": 1.0}, "reference_id": voice_id,
     }
     audio = bytearray()
+    t0 = time.monotonic()
     async with websockets.connect(FISH_WS_URL, extra_headers=headers, max_size=None) as ws:
+        step(f"соединение с Fish за {time.monotonic() - t0:.1f} с, синтез {DEFAULT_FISH_MODEL}…")
         await ws.send(msgpack.packb({"event": "start", "request": request}))
         await ws.send(msgpack.packb({"event": "text", "text": phrase}))
         await ws.send(msgpack.packb({"event": "flush"}))
@@ -270,6 +286,8 @@ async def fish_sample(voice_id: str, phrase: str):
         while time.monotonic() < deadline:
             message = msgpack.unpackb(await asyncio.wait_for(ws.recv(), timeout=deadline - time.monotonic()), raw=False)
             if message.get("event") == "audio":
+                if not audio:
+                    step(f"речь пошла через {time.monotonic() - t0:.1f} с")
                 audio.extend(message.get("audio") or b"")
             elif message.get("event") == "finish":
                 if message.get("reason") == "error":
@@ -287,51 +305,76 @@ def build_jobs(providers, only_voices):
         from backend.schemas.assistant import OPENAI_VOICES
         for v in OPENAI_VOICES:
             jobs.append({"provider": "openai", "voice": v, "slug": v, "gender": OPENAI_GENDER.get(v, "?"),
-                         "run": lambda phrase, v=v: openai_sample(v, phrase)})
+                         "run": lambda phrase, step, v=v: openai_sample(v, phrase, step)})
     if "gemini" in providers:
         for v, g in GEMINI_GENDER.items():
             jobs.append({"provider": "gemini", "voice": v, "slug": v.lower(), "gender": g,
-                         "run": lambda phrase, v=v: gemini_sample(v, phrase, ARGS.gemini_model)})
+                         "run": lambda phrase, step, v=v: gemini_sample(v, phrase, step, ARGS.gemini_model)})
     if "fish" in providers:
         from backend.models.fish_assistant import FISH_VOICES
         for fv in FISH_VOICES:
             jobs.append({"provider": "fish", "voice": fv["name"], "slug": FISH_SLUGS.get(fv["name"], fv["id"]),
                          "gender": fv.get("gender", "?").replace("f", "ж").replace("m", "м"),
-                         "fish_id": fv["id"], "run": lambda phrase, i=fv["id"]: fish_sample(i, phrase)})
+                         "fish_id": fv["id"], "run": lambda phrase, step, i=fv["id"]: fish_sample(i, phrase, step)})
     if only_voices:
         wanted = {v.lower() for v in only_voices}
         jobs = [j for j in jobs if j["voice"].lower() in wanted or j["slug"] in wanted]
     return jobs
 
 
+PROGRESS = {"done": 0, "total": 0, "t0": 0.0}
+
+
+def _elapsed() -> str:
+    sec = int(time.monotonic() - PROGRESS["t0"])
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
 async def run_job(job, phrase, sem, uploader):
+    name = f"{job['provider']}/{job['voice']}"
+    tag = f"[{job['n']:>2}/{PROGRESS['total']}]"
+
+    def say(mark, text):
+        print(f"{tag} {mark} {name:<22} {text}")
+
+    def step(text, always=False):
+        if always or not ARGS.quiet:
+            say(" ", text)
+
     async with sem:
         best = None
         attempts = 1 if job["provider"] == "fish" else MAX_ATTEMPTS
         for attempt in range(1, attempts + 1):
+            step("старт" if attempt == 1 else f"попытка {attempt}…")
+            t0 = time.monotonic()
             try:
-                pcm, rate, said = await job["run"](phrase)
+                pcm, rate, said = await job["run"](phrase, step)
             except Exception as e:
-                print(f"  ❌ {job['provider']}/{job['voice']} попытка {attempt}: {e}")
+                say("❌", f"попытка {attempt}: {e}")
                 continue
             if not pcm:
-                print(f"  ❌ {job['provider']}/{job['voice']} попытка {attempt}: аудио не пришло")
+                say("❌", f"попытка {attempt}: аудио не пришло")
                 continue
             score = 1.0 if is_verbatim(said, phrase) else min(similarity(said, phrase), 0.99)
             if best is None or score > best[3]:
                 best = (pcm, rate, said, score)
+            step(f"фраза {len(pcm) / 2 / rate:.1f} с за {time.monotonic() - t0:.1f} с: "
+                 f"«{said.strip()}» {'✓' if score == 1.0 else score}")
             if score == 1.0:
                 break
-            print(f"  ↻ {job['provider']}/{job['voice']} попытка {attempt}: сказал «{said.strip()}» ({score})")
+            say("↻", f"попытка {attempt}: не слово в слово ({score})")
+        PROGRESS["done"] += 1
+        progress = f"(готово {PROGRESS['done']}/{PROGRESS['total']}, прошло {_elapsed()})"
         if best is None:
+            say("❌", f"не удалось получить образец {progress}")
             return {**_public(job), "error": "не удалось получить образец"}
         pcm, rate, said, score = best
         key = f"{R2_PREFIX}/{job['provider']}/{job['slug']}.wav"
+        step("загружаю в R2…" if not ARGS.no_upload else "сохраняю…")
         url = await asyncio.to_thread(uploader, key, to_wav(pcm, rate), "audio/wav")
         result = {**_public(job), "url": url, "said": said.strip(), "match": score,
                   "rate": rate, **loudness(pcm, rate)}
-        print(f"  ✅ {job['provider']}/{job['voice']}: {result['speech_rms_dbfs']} dBFS, "
-              f"{result['duration_s']} с, совпадение {score}")
+        say("✅", f"{result['speech_rms_dbfs']} dBFS, совпадение {score} → {url} {progress}")
         return result
 
 
@@ -386,11 +429,20 @@ def print_report(results):
           "Громкость: чем ближе к 0, тем громче; разница 6 dB ≈ в 2 раза по амплитуде.")
 
 
+PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY", "fish": "FISH_API_KEY"}
+
+
 async def main():
-    jobs = build_jobs(ARGS.providers, ARGS.voices)
+    missing = [p for p in ARGS.providers if not os.getenv(PROVIDER_KEYS[p])]
+    for p in missing:
+        print(f"⚠️ {p}: нет {PROVIDER_KEYS[p]} в окружении — пропускаю")
+    jobs = build_jobs([p for p in ARGS.providers if p not in missing], ARGS.voices)
     if not jobs:
         raise SystemExit("Нет голосов под выбранные фильтры")
     uploader = make_uploader(ARGS.no_upload, ARGS.out)
+    for n, job in enumerate(jobs, 1):
+        job["n"] = n
+    PROGRESS.update(total=len(jobs), t0=time.monotonic())
     print(f"Фраза: «{ARGS.phrase}»\nГолосов: {len(jobs)}, параллельно: {ARGS.concurrency}\n")
     sem = asyncio.Semaphore(ARGS.concurrency)
     results = await asyncio.gather(*(run_job(j, ARGS.phrase, sem, uploader) for j in jobs))
@@ -409,6 +461,7 @@ async def main():
     print_report(results)
     if index_url:
         print(f"\nindex.json: {index_url}")
+    print(f"Всего: {_elapsed()}")
 
 
 def parse_args():
@@ -420,6 +473,7 @@ def parse_args():
     p.add_argument("--concurrency", type=int, default=CONCURRENCY)
     p.add_argument("--no-upload", action="store_true", help="не грузить в R2, сохранить в --out")
     p.add_argument("--out", default="voice_samples_out")
+    p.add_argument("--quiet", action="store_true", help="без этапов: только итог по каждому голосу и таблица")
     args = p.parse_args()
     args.providers = ["openai", "gemini", "fish"] if args.provider == "all" else [args.provider]
     return args
