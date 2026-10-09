@@ -233,12 +233,12 @@ async function renderCreation(c){
       localStorage.removeItem('agent_wizard_v3');
       const succ = document.getElementById('cr-success');
       succ.style.display='block';
-      // Тестовый период (3 дня + 1 500 кредитов) включается один раз — при первом агенте.
-      // Повторно ничего не пишем: без доступа бэкенд не дал бы создать агента (402).
-      if(created.trial_activated){
+      // Тестовый период (3 дня + 1 500 кредитов) — только при создании первого агента
+      // (trial_notice). Повторно ничего не пишем: без доступа бэкенд не дал бы создать агента (402).
+      if(created.trial_notice){
         const note = document.createElement('div');
         note.style.cssText = 'margin-top:12px;font-size:13.5px;color:var(--hint)';
-        note.innerHTML = '🎉 Вам доступен бесплатный <b>тестовый период на 3 дня</b> и <b>1 500 кредитов</b> для теста оркестратора. После теста агент доступен на тарифе <b>Profi</b> (включает кредиты).';
+        note.innerHTML = '🎉 Вам доступен бесплатный <b>тестовый период на 3 дня</b> и <b>1 500 кредитов</b> для теста оркестратора. После теста агент доступен на тарифах <b>Agent</b> или <b>Profi</b> (включают кредиты).';
         succ.appendChild(note);
       }
       const tip = document.createElement('div');

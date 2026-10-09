@@ -914,6 +914,10 @@ def create_agent(
     result = _agent_to_dict(agent)
     result["trial_activated"] = trial_activated
     result["agent_trial_used"] = bool(current_user.agent_trial_used)
+    # Уведомление о тестовом периоде — только на первом агенте. У тех, кто создал
+    # агентов до исправления grant_trial, триал включается позже (флаг не ставился),
+    # кредиты им начисляются, но «вам доступен тестовый период» им не показываем.
+    result["trial_notice"] = trial_activated and agents_count == 0
     return result
 
 

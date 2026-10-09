@@ -67,11 +67,11 @@ async function handle402(resp){
   try{ detail = (await resp.clone().json()).detail; }catch(e){}
   if(detail === 'subscription_expired'){
     loadCredits();
-    if(confirm('Доступ к агенту закончился. Агент доступен на тарифе Profi. Перейти к тарифам?')){
+    if(confirm('Доступ к агенту закончился. Агент доступен на тарифах Agent или Profi. Перейти к тарифам?')){
       location.href = '/static/dashboard.html';
     }
   } else if(detail === 'subscription_required'){
-    if(confirm('Тестовый период использован. Агент доступен на тарифе Profi. Перейти к тарифам?')){
+    if(confirm('Тестовый период использован. Агент доступен на тарифах Agent или Profi. Перейти к тарифам?')){
       location.href = '/static/dashboard.html';
     }
   } else if(detail && detail.error === 'insufficient_credits'){
