@@ -11,7 +11,8 @@
 Каждый голос произносит PHRASE и сохраняется одним WAV в исходном качестве
 (OpenAI и Gemini — PCM16 24 кГц, Fish — 44.1 кГц) по постоянному пути
 voice-samples/<провайдер>/<голос>.wav, повторный запуск перезаписывает. В R2
-кладётся и voice-samples/index.json со всеми ссылками.
+кладётся и voice-samples/index.json со всеми ссылками (частичный прогон обновляет
+в нём только свои голоса). Тишина по краям обрезается.
 
 OpenAI и Gemini — разговорные модели, а не синтез: фразу они «повторяют» и
 могут её изменить. Скрипт сверяет расшифровку с фразой и при расхождении
@@ -53,7 +54,7 @@ R2_PREFIX = "voice-samples"
 # ── OpenAI gpt-live-1 ────────────────────────────────────────────────
 OPENAI_RATE = 24000
 OPENAI_SILENCE_TICK_MS = 100           # шаг досылки тишины: таймлайн Live идёт только при входящем звуке
-OPENAI_END_SILENCE_S = 2.5             # после последнего кусочка аудио столько ждём и считаем фразу законченной
+OPENAI_END_SILENCE_S = 1.5             # столько тишины после речи — фраза закончена
 OPENAI_MAX_S = 30
 SAMPLE_PROMPT = (
     "Ты диктор и записываешь образец своего голоса. Произноси только ту фразу, которую тебя "
@@ -122,6 +123,33 @@ def loudness(pcm: bytes, rate: int) -> dict:
     }
 
 
+VOICE_GATE_DBFS = -60   # тише — тишина: Live после реплики шлёт нули, пока к нему идёт входящий звук
+TRIM_PAD_MS = 150
+
+
+def _samples(pcm: bytes) -> array:
+    a = array("h")
+    a.frombytes(pcm[: len(pcm) - len(pcm) % 2])
+    if sys.byteorder == "big":
+        a.byteswap()
+    return a
+
+
+def is_voiced(pcm: bytes) -> bool:
+    a = _samples(pcm)
+    return bool(a) and math.sqrt(sum(x * x for x in a) / len(a)) >= 32768.0 * 10 ** (VOICE_GATE_DBFS / 20)
+
+
+def trim_silence(pcm: bytes, rate: int) -> bytes:
+    """Обрезает тишину по краям (по 10-мс фрагментам), оставляя TRIM_PAD_MS запаса."""
+    frame = max(1, rate // 100) * 2
+    voiced = [i for i in range(0, len(pcm), frame) if is_voiced(pcm[i:i + frame])]
+    if not voiced:
+        return pcm
+    pad = rate * TRIM_PAD_MS // 1000 * 2
+    return pcm[max(0, voiced[0] - pad): min(len(pcm), voiced[-1] + frame + pad)]
+
+
 def to_wav(pcm: bytes, rate: int) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -176,10 +204,12 @@ async def openai_sample(voice: str, phrase: str, step):
         async for event in client.receive_events():
             etype = event.get("type")
             if etype == "session.output_audio.delta":
-                if last_audio[0] is None:
-                    step(f"речь пошла через {time.monotonic() - started:.1f} с")
-                audio.extend(base64.b64decode(event.get("delta") or ""))
-                last_audio[0] = time.monotonic()
+                chunk = base64.b64decode(event.get("delta") or "")
+                audio.extend(chunk)
+                if is_voiced(chunk):
+                    if last_audio[0] is None:
+                        step(f"речь пошла через {time.monotonic() - started:.1f} с")
+                    last_audio[0] = time.monotonic()
             elif etype == "session.output_transcript.delta":
                 said.append(event.get("delta") or "")
             elif etype == "error":
@@ -350,10 +380,11 @@ async def run_job(job, phrase, sem, uploader):
             try:
                 pcm, rate, said = await job["run"](phrase, step)
             except Exception as e:
-                say("❌", f"попытка {attempt}: {e}")
+                say("❌", f"попытка {attempt}: {type(e).__name__}: {e}")
                 continue
-            if not pcm:
-                say("❌", f"попытка {attempt}: аудио не пришло")
+            pcm = trim_silence(pcm, rate)
+            if not pcm or not is_voiced(pcm):
+                say("❌", f"попытка {attempt}: речи в аудио нет")
                 continue
             score = 1.0 if is_verbatim(said, phrase) else min(similarity(said, phrase), 0.99)
             if best is None or score > best[3]:
@@ -386,6 +417,7 @@ def _public(job):
 
 
 def make_uploader(no_upload: bool, out_dir: str):
+    """Возвращает (put, get): put(key, body, type) → ссылка, get(key) → bytes или None."""
     if no_upload:
         def save(key, body, content_type):
             path = os.path.join(out_dir, key)
@@ -393,7 +425,14 @@ def make_uploader(no_upload: bool, out_dir: str):
             with open(path, "wb") as f:
                 f.write(body)
             return os.path.abspath(path)
-        return save
+
+        def load(key):
+            try:
+                with open(os.path.join(out_dir, key), "rb") as f:
+                    return f.read()
+            except OSError:
+                return None
+        return save, load
 
     from backend.core.config import settings
     from backend.services.r2_storage import R2StorageService
@@ -407,7 +446,13 @@ def make_uploader(no_upload: bool, out_dir: str):
         client.put_object(Bucket=settings.R2_BUCKET, Key=key, Body=body,
                           ContentType=content_type, CacheControl="public, max-age=300")
         return f"{settings.R2_PUBLIC_URL.rstrip('/')}/{key}"
-    return upload
+
+    def download(key):
+        try:
+            return client.get_object(Bucket=settings.R2_BUCKET, Key=key)["Body"].read()
+        except Exception:
+            return None
+    return upload, download
 
 
 def print_report(results):
@@ -429,6 +474,26 @@ def print_report(results):
           "Громкость: чем ближе к 0, тем громче; разница 6 dB ≈ в 2 раза по амплитуде.")
 
 
+def save_index(results, uploader, reader):
+    """index.json: новые результаты поверх прежних, чтобы частичный прогон не терял остальные голоса."""
+    key = f"{R2_PREFIX}/index.json"
+    try:
+        voices = json.loads(reader(key) or b"{}").get("voices") or []
+    except ValueError:
+        voices = []
+    fresh = {(r["provider"], r["slug"]): r for r in results if not r.get("error")}
+    merged = [fresh.pop((v.get("provider"), v.get("slug")), v) for v in voices]
+    merged += [r for r in results if (r["provider"], r["slug"]) in fresh]
+    index = {
+        "phrase": ARGS.phrase,
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "gemini_model": ARGS.gemini_model,
+        "voices": merged,
+    }
+    return uploader(key, json.dumps(index, ensure_ascii=False, indent=2).encode("utf-8"),
+                    "application/json; charset=utf-8")
+
+
 PROVIDER_KEYS = {"openai": "OPENAI_API_KEY", "gemini": "GEMINI_API_KEY", "fish": "FISH_API_KEY"}
 
 
@@ -439,28 +504,16 @@ async def main():
     jobs = build_jobs([p for p in ARGS.providers if p not in missing], ARGS.voices)
     if not jobs:
         raise SystemExit("Нет голосов под выбранные фильтры")
-    uploader = make_uploader(ARGS.no_upload, ARGS.out)
+    uploader, reader = make_uploader(ARGS.no_upload, ARGS.out)
     for n, job in enumerate(jobs, 1):
         job["n"] = n
     PROGRESS.update(total=len(jobs), t0=time.monotonic())
     print(f"Фраза: «{ARGS.phrase}»\nГолосов: {len(jobs)}, параллельно: {ARGS.concurrency}\n")
     sem = asyncio.Semaphore(ARGS.concurrency)
     results = await asyncio.gather(*(run_job(j, ARGS.phrase, sem, uploader) for j in jobs))
-    index = {
-        "phrase": ARGS.phrase,
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "gemini_model": ARGS.gemini_model,
-        "voices": results,
-    }
-    index_url = None
-    if not ARGS.voices and set(ARGS.providers) == {"openai", "gemini", "fish"}:
-        # Индекс перезаписываем только полным прогоном, чтобы не потерять остальные голоса
-        index_url = uploader(f"{R2_PREFIX}/index.json",
-                             json.dumps(index, ensure_ascii=False, indent=2).encode("utf-8"),
-                             "application/json; charset=utf-8")
+    index_url = await asyncio.to_thread(save_index, results, uploader, reader)
     print_report(results)
-    if index_url:
-        print(f"\nindex.json: {index_url}")
+    print(f"\nindex.json: {index_url}")
     print(f"Всего: {_elapsed()}")
 
 
