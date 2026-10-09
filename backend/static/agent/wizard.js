@@ -233,15 +233,14 @@ async function renderCreation(c){
       localStorage.removeItem('agent_wizard_v3');
       const succ = document.getElementById('cr-success');
       succ.style.display='block';
-      // ✅ Онбординг: сообщаем про тестовый период или необходимость тарифа
-      const note = document.createElement('div');
-      note.style.cssText = 'margin-top:12px;font-size:13.5px;color:var(--hint)';
+      // Тестовый период (3 дня + 1 500 кредитов) включается один раз — при первом агенте.
+      // Повторно ничего не пишем: без доступа бэкенд не дал бы создать агента (402).
       if(created.trial_activated){
+        const note = document.createElement('div');
+        note.style.cssText = 'margin-top:12px;font-size:13.5px;color:var(--hint)';
         note.innerHTML = '🎉 Вам доступен бесплатный <b>тестовый период на 3 дня</b> и <b>1 500 кредитов</b> для теста оркестратора. После теста агент доступен на тарифе <b>Profi</b> (включает кредиты).';
-      } else if(created.agent_trial_used){
-        note.innerHTML = 'Тестовый период уже использован. Агент доступен на тарифе <b>Profi</b>. <button class="sub-action" onclick="location.href=\'/static/dashboard.html\'">Перейти к тарифам</button>';
+        succ.appendChild(note);
       }
-      succ.appendChild(note);
       const tip = document.createElement('div');
       tip.className = 'wz-tip';
       tip.innerHTML = '<i class="fas fa-phone-volume"></i><div>Чтобы агент принимал входящие звонки, привяжите к нему номер в разделе <a href="/static/telephony.html">Телефония</a>. Исходящие звонки и сообщения работают сразу.</div>';

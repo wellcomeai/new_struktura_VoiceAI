@@ -27,6 +27,7 @@ logger = get_logger(__name__)
 AGENT_PLAN_CODE = "agent"
 AGENT_TRIAL_DAYS = 3
 AGENT_SUBSCRIPTION_DAYS = 30
+ORCHESTRATOR_PRODUCT = "orchestrator"  # credit_transactions.product кредитов агента (у каскада — "cascade")
 
 
 def activate_agent_trial(db: Session, user: User) -> bool:
@@ -39,7 +40,10 @@ def activate_agent_trial(db: Session, user: User) -> bool:
     agent_trial_started_at. Доступ во время триала даёт User.agent_trial_active().
 
     Идемпотентно: если agent_trial_used уже True — ничего не делает и
-    возвращает False. Возвращает True если trial выдан.
+    возвращает False. Возвращает True если trial выдан. Флаг ставит
+    grant_trial; раньше он искал любую trial_grant и находил каскадную
+    (product='cascade'), поэтому флаг не ставился, кредиты не начислялись,
+    а окно триала перезапускалось при каждом создании агента.
     """
     if user.agent_trial_used:
         return False
@@ -207,15 +211,20 @@ class CreditService:
     def grant_trial(cls, db: Session, user: User) -> Optional[CreditTransaction]:
         """
         Выдать 1500 кредитов при старте trial. Идемпотентно по user_id:
-        проверяет наличие транзакции type=trial_grant.
-        Также ставит user.agent_trial_used = True.
+        проверяет наличие транзакции type=trial_grant у кредитов оркестратора
+        (у каскада свой trial_grant с product='cascade' — он не в счёт).
+        Также ставит user.agent_trial_used = True — и когда грант уже был.
         """
         existing = db.query(CreditTransaction).filter(
             CreditTransaction.user_id == user.id,
+            CreditTransaction.product == ORCHESTRATOR_PRODUCT,
             CreditTransaction.type == CreditTransactionType.TRIAL_GRANT.value,
         ).first()
         if existing:
             logger.info(f"[CREDITS] Trial already granted to user {user.id}")
+            if not user.agent_trial_used:
+                user.agent_trial_used = True
+                db.commit()
             return None
 
         locked = db.execute(
@@ -233,6 +242,7 @@ class CreditService:
             amount=cls.TRIAL_CREDITS,
             balance_after=locked.credits_balance,
             ref_type="grant",
+            product=ORCHESTRATOR_PRODUCT,
             notes="Trial grant: 3 days, 1500 credits",
         )
         db.add(tx)
