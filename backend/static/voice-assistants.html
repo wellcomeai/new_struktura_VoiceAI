@@ -107,6 +107,7 @@
     .voice:hover { border-color: var(--vf-border-strong); }
     .voice.selected { border-color: var(--vf-accent); background: var(--vf-accent-soft); font-weight: 600; color: var(--vf-accent); }
     .voice small { color: var(--vf-text-4); font-weight: 400; font-size: 11px; }
+    .voice .v-right { display: inline-flex; align-items: center; gap: 6px; }
     /* Многострочная подсказка под плиткой «Свой ID» (базовый data-tip — однострочный, сверху). */
     .voice.tip-wide::after { white-space: normal; width: 300px; text-align: left; line-height: 1.45; font-weight: 400; top: calc(100% + 8px); bottom: auto; transform: translateX(-50%) translateY(-4px); }
     .voice.tip-wide:hover::after { transform: translateX(-50%); }
@@ -160,6 +161,7 @@
     </div>
   </aside>
   <script src="/static/js/sidebar.js"></script>
+  <script src="/static/js/voice-samples.js"></script>
 
   <main class="vf-main">
     <header class="vf-topbar">
@@ -337,6 +339,10 @@
   // Все встроенные голоса gpt-live-1 (должны совпадать с OPENAI_VOICES в backend/schemas/assistant.py).
   const OPENAI_VOICES = ['alloy', 'echo', 'marin', 'cedar', 'shimmer', 'ash', 'ballad', 'coral', 'sage', 'verse',
     'beacon', 'bossa', 'cinder', 'delta', 'gleam', 'meridian', 'quartz', 'ripple', 'stone', 'tempo', 'vesper', 'willow'];
+  // Пол голосов OpenAI (как VOICE_META.openai в agent/instructions-voice.js; у голосов GPT-Live — по примерам)
+  const OPENAI_GENDER = { alloy: 'n', echo: 'm', marin: 'f', cedar: 'm', shimmer: 'f', ash: 'm', ballad: 'm', coral: 'f', sage: 'f', verse: 'm',
+    beacon: 'm', bossa: 'f', cinder: 'm', delta: 'f', gleam: 'n', meridian: 'm', quartz: 'f', ripple: 'm', stone: 'm', tempo: 'm', vesper: 'm', willow: 'f' };
+  const GENDER_SHORT = { f: 'жен.', m: 'муж.', n: 'нейтр.' };
   const GEMINI_VOICES = [['Puck','M'],['Charon','M'],['Kore','F'],['Fenrir','M'],['Aoede','F'],['Achernar','F'],['Achird','M'],['Algenib','M'],['Algieba','M'],['Alnilam','M'],['Autonoe','F'],['Callirrhoe','F'],['Despina','F'],['Enceladus','M'],['Erinome','F'],['Gacrux','F'],['Iapetus','M'],['Laomedeia','F'],['Leda','F'],['Orus','M'],['Pulcherrima','F'],['Rasalgethi','M'],['Sadachbia','M'],['Sadaltager','M'],['Schedar','M'],['Sulafat','F'],['Umbriel','M'],['Vindemiatrix','F'],['Zephyr','F'],['Zubenelgenubi','M']];
   const YANDEX_VOICES_FALLBACK = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
   const YANDEX_MODEL = 'speech-realtime-260528';
@@ -577,9 +583,15 @@
     renderModels(); renderVoiceSettings(); updateTabAvailability(); setDirty(true);
   }
 
-  function voiceGrid(items, selected, onPick) {
+  // Подпись и кнопка примера справа на плитке голоса (пример — js/voice-samples.js)
+  function voiceTileRight(sub, provider, id) {
+    const play = provider && window.VoiceSamples ? VoiceSamples.button(provider, id) : '';
+    return sub || play ? `<span class="v-right">${sub ? `<small>${esc(sub)}</small>` : ''}${play}</span>` : '';
+  }
+
+  function voiceGrid(items, selected, onPick, provider) {
     const box = $('voice-settings');
-    box.innerHTML = `<div class="voices">${items.map(([id, label, sub]) => `<div class="voice${selected === id ? ' selected' : ''}" data-voice="${esc(id)}" tabindex="0"><span>${esc(label)}</span>${sub ? `<small>${esc(sub)}</small>` : ''}</div>`).join('')}</div>`;
+    box.innerHTML = `<div class="voices">${items.map(([id, label, sub]) => `<div class="voice${selected === id ? ' selected' : ''}" data-voice="${esc(id)}" tabindex="0"><span>${esc(label)}</span>${voiceTileRight(sub, provider, id)}</div>`).join('')}</div>`;
     box.querySelectorAll('.voice').forEach(el => {
       const pick = () => { onPick(el.dataset.voice); };
       el.addEventListener('click', pick);
@@ -602,9 +614,9 @@
       onChange: val => { state.voice[key] = val; setDirty(true); },
     });
 
-    if (type === 'openai') { voiceGrid(OPENAI_VOICES.map(id => [id, id[0].toUpperCase() + id.slice(1)]), v.voice, id => { state.voice.voice = id; renderVoiceSettings(); setDirty(true); }); return; }
+    if (type === 'openai') { voiceGrid(OPENAI_VOICES.map(id => [id, id[0].toUpperCase() + id.slice(1), GENDER_SHORT[OPENAI_GENDER[id]]]), v.voice, id => { state.voice.voice = id; renderVoiceSettings(); setDirty(true); }, 'openai'); return; }
     if (type === 'gemini') {
-      voiceGrid(GEMINI_VOICES.map(([id, g]) => [id, id, g === 'F' ? 'жен.' : 'муж.']), v.voice, id => { state.voice.voice = id; renderVoiceSettings(); setDirty(true); });
+      voiceGrid(GEMINI_VOICES.map(([id, g]) => [id, id, g === 'F' ? 'жен.' : 'муж.']), v.voice, id => { state.voice.voice = id; renderVoiceSettings(); setDirty(true); }, 'gemini');
       box.insertAdjacentHTML('beforeend', '<div class="hint" style="margin-top:10px;">Подмодель и режим размышлений скрыты намеренно ради скорости ответа.</div>');
       return;
     }
@@ -625,7 +637,7 @@
       v.fish_model = o.default_model || models[0];
       box.innerHTML = `
         <div class="field"><label class="label">Голос</label>
-          <div class="voices">${voices.map(x => `<div class="voice${(!useCustom && v.fish_voice_id === x.id) ? ' selected' : ''}" data-voice="${esc(x.id)}" tabindex="0"><span>${esc(x.name)}</span><small>${x.gender === 'f' ? 'жен.' : 'муж.'}</small></div>`).join('')}<div class="voice tip-wide${useCustom ? ' selected' : ''}" data-voice="__custom" tabindex="0" data-tip="Зайдите на fish.audio: можно клонировать свой голос, и агент будет разговаривать вашим голосом, или выбрать любой из сотен готовых голосов библиотеки. Достаточно вставить сюда ID голосовой модели (reference_id)."><span>Свой ID</span><small>fish.audio</small></div></div>
+          <div class="voices">${voices.map(x => `<div class="voice${(!useCustom && v.fish_voice_id === x.id) ? ' selected' : ''}" data-voice="${esc(x.id)}" tabindex="0"><span>${esc(x.name)}</span>${voiceTileRight(x.gender === 'f' ? 'жен.' : 'муж.', 'fish', x.id)}</div>`).join('')}<div class="voice tip-wide${useCustom ? ' selected' : ''}" data-voice="__custom" tabindex="0" data-tip="Зайдите на fish.audio: можно клонировать свой голос, и агент будет разговаривать вашим голосом, или выбрать любой из сотен готовых голосов библиотеки. Достаточно вставить сюда ID голосовой модели (reference_id)."><span>Свой ID</span><small>fish.audio</small></div></div>
           <div id="fish-custom-wrap" style="margin-top:8px;${useCustom ? '' : 'display:none;'}"><input class="input" id="fish-custom-id" value="${esc(v.fish_custom_id || '')}" placeholder="reference_id голоса из fish.audio"><div class="hint">На <a href="https://fish.audio/" target="_blank" rel="noopener">fish.audio</a> можно клонировать свой голос (агент будет говорить вашим голосом) или выбрать любой из сотен готовых. Вставьте сюда ID голосовой модели.</div></div>
         </div>
         <div class="form-row">

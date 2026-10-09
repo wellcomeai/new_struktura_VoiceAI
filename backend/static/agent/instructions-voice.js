@@ -147,7 +147,7 @@ function fishVoicePreviewHtml(id, customId){
   if(v){
     const g = GENDER_INFO[v.gender] || GENDER_INFO.n;
     return `<span class="voice-ava ${g.cls}"><i class="fas ${g.icon}"></i></span>
-      <div class="voice-pv-txt"><b>${esc(v.name)} · ${g.label} голос</b><span>${esc(v.desc)}</span></div>`;
+      <div class="voice-pv-txt"><b>${esc(v.name)} · ${g.label} голос</b><span>${esc(v.desc)}</span></div>${sampleButtonHtml('fish', v.id)}`;
   }
   return `<span class="voice-ava g-n"><i class="fas fa-fingerprint"></i></span>
     <div class="voice-pv-txt"><b>Свой голос</b><span>${customId ? esc(customId) : 'reference_id из библиотеки fish.audio, можно свой клон'}</span></div>`;
@@ -183,10 +183,10 @@ const VOICE_META = {
     cedar:['m','Глубокий, низкий'], shimmer:['f','Мягкий, светлый'], ash:['m','Спокойный, ровный'],
     ballad:['m','Выразительный, эмоциональный'], coral:['f','Дружелюбный, тёплый'], sage:['f','Спокойный, мягкий'],
     verse:['m','Живой, динамичный'],
-    // Голоса GPT-Live: OpenAI не публикует их описания
-    beacon:['n',LIVE_VOICE_DESC], bossa:['n',LIVE_VOICE_DESC], cinder:['n',LIVE_VOICE_DESC], delta:['n',LIVE_VOICE_DESC],
-    gleam:['n',LIVE_VOICE_DESC], meridian:['n',LIVE_VOICE_DESC], quartz:['n',LIVE_VOICE_DESC], ripple:['n',LIVE_VOICE_DESC],
-    stone:['n',LIVE_VOICE_DESC], tempo:['n',LIVE_VOICE_DESC], vesper:['n',LIVE_VOICE_DESC], willow:['n',LIVE_VOICE_DESC],
+    // Голоса GPT-Live: OpenAI не публикует их описания; пол — по высоте голоса в примерах (scripts/voice_samples.py)
+    beacon:['m',LIVE_VOICE_DESC], bossa:['f',LIVE_VOICE_DESC], cinder:['m',LIVE_VOICE_DESC], delta:['f',LIVE_VOICE_DESC],
+    gleam:['n',LIVE_VOICE_DESC], meridian:['m',LIVE_VOICE_DESC], quartz:['f',LIVE_VOICE_DESC], ripple:['m',LIVE_VOICE_DESC],
+    stone:['m',LIVE_VOICE_DESC], tempo:['m',LIVE_VOICE_DESC], vesper:['m',LIVE_VOICE_DESC], willow:['f',LIVE_VOICE_DESC],
   },
   yandex: {
     marina:['f','Тёплый, дружелюбный'], dasha:['f','Живой, современный'], alexander:['m','Уверенный, деловой'],
@@ -205,11 +205,15 @@ const GENDER_INFO = {
   n: { label:'Нейтральный', icon:'fa-circle-half-stroke', cls:'g-n' },
 };
 function voiceMeta(type, name){ const m=(VOICE_META[type]||{})[name]; return m ? {gender:m[0], desc:m[1]} : {gender:'n', desc:''}; }
+// Кнопка «Послушать» (js/voice-samples.js): примеры есть у OpenAI, Gemini и готовых голосов Fish
+function sampleButtonHtml(type, voice){
+  return window.VoiceSamples ? VoiceSamples.button(type, voice, { label:'Послушать' }) : '';
+}
 function voicePreviewHtml(type, name){
   const {gender, desc} = voiceMeta(type, name);
   const g = GENDER_INFO[gender] || GENDER_INFO.n;
   return `<span class="voice-ava ${g.cls}"><i class="fas ${g.icon}"></i></span>
-    <div class="voice-pv-txt"><b>${esc(name)} · ${g.label} голос</b><span>${esc(desc)}</span></div>`;
+    <div class="voice-pv-txt"><b>${esc(name)} · ${g.label} голос</b><span>${esc(desc)}</span></div>${sampleButtonHtml(type, name)}`;
 }
 function updateVoicePreview(sel, descId, type){
   const el = document.getElementById(descId);

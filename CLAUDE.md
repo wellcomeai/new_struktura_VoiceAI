@@ -588,6 +588,21 @@ v2/v3: звонки, входящие SMS/TG/MAX, отложенные отпр�
 `FREE_PLAN_CODES`, не админы (`_is_paid_subscription`), сортировка по дате окончания; строки с
 `is_paid` подсвечены зелёным, колонка «Подписка до» — дата окончания и остаток дней.
 
+## Примеры голосов (ветка 0910-golosa)
+
+`scripts/voice_samples.py` (запуск в Shell на Render) озвучивает фразу «Это мой пример голоса, которым
+я буду говорить на платформе Voicyfy.» всеми голосами OpenAI (gpt-live-1 через `OpenAILiveClient`),
+Gemini (Live, модель из звонков) и готовыми голосами Fish и кладёт WAV в R2:
+`voice-samples/<провайдер>/<голос в нижнем регистре>.wav` (Fish — `svetlana`/`sergey`), плюс
+`voice-samples/index.json`; печатает громкость речи (dBFS) каждого голоса. Новый голос — перезапустить
+скрипт с его именем (`python3 scripts/voice_samples.py openai <голос>`). Кнопку «▶ / Послушать» рисует
+`backend/static/js/voice-samples.js` (`VoiceSamples.button(provider, voice)`; адрес R2 в константе `BASE`,
+соответствие Fish id → файл в `FISH_FILES`): плитки голосов в `voice-assistants.html` и блок описания
+голоса в настройках агента (`voicePreviewHtml` / `fishVoicePreviewHtml`). Голоса OpenAI заметно тише
+Gemini (−20…−35 против −13…−18 dBFS; самые тихие sage, coral, ballad, verse) — серверное усиление
+решили не делать. Пол голосов GPT-Live (`VOICE_META.openai`, `OPENAI_GENDER` в `voice-assistants.html`)
+определён по высоте голоса в примерах, `gleam` — нейтральный.
+
 ## Key API Prefixes
 
 | Prefix | Description |
