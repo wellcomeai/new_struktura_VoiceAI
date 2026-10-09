@@ -683,13 +683,16 @@
       if (!voices.find(x => x.id === v.tts_voice) && voices.length) v.tts_voice = voices[0].id;
       box.innerHTML = `
         <div class="form-row">
-          <div class="field"><label class="label">Голос</label><div id="sel-tts-voice"></div></div>
+          <div class="field"><label class="label">Голос</label><div class="range-row"><div id="sel-tts-voice" style="flex:1;min-width:0;"></div><span id="tts-voice-play"></span></div></div>
         </div>
         <div class="field"><label class="label">Пауза перед ответом</label>
           <div class="presets">${SILENCE_PRESETS.map(([ms, l, sub]) => `<div class="preset${v.silence_duration_ms === ms ? ' selected' : ''}" data-ms="${ms}" tabindex="0">${l}<small>${sub}</small></div>`).join('')}</div>
           <div class="hint">Меньше пауза, быстрее ответ, но ассистент чаще перебивает. Распознавание и синтез в Каскаде оплачиваются с баланса телефонии.</div></div>`;
       const voiceOpts = voices.map(x => ({ value: x.id, label: x.name || x.id, sub: x.gender === 'female' ? 'жен.' : (x.gender === 'male' ? 'муж.' : '') }));
-      VF.select(box.querySelector('#sel-tts-voice'), { options: voiceOpts, value: v.tts_voice, onChange: val => { state.voice.tts_voice = val; setDirty(true); } });
+      const playBox = box.querySelector('#tts-voice-play');
+      const renderPlay = id => { playBox.innerHTML = window.VoiceSamples ? VoiceSamples.button('cascade', id) : ''; };
+      renderPlay(v.tts_voice);
+      VF.select(box.querySelector('#sel-tts-voice'), { options: voiceOpts, value: v.tts_voice, onChange: val => { state.voice.tts_voice = val; renderPlay(val); setDirty(true); } });
       box.querySelectorAll('.preset').forEach(el => {
         const pick = () => { state.voice.silence_duration_ms = parseInt(el.dataset.ms, 10); box.querySelectorAll('.preset').forEach(x => x.classList.toggle('selected', x === el)); setDirty(true); };
         el.addEventListener('click', pick); el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });

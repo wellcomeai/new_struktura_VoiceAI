@@ -2,8 +2,9 @@
  * Примеры голосов: кнопка ▶ рядом с голосом проигрывает фразу «Это мой пример
  * голоса, которым я буду говорить на платформе Voicyfy».
  *
- * Файлы сгенерированы scripts/voice_samples.py и лежат в R2:
- * voice-samples/<провайдер>/<голос в нижнем регистре>.wav (у Fish — по имени).
+ * Файлы лежат в R2: OpenAI, Gemini, Fish сгенерированы scripts/voice_samples.py —
+ * voice-samples/<провайдер>/<голос в нижнем регистре>.wav (у Fish — по имени);
+ * Каскад (VoxTTS) записан отдельно — voice-samples/<Имя>.mp3.
  * Новый голос без файла просто не играет (кнопка гаснет с подсказкой).
  *
  * Использование: VoiceSamples.button('openai', 'marin') → HTML кнопки (или ''
@@ -14,11 +15,16 @@
   'use strict';
 
   const BASE = 'https://pub-da39fb994f3d43fcb81db15f5821fe1d.r2.dev/voice-samples';
-  const PROVIDERS = ['openai', 'gemini', 'fish'];
-  // Готовые голоса Fish (FISH_VOICES в backend/models/fish_assistant.py) → имя файла
-  const FISH_FILES = {
-    '1ac3ce2f7ba24e90ac2a08055c253fe7': 'svetlana',
-    '5ddd9a81cc554841a53b75e355d52628': 'sergey',
+  const PROVIDERS = ['openai', 'gemini'];   // файл — <провайдер>/<голос>.wav
+  // У остальных файл задан явно, путь от BASE
+  const FILES = {
+    // Готовые голоса Fish (FISH_VOICES в backend/models/fish_assistant.py)
+    fish: {
+      '1ac3ce2f7ba24e90ac2a08055c253fe7': 'fish/svetlana.wav',
+      '5ddd9a81cc554841a53b75e355d52628': 'fish/sergey.wav',
+    },
+    // Голоса Каскада (CASCADE_VOICES в backend/api/agent.py)
+    cascade: { Anna: 'Анна.mp3', Sergey: 'Сергей.mp3' },
   };
 
   const ICON_PLAY = '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M4 2.5v11l9-5.5z"/></svg>';
@@ -28,9 +34,10 @@
   let currentKey = null; // "провайдер:голос", который играет или грузится
 
   function url(provider, voice) {
-    if (!voice || PROVIDERS.indexOf(provider) < 0) return null;
-    const file = provider === 'fish' ? FISH_FILES[voice] : String(voice).toLowerCase();
-    return file ? `${BASE}/${provider}/${encodeURIComponent(file)}.wav` : null;
+    if (!voice) return null;
+    if (PROVIDERS.indexOf(provider) >= 0) return `${BASE}/${provider}/${encodeURIComponent(String(voice).toLowerCase())}.wav`;
+    const file = FILES[provider] && FILES[provider][voice];
+    return file ? `${BASE}/${file.split('/').map(encodeURIComponent).join('/')}` : null;
   }
 
   function esc(s) {
