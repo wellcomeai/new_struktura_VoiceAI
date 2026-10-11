@@ -2152,6 +2152,37 @@ def ensure_conversation_indexes():
             logger.info("✅ Conversation and ownership indexes ensured")
     except Exception as e:
         logger.error(f"❌ ensure_conversation_indexes error: {e}")
+    # Сборка на большой таблице идёт десятки секунд — не задерживаем старт.
+    import threading
+    threading.Thread(target=ensure_conversation_call_session_index, daemon=True).start()
+
+
+def ensure_conversation_call_session_index():
+    """
+    Индекс по client_info->>'call_session_history_id'. Публичный
+    GET /api/telephony/call/{id} (его опрашивают внешние CRM) без него читал
+    всю conversations — 4+ с на запрос. Строится CONCURRENTLY, чтобы не
+    блокировать запись в таблицу; недостроенный (invalid) индекс пересоздаётся.
+    """
+    name = "ix_conversations_call_session_history_id"
+    try:
+        from sqlalchemy import text
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            valid = conn.execute(text(
+                "SELECT i.indisvalid FROM pg_index i "
+                "JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = :n"
+            ), {"n": name}).scalar()
+            if valid:
+                return
+            if valid is False:
+                conn.execute(text(f"DROP INDEX CONCURRENTLY IF EXISTS {name}"))
+            conn.execute(text(
+                f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {name} "
+                "ON conversations ((client_info->>'call_session_history_id'))"
+            ))
+            logger.info(f"✅ {name} created")
+    except Exception as e:
+        logger.error(f"❌ ensure_conversation_call_session_index error: {e}")
 
 
 def ensure_agent_connectors_table():

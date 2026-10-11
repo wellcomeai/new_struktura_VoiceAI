@@ -674,3 +674,11 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 карточка звонящего, без остального `VOICE_AGENT_PROMPT_BASE` (он написан под исходящие со стратегией
 оркестратора; блок функций вынесен из него отдельной константой, текст шаблона не изменился). Пустое поле — прежний `system_prompt`
 ассистента (шаблон + блок владельца). Исходящие не менялись.
+
+## Индекс поиска звонка по ID сессии Voximplant (ветка 0910-golosa)
+
+Публичный `GET /api/telephony/call/{session_history_id}` ищет `conversations` по
+`client_info->>'call_session_history_id'`; внешние CRM опрашивают его по кругу, и без индекса каждый запрос
+читал всю таблицу (4+ с в логах Postgres). Индекс `ix_conversations_call_session_history_id` (по выражению)
+строит `ensure_conversation_call_session_index` в `app.py` — `CREATE INDEX CONCURRENTLY` в фоновом потоке
+на старте, запись в таблицу не блокируется; недостроенный (invalid) индекс удаляется и строится заново.
