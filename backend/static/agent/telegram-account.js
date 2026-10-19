@@ -2,8 +2,11 @@
  * agent/telegram-account.js — ЛИЧНЫЙ Telegram-аккаунт агента (MTProto)
  *                             → /api/agent/telegram-account
  * НЕ путать с telegram.js (Telegram-БОТ агента, Bot API). Здесь пользователь
- * авторизует свой личный аккаунт (телефон → код → пароль 2FA), после чего
- * агент пишет клиентам от его имени и отвечает на входящие (поллер бэкенда).
+ * авторизует свой личный аккаунт по QR-коду (+ облачный пароль 2FA), после
+ * чего агент пишет клиентам от его имени и отвечает на входящие (поллер бэкенда).
+ * Вход по номеру и коду из UI убран: Telegram перестал доставлять такие коды.
+ * QR: POST /qr/start открывает окно на 2 мин, GET /qr/status опрашивается раз
+ * в 2 с — сервер сам меняет токен (~30 с), здесь только подменяется картинка.
  * Строка коннектора рендерится внутри списка коннекторов (connectors.js
  * вызывает tgAccountConnectorRowHtml/tgAccountSummaryHtml).
  * Часть страницы /static/agent.html (Voicyfy Agent).
@@ -14,6 +17,10 @@
 const TG_ACC_API = '/api/agent/telegram-account';
 let tgAccState = null;   // ответ GET /telegram-account (или null)
 let tgAccBusy = false;   // защита от дабл-кликов на шагах авторизации
+let tgAccQr = null;      // окно входа по QR: ответ qr из /qr/start | /qr/status
+let tgAccQrPoll = null;  // таймер опроса /qr/status
+let tgAccQrTick = null;  // таймер обратного отсчёта окна
+const TG_ACC_QR_POLL_MS = 2000;
 
 async function loadTgAccount(){
   try{
@@ -38,7 +45,7 @@ function tgAccountConnectorRowHtml(){
       + `<button class="btn btn-secondary btn-sm" onclick="openTgAccountModal()"><i class="fas fa-gear"></i> Настроить</button>`;
     sub = s.auto_reply_enabled ? 'Подключено · автоответ включён' : 'Подключено · автоответ выключен';
     subColor = '#166534';
-  } else if(st === 'pending_code' || st === 'pending_password'){
+  } else if(st === 'pending_qr' || st === 'pending_code' || st === 'pending_password'){
     right = `<button class="btn btn-primary btn-sm" onclick="openTgAccountModal()"><i class="fas fa-link"></i> Продолжить</button>`;
     sub = 'Авторизация не завершена';
     subColor = '#b45309';
@@ -79,11 +86,15 @@ function openTgAccountModal(){
   const ov = document.getElementById('tg-account-modal-overlay');
   if(ov) ov.classList.remove('hidden');
   renderTgAccountModal();
+  // Окно QR могло остаться открытым на сервере (модалку закрыли, страницу обновили).
+  if(tgAccState && tgAccState.status === 'pending_qr') tgAccQrPollOnce();
 }
 
 function closeTgAccountModal(){
   const ov = document.getElementById('tg-account-modal-overlay');
   if(ov) ov.classList.add('hidden');
+  // Окно на сервере доживает свои 2 минуты (отсканируют — подключится), опрос стоп.
+  _tgAccQrStopTimers();
 }
 
 function renderTgAccountModal(){
@@ -102,21 +113,10 @@ function renderTgAccountModal(){
       Отправка ограничена лимитами, писать первым по номеру телефона агент может лишь изредка.
     </div>`;
 
-  if(st === 'not_connected' || st === 'error'){
+  if(st === 'not_connected' || st === 'error' || st === 'pending_qr' || st === 'pending_code'){
     el.innerHTML = `
       ${st === 'error' ? `<div style="background:#FEE2E2;border-left:3px solid #DC2626;padding:10px 12px;border-radius:8px;font-size:12px;color:#7F1D1D;margin-bottom:14px">Сессия недействительна (${esc(s.last_error || 'отозвана')}). Подключите аккаунт заново.</div>` : warn}
-      <label class="form-label">Номер телефона аккаунта Telegram</label>
-      <input type="tel" class="form-input" id="tgacc-phone" placeholder="+79991234567" value="">
-      <div style="font-size:12px;color:#64748b;margin:6px 0 14px">Telegram пришлёт код подтверждения в приложение (не по SMS).</div>
-      <button class="btn btn-primary" id="tgacc-submit" onclick="tgAccStart()"><i class="fas fa-paper-plane"></i> Получить код</button>`;
-  } else if(st === 'pending_code'){
-    el.innerHTML = `
-      <div style="font-size:13px;margin-bottom:12px">Код отправлен в Telegram на номер <b>${esc(s.phone_masked || '')}</b>. Откройте Telegram и введите код из сообщения от «Telegram».</div>
-      <label class="form-label">Код подтверждения</label>
-      <input type="text" class="form-input" id="tgacc-code" placeholder="12345" autocomplete="one-time-code">
-      <div style="height:14px"></div>
-      <button class="btn btn-primary" id="tgacc-submit" onclick="tgAccVerifyCode()"><i class="fas fa-check"></i> Подтвердить</button>
-      <button class="btn btn-secondary" onclick="tgAccRestart()" style="margin-left:8px">Начать заново</button>`;
+      ${_tgAccQrHtml()}`;
   } else if(st === 'pending_password'){
     el.innerHTML = `
       <div style="font-size:13px;margin-bottom:12px">На аккаунте включена двухэтапная аутентификация. Введите облачный пароль.</div>
@@ -125,6 +125,7 @@ function renderTgAccountModal(){
       <div style="height:14px"></div>
       <button class="btn btn-primary" id="tgacc-submit" onclick="tgAccVerifyPassword()"><i class="fas fa-check"></i> Войти</button>
       <button class="btn btn-secondary" onclick="tgAccRestart()" style="margin-left:8px">Начать заново</button>`;
+    setTimeout(() => document.getElementById('tgacc-password')?.focus(), 0);
   } else { // connected
     const who = [s.tg_first_name, s.tg_username ? '@' + s.tg_username : null].filter(Boolean).join(' · ');
     el.innerHTML = `
@@ -133,6 +134,7 @@ function renderTgAccountModal(){
         <div>
           <div style="font-weight:600;font-size:14px">Подключён${who ? ': ' + esc(who) : ''}</div>
           <div style="font-size:12px;color:#64748b">${esc(s.phone_masked || '')}</div>
+          <div style="font-size:11px;color:#94a3b8">В Telegram → Устройства сессия называется «Voicyfy Agent» — не завершайте её</div>
         </div>
       </div>
       ${warn}
@@ -174,27 +176,113 @@ async function _tgAccPost(path, body){
   return false;
 }
 
-async function tgAccStart(){
-  if(tgAccBusy) return;
-  const phone = (document.getElementById('tgacc-phone')?.value || '').trim();
-  if(!phone){ showToast('Укажите номер телефона', 'error'); return; }
-  _tgAccLock(true);
-  try{ await _tgAccPost('/start', { phone }); }
-  catch(e){ showToast('Ошибка сети', 'error'); }
-  _tgAccLock(false);
-  renderTgAccountModal();
+// ── Вход по QR ──
+function _tgAccIsPhone(){
+  return window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
 }
 
-async function tgAccVerifyCode(){
+function _tgAccFmtLeft(sec){
+  sec = Math.max(0, sec | 0);
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+
+function _tgAccQrHtml(){
+  const q = tgAccQr;
+  const steps = `<ol style="font-size:13px;color:#334155;margin:0 0 12px 18px;padding:0;line-height:1.6">
+      <li>Откройте Telegram на телефоне</li>
+      <li>Настройки → Устройства → <b>Подключить устройство</b></li>
+      <li>Наведите камеру на QR-код</li>
+    </ol>`;
+  const phoneHint = _tgAccIsPhone()
+    ? `<div style="background:#EFF6FF;border-left:3px solid #2563EB;padding:10px 12px;border-radius:8px;font-size:12px;color:#1E3A8A;margin-bottom:12px">
+         Отсканировать экран телефона этим же телефоном нельзя — откройте кабинет на компьютере
+         и отсканируйте QR телефоном.</div>`
+    : '';
+  if(q && q.status === 'waiting' && q.qr_svg){
+    return `${steps}${phoneHint}
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;margin:4px 0 14px">
+        <div style="background:#fff;padding:10px;border-radius:12px;border:1px solid var(--border,#e2e8f0);width:220px;height:220px;box-sizing:border-box" id="tgacc-qr">${q.qr_svg}</div>
+        <div style="font-size:12px;color:#64748b">QR обновляется сам · окно закроется через <b id="tgacc-qr-left">${_tgAccFmtLeft(q.window_seconds_left)}</b></div>
+      </div>
+      <button class="btn btn-secondary" onclick="tgAccQrCancel()">Отмена</button>`;
+  }
+  const expired = q && q.status === 'expired';
+  return `${steps}${phoneHint}
+    ${expired ? `<div style="font-size:13px;color:#b45309;margin-bottom:12px">Время вышло — QR не отсканировали. Покажите код заново.</div>` : ''}
+    <div style="font-size:12px;color:#64748b;margin-bottom:14px">Подключится тот аккаунт, который открыт в Telegram на телефоне. Номер вводить не нужно.</div>
+    <button class="btn btn-primary" id="tgacc-submit" onclick="tgAccQrStart()"><i class="fas fa-qrcode"></i> ${expired ? 'Показать QR заново' : 'Показать QR-код'}</button>`;
+}
+
+function _tgAccQrStopTimers(){
+  if(tgAccQrPoll){ clearTimeout(tgAccQrPoll); tgAccQrPoll = null; }
+  if(tgAccQrTick){ clearInterval(tgAccQrTick); tgAccQrTick = null; }
+}
+
+function _tgAccQrRunTimers(){
+  _tgAccQrStopTimers();
+  tgAccQrTick = setInterval(() => {
+    if(!tgAccQr || tgAccQr.status !== 'waiting') return;
+    tgAccQr.window_seconds_left = Math.max(0, (tgAccQr.window_seconds_left || 0) - 1);
+    const el = document.getElementById('tgacc-qr-left');
+    if(el) el.textContent = _tgAccFmtLeft(tgAccQr.window_seconds_left);
+  }, 1000);
+  tgAccQrPoll = setTimeout(tgAccQrPollOnce, TG_ACC_QR_POLL_MS);
+}
+
+async function tgAccQrStart(){
   if(tgAccBusy) return;
-  const code = (document.getElementById('tgacc-code')?.value || '').trim();
-  if(!code){ showToast('Введите код', 'error'); return; }
   _tgAccLock(true);
   try{
-    const ok = await _tgAccPost('/verify-code', { code });
-    if(ok && tgAccState.status === 'connected') showToast('Telegram подключён', 'success');
+    const r = await apiFetch(TG_ACC_API + '/qr/start', { method: 'POST', body: '{}' });
+    if(r && r.status === 200){
+      const data = await r.json();
+      tgAccQr = data.qr;
+      tgAccState = data;
+    } else {
+      const err = await r?.json().catch(() => ({}));
+      showToast(tgAccErr(err.detail), 'error');
+    }
   }catch(e){ showToast('Ошибка сети', 'error'); }
   _tgAccLock(false);
+  renderTgAccountModal();
+  if(tgAccQr && tgAccQr.status === 'waiting') _tgAccQrRunTimers();
+}
+
+async function tgAccQrPollOnce(){
+  tgAccQrPoll = null;
+  let data = null;
+  try{
+    const r = await apiFetch(TG_ACC_API + '/qr/status');
+    if(r && r.status === 200) data = await r.json();
+  }catch(e){}
+  if(!data){ tgAccQrPoll = setTimeout(tgAccQrPollOnce, TG_ACC_QR_POLL_MS); return; }
+
+  const prevSvg = tgAccQr && tgAccQr.qr_svg;
+  tgAccQr = data.qr;
+  tgAccState = data;
+  const q = data.qr;
+
+  if(q && q.status === 'waiting'){
+    // Новый токен — подменяем только картинку, без перерисовки модалки.
+    const box = document.getElementById('tgacc-qr');
+    if(box && q.qr_svg !== prevSvg) box.innerHTML = q.qr_svg;
+    if(!box) renderTgAccountModal();
+    if(!tgAccQrTick) _tgAccQrRunTimers();
+    else tgAccQrPoll = setTimeout(tgAccQrPollOnce, TG_ACC_QR_POLL_MS);
+    return;
+  }
+
+  _tgAccQrStopTimers();
+  if(q && q.status === 'connected') showToast('Telegram подключён', 'success');
+  else if(q && q.status === 'duplicate') showToast(tgAccErr({ code: 'duplicate_account', agent_name: q.duplicate_agent_name }), 'error');
+  else if(q && q.status === 'error') showToast(tgAccErr(q.error), 'error');
+  await loadTgAccount();
+}
+
+async function tgAccQrCancel(){
+  _tgAccQrStopTimers();
+  tgAccQr = null;
+  try{ await apiFetch(TG_ACC_API + '/qr/cancel', { method: 'POST', body: '{}' }); }catch(e){}
   await loadTgAccount();
 }
 
@@ -211,9 +299,11 @@ async function tgAccVerifyPassword(){
   await loadTgAccount();
 }
 
-// «Начать заново» с шага кода/пароля: сбрасываем незавершённую авторизацию
-// удалением строки и возвращаемся к вводу номера.
+// «Начать заново» с шага пароля: сбрасываем незавершённую авторизацию
+// удалением строки и возвращаемся к QR.
 async function tgAccRestart(){
+  _tgAccQrStopTimers();
+  tgAccQr = null;
   try{ await apiFetch(TG_ACC_API, { method: 'DELETE' }); }catch(e){}
   await loadTgAccount();
 }
@@ -253,10 +343,15 @@ async function tgAccDisconnect(){
 }
 
 function tgAccErr(detail){
+  if(detail && typeof detail === 'object' && detail.code === 'duplicate_account'){
+    return detail.agent_name
+      ? `Этот Telegram-аккаунт уже подключён к агенту «${detail.agent_name}». Сначала отключите его там.`
+      : 'Этот Telegram-аккаунт уже подключён к другому агенту';
+  }
   const map = {
     not_configured: 'Коннектор Telegram не настроен на сервере',
     already_connected: 'Аккаунт уже подключён',
-    auth_not_started: 'Авторизация не начата — введите номер телефона',
+    auth_not_started: 'Авторизация не начата — покажите QR-код',
     password_not_expected: 'Пароль сейчас не требуется',
     invalid_reply_scope: 'Неверное значение охвата',
     not_connected: 'Telegram не подключён',
@@ -267,6 +362,7 @@ function tgAccErr(detail){
     password_invalid: 'Неверный облачный пароль',
     session_revoked: 'Сессия отозвана — подключите заново',
     agent_not_found: 'Агент не найден',
+    save_failed: 'Не удалось сохранить подключение — попробуйте ещё раз',
   };
   if(typeof detail === 'string' && detail.startsWith('flood_wait:')){
     return 'Telegram просит подождать ' + detail.split(':')[1] + ' сек. и попробовать снова';

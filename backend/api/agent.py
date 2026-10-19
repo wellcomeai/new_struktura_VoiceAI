@@ -1100,6 +1100,18 @@ async def update_agent(
     return _agent_to_dict(agent)
 
 
+def _release_telegram_account(agent_id: str, session_encrypted: Optional[str]) -> None:
+    """Удалённый агент: закрыть окно QR-входа и разлогинить личный Telegram (best-effort, фоном)."""
+    from backend.core.loop_bridge import spawn_in_loop
+    from backend.services import telegram_user_service as tg_user
+    try:
+        spawn_in_loop(tg_user.qr_cancel(agent_id))
+        if session_encrypted:
+            spawn_in_loop(tg_user.logout(tg_user.decrypt_session(session_encrypted)))
+    except Exception as e:
+        logger.warning(f"[AGENT] Telegram account release failed for agent {agent_id}: {e}")
+
+
 @router.delete("/")
 def delete_agent(
     agent_id: Optional[str] = Query(None),
@@ -1205,6 +1217,19 @@ def delete_agent(
             num.agent_config_id = None
         summary["phone_numbers_unbound"] = len(agent_numbers)
 
+        # Сессию личного Telegram запоминаем до удаления (строка уйдёт каскадом),
+        # чтобы после коммита разлогинить её: иначе в Telegram → Устройства
+        # остаётся висеть сессия сервера.
+        from backend.models.agent_telegram_account import AgentTelegramAccount
+        tg_row = db.query(AgentTelegramAccount).filter(
+            AgentTelegramAccount.agent_config_id == agent.id
+        ).first()
+        tg_session_encrypted = (
+            tg_row.session_encrypted
+            if tg_row and tg_row.status in ("connected", "pending_password") else None
+        )
+        deleted_agent_id = str(agent.id)
+
         # 4. AgentConfig — каскадом уносит agent_contacts и agent_calls.
         db.delete(agent)
         db.flush()
@@ -1219,6 +1244,8 @@ def delete_agent(
         db.rollback()
         logger.error(f"[AGENT] Delete failed for user {current_user.id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"delete_failed: {str(e)}")
+
+    _release_telegram_account(deleted_agent_id, tg_session_encrypted)
 
     logger.info(
         f"[AGENT] Fully deleted agent for user {current_user.id}: "

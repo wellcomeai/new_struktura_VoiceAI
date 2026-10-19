@@ -614,6 +614,29 @@ Gemini (−20…−35 против −13…−18 dBFS; самые тихие sag
 (`doc_*`) не менялись — только названия/подсказки («Кому звоним» → «С кем общаемся»). После создания —
 подсказка привязать номер в «Телефонии» для входящих. Пункт сайдбара — «Агент».
 
+## Личный Telegram агента: вход по QR, поллер (ветка 1910-newvhodtg)
+
+- **Почему.** Telegram перестал доставлять коды входа, запрошенные нашим `api_id` с IP Render: `send_code_request`
+  отвечает `SentCodeTypeApp` («отправлено в приложение»), а в чат «Telegram» (777000) ничего не приходит.
+  Вход по QR (`auth.exportLoginToken`, как у Telegram Desktop) кода не требует и работает.
+- **Вход только по QR** (`backend/api/agent_telegram_account.py`, `telegram_user_service.qr_*`): `POST /qr/start`
+  → окно `QR_WINDOW_SECONDS`=120, статус строки `pending_qr`; фоновая задача держит клиент открытым, ждёт
+  `UpdateLoginToken` и за `QR_REFRESH_BEFORE_SECONDS` до истечения токена (~30 с, срок задаёт Telegram) берёт новый.
+  UI опрашивает `GET /qr/status` раз в 2 с (`window_seconds_left` считает сервер) и подменяет SVG (`qr_svg`, библиотека
+  `qrcode`). Итог пишет колбэк `_on_qr_done` (своя сессия БД, `to_thread`): connected / `pending_password` (дальше
+  прежний `/verify-password`) / duplicate / expired (строка удаляется). Состояние окна — в памяти процесса (`_QR_LOGINS`),
+  рассчитано на один процесс. Подключается аккаунт, открытый на сканирующем телефоне; номер берётся из `get_me`.
+  `/start` + `/verify-code` (вход по коду) оставлены для отката, из UI убраны. Сессии подписаны `device_model="Voicyfy Agent"`.
+- **Один Telegram-аккаунт — один агент**: тот же `tg_user_id` уже `connected` у другого агента → отказ
+  `{"code": "duplicate_account", "agent_name"}` (имя — только для своего агента), новая сессия разлогинивается.
+  Уже существующие дубли не трогаются.
+- **Поллер** (`telegram_user_poller.py`) 16.10 завис на сетевом вызове Telethon и три дня не опрашивал аккаунты.
+  Теперь опрос аккаунта ограничен `POLL_ACCOUNT_TIMEOUT_SECONDS`=120, `disconnect` — 10 с (`_safe_disconnect`),
+  раз в 30 тиков в лог пишется `[TG-POLLER] alive`. Служебные чаты (`SERVICE_PEER_IDS` = 777000, 42777, флаг `support`)
+  поллер пропускает — код входа не уходит в модель.
+- **Удаление агента** (`DELETE /api/agent`) разлогинивает его Telegram-сессию и закрывает окно QR
+  (`_release_telegram_account`); раньше сессия оставалась в Telegram → Устройства.
+
 ## Key API Prefixes
 
 | Prefix | Description |

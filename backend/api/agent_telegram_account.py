@@ -8,15 +8,29 @@ Agent Telegram Account API — подключение ЛИЧНОГО Telegram-а
 MTProto (Telethon): агент пишет клиентам от имени владельца и отвечает на
 входящие сообщения (поллер backend/core/telegram_user_poller.py).
 
-Авторизация трёхшаговая (в отличие от OAuth-коннекторов Composio):
-  POST /start           {phone}    → Telegram присылает код в приложение
-  POST /verify-code     {code}     → либо connected, либо нужен пароль 2FA
-  POST /verify-password {password} → connected
+Авторизация по QR-коду (в UI единственный способ):
+  POST /qr/start        → окно входа на QR_WINDOW_SECONDS (2 мин), статус pending_qr;
+                          в ответе qr.qr_svg — картинка, токен внутри Telegram
+                          меняет каждые ~30 с, фоновая задача обновляет его сама
+  GET  /qr/status       → UI опрашивает раз в 2 с: waiting (+ свежий QR) |
+                          connected | password_needed | duplicate | expired | error
+  POST /qr/cancel       → закрыть окно
+  POST /verify-password {password} → connected (аккаунты с 2FA)
 
-Промежуточное состояние (частичная сессия + phone_code_hash) живёт в строке
-AgentTelegramAccount между шагами. Сессии шифруются (TELEGRAM_SESSION_KEY).
+Старый вход по номеру (POST /start {phone} → POST /verify-code {code}) оставлен
+для отката, из UI убран: Telegram перестал доставлять коды входа, запрошенные
+сторонним приложением с IP дата-центра (ответ «код отправлен», а сообщения нет).
+
+Один Telegram-аккаунт — один агент: дубль (тот же tg_user_id уже connected у
+другого агента) отклоняется, новая сессия разлогинивается. Иначе два поллера
+читают одни диалоги и клиенту отвечают дважды.
+
+Промежуточное состояние (частичная сессия) живёт в строке AgentTelegramAccount
+между шагами. Сессии шифруются (TELEGRAM_SESSION_KEY).
 """
 
+import asyncio
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,7 +38,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.core.logging import get_logger
-from backend.db.session import get_db
+from backend.db.session import get_db, SessionLocal
 from backend.core.dependencies import get_current_user
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
@@ -106,32 +120,35 @@ def _require_configured():
         raise HTTPException(status_code=400, detail="not_configured")
 
 
-async def _baseline_dialogs(db: Session, row: AgentTelegramAccount, session_str: str) -> None:
-    """
-    Снимок диалогов при подключении: записываем текущие top_message_id, чтобы
-    поллер не начал отвечать на старую переписку. Заодно связываем диалоги с
-    контактами агента по видимому номеру телефона. Best-effort.
-    """
+BASELINE_TIMEOUT_SECONDS = 60
+
+
+def _store_baseline(account_id, agent_config_id, dialogs: list) -> None:
+    """Записать снимок диалогов (своя сессия БД — вызывается через to_thread)."""
     from backend.models.agent_contact import AgentContact
     from backend.services.sms_history import phone_suffix
 
+    db = SessionLocal()
     try:
-        snap = await tg_user.poll_dialogs(session_str, known_last_ids={})
-        if not snap.get("ok"):
-            logger.warning(f"[TG-ACCOUNT] baseline poll failed: {snap.get('error')}")
-            return
-        for d in snap.get("dialogs", []):
+        known = {
+            int(r[0]) for r in db.query(AgentTelegramDialog.tg_peer_id).filter(
+                AgentTelegramDialog.account_id == account_id
+            ).all()
+        }
+        for d in dialogs:
+            if int(d["peer_id"]) in known:
+                continue
             contact_id = None
             suf = phone_suffix(d.get("phone") or "")
             if suf:
                 contact = db.query(AgentContact).filter(
-                    AgentContact.agent_config_id == row.agent_config_id,
+                    AgentContact.agent_config_id == agent_config_id,
                     AgentContact.phone.like(f"%{suf}"),
                 ).order_by(AgentContact.created_at.desc()).first()
                 if contact:
                     contact_id = contact.id
             db.add(AgentTelegramDialog(
-                account_id=row.id,
+                account_id=account_id,
                 agent_contact_id=contact_id,
                 tg_peer_id=d["peer_id"],
                 tg_username=d.get("username"),
@@ -140,18 +157,76 @@ async def _baseline_dialogs(db: Session, row: AgentTelegramAccount, session_str:
                 created_via="baseline",
             ))
         db.commit()
-        logger.info(f"[TG-ACCOUNT] baseline: {len(snap.get('dialogs', []))} dialogs for account {row.id}")
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+async def _baseline_dialogs(account_id, agent_config_id, session_str: str) -> None:
+    """
+    Снимок диалогов при подключении: записываем текущие top_message_id, чтобы
+    поллер не начал отвечать на старую переписку. Заодно связываем диалоги с
+    контактами агента по видимому номеру телефона. Best-effort.
+    """
+    try:
+        snap = await asyncio.wait_for(
+            tg_user.poll_dialogs(session_str, known_last_ids={}),
+            timeout=BASELINE_TIMEOUT_SECONDS,
+        )
+        if not snap.get("ok"):
+            logger.warning(f"[TG-ACCOUNT] baseline poll failed: {snap.get('error')}")
+            return
+        dialogs = snap.get("dialogs", [])
+        await asyncio.to_thread(_store_baseline, account_id, agent_config_id, dialogs)
+        logger.info(f"[TG-ACCOUNT] baseline: {len(dialogs)} dialogs for account {account_id}")
     except Exception as e:
-        logger.warning(f"[TG-ACCOUNT] baseline failed: {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        logger.warning(f"[TG-ACCOUNT] baseline failed: {type(e).__name__}: {e}")
+
+
+def _find_duplicate(db: Session, tg_user_id, row: AgentTelegramAccount):
+    """
+    Тот же Telegram-аккаунт, уже подключённый к другому агенту → (строка, имя
+    агента для показа). Имя отдаём только для агента того же пользователя.
+    """
+    if not tg_user_id:
+        return None, None
+    dup = db.query(AgentTelegramAccount).filter(
+        AgentTelegramAccount.tg_user_id == tg_user_id,
+        AgentTelegramAccount.status == "connected",
+        AgentTelegramAccount.id != row.id,
+    ).first()
+    if dup is None:
+        return None, None
+    name = None
+    if dup.user_id == row.user_id:
+        agent = db.query(AgentConfig).filter(AgentConfig.id == dup.agent_config_id).first()
+        name = agent.name if agent else None
+    return dup, name
+
+
+def _duplicate_error(name: Optional[str]) -> HTTPException:
+    return HTTPException(status_code=400, detail={"code": "duplicate_account", "agent_name": name})
+
+
+async def _reject_duplicate(db: Session, row: AgentTelegramAccount, result: dict) -> None:
+    """Дубль после входа (код / пароль): разлогинить новую сессию, убрать строку, 400."""
+    dup, name = _find_duplicate(db, result.get("tg_user_id"), row)
+    if dup is None:
+        return
+    await tg_user.logout(result["session"])
+    db.delete(row)
+    db.commit()
+    logger.info(f"[TG-ACCOUNT] duplicate tg_user {result.get('tg_user_id')} for agent {row.agent_config_id}")
+    raise _duplicate_error(name)
 
 
 def _finalize_connected(db: Session, row: AgentTelegramAccount, result: dict) -> None:
-    """Общая финализация после успешного sign_in (шаг 2 без 2FA или шаг 3)."""
+    """Общая финализация после успешного входа (QR, код без 2FA или пароль 2FA)."""
     row.session_encrypted = tg_user.encrypt_session(result["session"])
+    if result.get("phone"):
+        row.phone = "+" + str(result["phone"]).lstrip("+")
     row.status = "connected"
     row.phone_code_hash = None
     row.tg_user_id = result.get("tg_user_id")
@@ -159,6 +234,64 @@ def _finalize_connected(db: Session, row: AgentTelegramAccount, result: dict) ->
     row.tg_first_name = result.get("tg_first_name")
     row.last_error = None
     db.commit()
+
+
+def _apply_qr_result(agent_id: str, result: dict) -> dict:
+    """
+    Итог окна входа по QR → БД (своя сессия, вызывается через to_thread).
+    Может переписать result["status"] на duplicate / cancelled. Возвращает
+    {keep, account_id, agent_config_id}: keep=False — сессию разлогинить.
+    """
+    db = SessionLocal()
+    try:
+        row = db.query(AgentTelegramAccount).filter(
+            AgentTelegramAccount.agent_config_id == uuid.UUID(agent_id)
+        ).first()
+        status = result.get("status")
+        if row is None or row.status != "pending_qr":
+            # Окно закрыли (отмена / отключение / удаление агента) раньше итога.
+            if result.get("session"):
+                result["status"] = "cancelled"
+            return {"keep": False}
+
+        if status == "password_needed":
+            row.session_encrypted = tg_user.encrypt_session(result["session"])
+            row.status = "pending_password"
+            row.last_error = None
+            db.commit()
+            return {"keep": True}
+
+        if status == "connected":
+            dup, name = _find_duplicate(db, result.get("tg_user_id"), row)
+            if dup is not None:
+                db.delete(row)
+                db.commit()
+                result["status"] = "duplicate"
+                result["duplicate_agent_name"] = name
+                logger.info(f"[TG-ACCOUNT] QR: duplicate tg_user {result.get('tg_user_id')} for agent {agent_id}")
+                return {"keep": False}
+            _finalize_connected(db, row, result)
+            logger.info(f"[TG-ACCOUNT] connected @{row.tg_username} via QR for agent {agent_id}")
+            return {"keep": True, "account_id": row.id, "agent_config_id": row.agent_config_id}
+
+        # expired / error: незавершённую строку убираем — UI снова покажет «Подключить».
+        db.delete(row)
+        db.commit()
+        return {"keep": False}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+async def _on_qr_done(agent_id: str, result: dict) -> bool:
+    if result.get("status") == "cancelled":
+        return False
+    applied = await asyncio.to_thread(_apply_qr_result, agent_id, result)
+    if applied.get("account_id") is not None:
+        await _baseline_dialogs(applied["account_id"], applied["agent_config_id"], result["session"])
+    return bool(applied.get("keep"))
 
 
 # ============================================================================
@@ -177,6 +310,70 @@ def get_status(
     return _status_dict(_get_row(db, agent))
 
 
+@router.post("/qr/start")
+async def start_qr(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Открыть окно входа по QR (2 мин). Прежнее окно этого агента закрывается."""
+    _require_configured()
+    agent = _get_agent(current_user, db, agent_id)
+
+    row = _get_row(db, agent)
+    if row and row.status == "connected":
+        raise HTTPException(status_code=400, detail="already_connected")
+
+    # Сначала закрыть прежнее окно: его итог не должен лечь на новую строку.
+    await tg_user.qr_cancel(str(agent.id))
+
+    if row is None:
+        row = AgentTelegramAccount(agent_config_id=agent.id, user_id=current_user.id)
+        db.add(row)
+    row.status = "pending_qr"
+    row.session_encrypted = None
+    row.phone_code_hash = None
+    row.last_error = None
+    db.commit()
+
+    state = await tg_user.qr_start(str(agent.id), _on_qr_done)
+    if state.get("status") == "error":
+        db.delete(row)
+        db.commit()
+        raise HTTPException(status_code=400, detail=state.get("error") or "telegram_error")
+
+    logger.info(f"[TG-ACCOUNT] QR window opened for agent {agent.id}")
+    return {**_status_dict(row), "qr": state}
+
+
+@router.get("/qr/status")
+def get_qr_status(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Состояние окна входа + статус аккаунта. qr=null — окна нет (истекло давно / рестарт)."""
+    agent = _get_agent(current_user, db, agent_id)
+    return {**_status_dict(_get_row(db, agent)), "qr": tg_user.qr_state(str(agent.id))}
+
+
+@router.post("/qr/cancel")
+async def cancel_qr(
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Закрыть окно входа по QR (незавершённая строка удаляется)."""
+    agent = _get_agent(current_user, db, agent_id)
+    await tg_user.qr_cancel(str(agent.id))
+    row = _get_row(db, agent)
+    if row and row.status == "pending_qr":
+        db.delete(row)
+        db.commit()
+        row = None
+    return _status_dict(row)
+
+
 @router.post("/start")
 async def start_auth(
     body: StartRequest,
@@ -184,7 +381,7 @@ async def start_auth(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Шаг 1: отправить код подтверждения на номер (придёт в приложение Telegram)."""
+    """Легаси (из UI убран): отправить код подтверждения на номер."""
     _require_configured()
     agent = _get_agent(current_user, db, agent_id)
 
@@ -219,7 +416,7 @@ async def verify_code(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Шаг 2: подтвердить код. Может потребоваться пароль 2FA (status=pending_password)."""
+    """Легаси (из UI убран): подтвердить код. Может потребоваться пароль 2FA."""
     _require_configured()
     agent = _get_agent(current_user, db, agent_id)
 
@@ -240,8 +437,9 @@ async def verify_code(
         db.commit()
         return _status_dict(row)
 
+    await _reject_duplicate(db, row, result)
     _finalize_connected(db, row, result)
-    await _baseline_dialogs(db, row, result["session"])
+    await _baseline_dialogs(row.id, row.agent_config_id, result["session"])
     logger.info(f"[TG-ACCOUNT] connected @{row.tg_username} for agent {agent.id}")
     return _status_dict(row)
 
@@ -253,7 +451,7 @@ async def verify_password(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Шаг 3 (только для аккаунтов с 2FA): облачный пароль."""
+    """Облачный пароль для аккаунтов с 2FA (после QR или кода)."""
     _require_configured()
     agent = _get_agent(current_user, db, agent_id)
 
@@ -266,8 +464,9 @@ async def verify_password(
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error") or "telegram_error")
 
+    await _reject_duplicate(db, row, result)
     _finalize_connected(db, row, result)
-    await _baseline_dialogs(db, row, result["session"])
+    await _baseline_dialogs(row.id, row.agent_config_id, result["session"])
     logger.info(f"[TG-ACCOUNT] connected @{row.tg_username} (2FA) for agent {agent.id}")
     return _status_dict(row)
 
@@ -311,11 +510,12 @@ async def disconnect(
     переписка в agent_telegram_messages остаётся для истории).
     """
     agent = _get_agent(current_user, db, agent_id)
+    await tg_user.qr_cancel(str(agent.id))
     row = _get_row(db, agent)
     if not row:
         return _status_dict(None)
 
-    if row.session_encrypted and row.status == "connected":
+    if row.session_encrypted and row.status in ("connected", "pending_password"):
         try:
             await tg_user.logout(tg_user.decrypt_session(row.session_encrypted))
         except Exception as e:

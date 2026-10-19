@@ -20,8 +20,13 @@ last_poll_at < cutoff) — та же идея, что claim финализаци
   contacts — только диалоги, привязанные к контактам агента (по baseline-снимку,
              по номеру телефона или после исходящего telegram_send_message);
   all      — любые новые личные диалоги (контакт создаётся автоматически).
-Группы, каналы, боты и Saved Messages не обрабатываются никогда (фильтр в
-telegram_user_service.poll_dialogs).
+Группы, каналы, боты, Saved Messages и служебный чат Telegram (777000, коды
+входа) не обрабатываются никогда (фильтр в telegram_user_service.poll_dialogs).
+
+Зависание: у сетевых вызовов Telethon нет общего тайм-аута, и одно подвисшее
+соединение раньше останавливало поллер навсегда (16.10 он встал на три дня).
+Поэтому опрос аккаунта ограничен POLL_ACCOUNT_TIMEOUT_SECONDS, а раз в
+HEARTBEAT_EVERY_TICKS тиков в лог пишется «жив» — по нему видно, что поллер идёт.
 """
 
 import asyncio
@@ -42,6 +47,12 @@ CLAIM_CUTOFF_SECONDS = 55
 # после долгого простоя/переподключения).
 MAX_DIALOG_RUNS_PER_TICK = 5
 
+# Предел на опрос одного аккаунта (подключение + срез диалогов + запись).
+POLL_ACCOUNT_TIMEOUT_SECONDS = 120
+
+# Раз в столько тиков — строка «поллер жив» в логе (при 60 с — раз в ~30 мин).
+HEARTBEAT_EVERY_TICKS = 30
+
 
 async def start_telegram_user_poller(check_interval: int = 60):
     """Запуск поллера. No-op, если TELEGRAM_API_ID/HASH/SESSION_KEY не заданы."""
@@ -50,15 +61,21 @@ async def start_telegram_user_poller(check_interval: int = 60):
         return
 
     logger.info(f"[TG-POLLER] Started (check every {check_interval}s)")
+    ticks = 0
     while True:
+        polled = 0
         try:
-            await _tick()
+            polled = await _tick()
         except Exception as e:
             logger.error(f"[TG-POLLER] tick error: {e}", exc_info=True)
+        ticks += 1
+        if ticks % HEARTBEAT_EVERY_TICKS == 0:
+            logger.info(f"[TG-POLLER] alive: tick {ticks}, polled {polled} account(s) this tick")
         await asyncio.sleep(check_interval)
 
 
-async def _tick():
+async def _tick() -> int:
+    """Один проход по аккаунтам. Возвращает число опрошенных этим воркером."""
     from backend.models.agent_telegram_account import AgentTelegramAccount
 
     def _load_account_ids():
@@ -77,8 +94,9 @@ async def _tick():
     # В обычном случае (аккаунтов нет) сессия в loop вообще не открывается.
     account_ids = await asyncio.to_thread(_load_account_ids)
     if not account_ids:
-        return
+        return 0
 
+    polled = 0
     db = SessionLocal()
     try:
         for account_id in account_ids:
@@ -89,8 +107,18 @@ async def _tick():
             ).first()
             if not account:
                 continue
+            polled += 1
             try:
-                await _poll_account(db, account)
+                await asyncio.wait_for(_poll_account(db, account), timeout=POLL_ACCOUNT_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"[TG-POLLER] account {account_id} poll timed out after "
+                    f"{POLL_ACCOUNT_TIMEOUT_SECONDS}s — skipped this tick"
+                )
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"[TG-POLLER] account {account_id} poll error: {e}", exc_info=True)
                 try:
@@ -99,6 +127,7 @@ async def _tick():
                     pass
     finally:
         db.close()
+    return polled
 
 
 def _claim(db, account_id) -> bool:
