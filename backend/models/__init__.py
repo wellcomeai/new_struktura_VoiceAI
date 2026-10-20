@@ -104,6 +104,9 @@ from .wallet_transaction import WalletTransaction, WalletTransactionType
 # 🆕 Тестовые номера телефонии (аренда номера админа на несколько минут)
 from .test_number_lease import TestNumberLease, TestNumberGrant
 
+# 🆕 Верификация физлиц для телефонии и телефонный кошелёк
+from .telephony_verification import TelephonyVerification, TelephonyWalletTransaction
+
 # Export specific models
 __all__ = [
     "Base", 
@@ -185,4 +188,6 @@ __all__ = [
     "WalletTransactionType",
     "TestNumberLease",
     "TestNumberGrant",
+    "TelephonyVerification",
+    "TelephonyWalletTransaction",
 ]

@@ -1022,9 +1022,10 @@ class TaskScheduler:
                                 break
 
             # 3. First active number (fallback)
+            # (без номеров тестового пула и запаса для физлиц — они не наши для исходящих)
             if not caller_id and child_account.phone_numbers:
                 for phone in child_account.phone_numbers:
-                    if phone.is_active:
+                    if phone.is_active and not phone.is_test_pool and not phone.hosted_stock:
                         caller_id = phone.phone_number
                         break
             if not caller_id:
@@ -1294,7 +1295,7 @@ class TaskScheduler:
             if not caller_id:
                 if child_account.phone_numbers:
                     for phone in child_account.phone_numbers:
-                        if phone.is_active:
+                        if phone.is_active and not phone.is_test_pool and not phone.hosted_stock:
                             caller_id = phone.phone_number
                             logger.info(f"   📞 Auto-selected caller_id: {caller_id}")
                             break

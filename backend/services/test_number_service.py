@@ -2,8 +2,8 @@
 Сервис тестовых номеров телефонии.
 
 Пул — номера из voximplant_phone_numbers с is_test_pool = true (номера
-дочернего аккаунта администратора), строго из белого списка
-settings.TEST_NUMBER_ALLOWED. Пользователь один раз включает
+дочернего аккаунта администратора; в пул номер включает админ галочкой
+в «Телефонии» или в админке). Пользователь один раз включает
 свободный номер на settings.TEST_NUMBER_LEASE_MINUTES минут:
 
   start()    — выбрать свободный номер, пересоздать inbound-правило Voximplant
@@ -27,6 +27,7 @@ settings.TEST_NUMBER_ALLOWED. Пользователь один раз вклю�
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple
@@ -51,18 +52,10 @@ def _digits(value: Optional[str]) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
-def allowed_numbers() -> List[str]:
-    """Белый список номеров пула из settings.TEST_NUMBER_ALLOWED (только цифры)."""
-    raw = getattr(settings, "TEST_NUMBER_ALLOWED", "") or ""
-    return [d for d in (_digits(x) for x in raw.split(",")) if d]
-
-
-def is_allowed_number(phone_number: Optional[str]) -> bool:
-    allowed = allowed_numbers()
-    if not allowed:
-        return True  # список не задан — ограничения нет
-    d = _digits(phone_number)
-    return any(d == a or d[-10:] == a[-10:] for a in allowed)
+# Одновременные «Включить» (двойной клик, два пользователя) не должны
+# получить один номер или две аренды: выбор номера и запись аренды — под
+# замком процесса (прод — один процесс uvicorn).
+_START_LOCK = asyncio.Lock()
 
 
 class TestNumberError(Exception):
@@ -131,16 +124,10 @@ class TestNumberService:
 
     @staticmethod
     def pool_query(db: Session):
-        q = db.query(VoximplantPhoneNumber).filter(
+        return db.query(VoximplantPhoneNumber).filter(
             VoximplantPhoneNumber.is_test_pool == True,  # noqa: E712
             VoximplantPhoneNumber.is_active == True,     # noqa: E712
         )
-        allowed = allowed_numbers()
-        if allowed:
-            # Строго белый список: сравниваем по последним 10 цифрам
-            from sqlalchemy import or_ as _or
-            q = q.filter(_or(*[VoximplantPhoneNumber.phone_number.like(f"%{a[-10:]}") for a in allowed]))
-        return q
 
     @classmethod
     def active_leases(cls, db: Session) -> List[TestNumberLease]:
@@ -361,6 +348,12 @@ class TestNumberService:
     @classmethod
     async def start(cls, db: Session, user: User, assistant_type: str,
                     assistant_id: uuid.UUID) -> TestNumberLease:
+        async with _START_LOCK:
+            return await cls._start(db, user, assistant_type, assistant_id)
+
+    @classmethod
+    async def _start(cls, db: Session, user: User, assistant_type: str,
+                     assistant_id: uuid.UUID) -> TestNumberLease:
         assistant_type = (assistant_type or "").lower()
         if assistant_type not in ALLOWED_ASSISTANT_TYPES:
             raise TestNumberError(
@@ -412,6 +405,9 @@ class TestNumberService:
         child_account: VoximplantChildAccount = phone.child_account
         rule_ok = await rebind_inbound_rule(child_account, phone, assistant_type, "[TEST-NUMBER]")
         if not rule_ok:
+            # Сохраняем, что старого правила больше нет (rebind_inbound_rule
+            # обнулил vox_rule_id) — следующая попытка создаст правило заново
+            db.commit()
             raise TestNumberError(
                 "Не удалось настроить маршрутизацию номера, попробуйте позже", "rule_failed")
 
@@ -517,11 +513,12 @@ class TestNumberService:
             .join(VoximplantChildAccount, VoximplantPhoneNumber.child_account_id == VoximplantChildAccount.id)
             .join(User, VoximplantChildAccount.user_id == User.id)
             .filter(or_(User.is_admin == True, VoximplantPhoneNumber.is_test_pool == True))  # noqa: E712
+            # номера физлиц на аккаунте администратора — не его номера
+            .filter(VoximplantChildAccount.is_hosted.is_(False))
+            .filter(VoximplantPhoneNumber.phone_source == "voximplant")
             .order_by(User.email.asc(), VoximplantPhoneNumber.purchased_at.asc())
             .all()
         )
-        # Показываем только номера из белого списка (settings.TEST_NUMBER_ALLOWED)
-        rows = [r for r in rows if is_allowed_number(r[0].phone_number)]
         leases = {l.phone_number_id: l for l in cls.active_leases(db)}
         out = []
         for phone, child, owner in rows:
@@ -537,6 +534,9 @@ class TestNumberService:
                 "owner_is_admin": bool(owner.is_admin),
                 "is_active": bool(phone.is_active),
                 "is_test_pool": bool(phone.is_test_pool),
+                # Админ временно посадил своего ассистента; «Отвязать» вернёт в пул
+                "return_to_test_pool": bool(getattr(phone, "return_to_test_pool", False)),
+                "hosted_stock": bool(getattr(phone, "hosted_stock", False)),
                 "phone_source": phone.phone_source,
                 "assistant_type": phone.assistant_type,
                 "assistant_id": str(phone.assistant_id) if phone.assistant_id else None,
@@ -551,14 +551,14 @@ class TestNumberService:
             raise TestNumberError("Номер не найден", "not_found")
         if phone.phone_source != "voximplant":
             raise TestNumberError("В тестовый пул можно добавить только номер, купленный в Voximplant", "bad_source")
-        if enabled and not is_allowed_number(phone.phone_number):
-            raise TestNumberError("Этот номер не входит в список тестовых номеров", "not_allowed")
         if enabled and not phone.is_test_pool:
             child = phone.child_account
             owner = db.query(User).filter(User.id == child.user_id).first() if child else None
-            if not owner or not owner.is_admin:
+            if not owner or not owner.is_admin or child.is_hosted:
                 raise TestNumberError("В тестовый пул можно добавить только номер администратора", "not_admin")
-            if not child.vox_scenario_ids:
+            if getattr(phone, "hosted_stock", False):
+                raise TestNumberError("Номер в запасе для физлиц — сначала уберите его из запаса", "hosted_stock")
+            if not child.vox_scenario_ids or not child.vox_application_id:
                 raise TestNumberError("У аккаунта владельца не настроены сценарии телефонии", "no_scenarios")
             # Пул живёт по арендам: собственную привязку админа снимаем,
             # чтобы /config не отвечал по ней без аренды.
@@ -567,11 +567,13 @@ class TestNumberService:
             phone.agent_config_id = None
             phone.first_phrase = None
             phone.is_test_pool = True
+            phone.return_to_test_pool = False
         elif not enabled and phone.is_test_pool:
             lease = cls.active_lease_for_phone(db, phone.id)
             if lease:
                 cls._release_lease(db, lease, "admin")
             phone.is_test_pool = False
+            phone.return_to_test_pool = False
         db.add(phone)
         db.commit()
         db.refresh(phone)

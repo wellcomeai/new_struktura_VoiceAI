@@ -31,6 +31,7 @@ PUBLIC_PAGES = [
     ("/static/public-offer.html", "0.2", "yearly"),
     ("/static/payment-terms.html", "0.2", "yearly"),
     ("/static/consent.html", "0.2", "yearly"),
+    ("/static/verification-consent.html", "0.2", "yearly"),
 ]
 
 # Страницы кабинета, тестовые и устаревшие. Файлы остаются на месте

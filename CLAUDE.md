@@ -705,3 +705,58 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 читал всю таблицу (4+ с в логах Postgres). Индекс `ix_conversations_call_session_history_id` (по выражению)
 строит `ensure_conversation_call_session_index` в `app.py` — `CREATE INDEX CONCURRENTLY` в фоновом потоке
 на старте, запись в таблицу не блокируется; недостроенный (invalid) индекс удаляется и строится заново.
+
+## Верификация физлиц и номера на аккаунте администратора (ветка 2010-verification)
+
+Voximplant больше не верифицирует физлиц. ИП/ООО проходят верификацию в Voximplant как раньше (`/setup`,
+`/verification-url`; тип `individual` там теперь 400), физлица — нашу проверку.
+- **Анкета** (`backend/services/telephony_verification_service.py`, API `backend/api/telephony_hosted.py`,
+  префикс `/api/telephony`): паспорт РФ (`FIELDS`) + 3 файла (`FILE_KINDS`: разворот, регистрация, селфи с листом
+  «Верификация Voicyfy» и датой; JPG/PNG/PDF до 10 МБ, тип проверяется по сигнатуре) + отдельное согласие
+  (`static/verification-consent.html`, `CONSENT_VERSION`). Анкета и файлы — только в приватном бакете Timeweb S3
+  (`services/verification_storage.py`, env `TIMEWEB_S3_*`), в Postgres (Render, Франкфурт) лишь статус и ключи
+  объектов (`telephony_verifications`). Статусы: submitted → approved | needs_revision (комментарий, повторная
+  подача, старые файлы удаляются) | rejected (окончательно, документы удаляются через 30 дней; так же при удалении
+  аккаунта — `schedule_purge_for_user`, чистка `purge_due`).
+- **Бот модерации** `services/verification_bot.py` (env `VERIFICATION_BOT_TOKEN`, `VERIFICATION_ADMIN_CHAT_ID`):
+  файлы документами + карточка с кнопками «Одобрить / На доработку / Отклонить / Открыть в кабинете»; для доработки
+  и отказа бот просит комментарий ответом (ForceReply, `tg_pending`). Webhook
+  `POST /api/telephony/verification/telegram/{secret}` регистрируется на старте (`hosted_numbers_loop`), решения
+  принимаются только из админ-чата; `/id` в чате с ботом показывает chat_id. Решение из кабинета и из бота — один
+  путь `apply_decision` (письмо пользователю, кнопки в Telegram снимаются).
+- **Номера физлиц** (`services/hosted_numbers.py`): покупаются на верифицированный дочерний аккаунт
+  `HOSTED_NUMBERS_OWNER_EMAIL` (по умолчанию shw00389@gmail.com). Физлицу заводится `VoximplantChildAccount` с
+  `is_hosted=True` — копия ключей/приложения/сценариев/правил аккаунта администратора (`sync_from_host`, обновляется
+  в `/hosted/status` и раз в час), к ней привязаны только его номера. Поэтому исходящие, SMS, планировщик, записи,
+  `/config` работают без доработок. `vox_account_id` уникален только среди настоящих аккаунтов (частичный индекс
+  `uq_vox_child_real_account`); все админские циклы по аккаунтам и вебхуки по `vox_account_id` фильтруют
+  `is_hosted=False`, входящие SMS на номер физлица уходят его hosted-записи по номеру получателя. Прямые
+  `/buy-number`, `/phone-regions`, `/available-numbers`, `/billing-url`, `/sip/connect` для hosted запрещены
+  (`forbid_hosted`), покупка — `/hosted/buy`.
+- **Деньги** — отдельный телефонный кошелёк `users.telephony_balance` (копейки, `services/telephony_wallet.py`,
+  журнал `telephony_wallet_transactions`, идемпотентность по `ref_key`). Пополнение — Robokassa
+  `Shp_telephony_topup` (подпись PASSWORD_2 проверяется всегда, даже при `DISABLE_SIGNATURE_VERIFICATION`; без
+  подписи — не зачисляем и пишем в бот). Покупка: установка + месяц Voximplant + `HOSTED_NUMBER_MARKUP_RUB` (100 ₽);
+  продление раз в месяц (`renew_due`): не хватило — номер `suspended` (`is_active=False`, звонки не идут), через
+  `HOSTED_GRACE_DAYS` (7) — в запас администратора. Минуты связи — себестоимость из GetCallHistory (`bill_call`, из
+  `/api/voximplant/log` при досчитанном счёте или в конце отложенного пересчёта; входящие на чужие правила
+  `inbound_<номер>`, т.е. тестовый пул, бесплатны). Шлагбаум звонка — `TELEPHONY_MIN_BALANCE_RUB` (10 ₽) в
+  `/config`, `/outbound-config`, `/start-outbound-call`. ИИ-минуты по-прежнему с основного кошелька. SMS физлица
+  пока не тарифицируются.
+- **Запас** (`hosted_stock`): номер, от которого физлицо отказалось или не оплатил, остаётся на аккаунте
+  администратора и предлагается следующим без платы за установку; свой номер админ кладёт в запас галочкой.
+  Номер в запасе не обслуживается `/config`. Отключить в Voximplant — `/admin/hosted-numbers/{id}/deactivate`.
+- **UI** `telephony.html` + `static/js/telephony-verification.js`: выбор «ИП/ООО (рекомендуем)» или «Физлицо»,
+  форма анкеты, режим `mode: hosted` в `/status` (телефонный баланс вместо Voximplant, покупка через `/hosted/*`),
+  модалка телефонного баланса. Админ-меню (только `is_admin`) — вкладки «Заявки», «Номера физлиц» (владелец, email,
+  «Документы»), «Тестовый пул» (галочки пула и запаса, освобождение аренды).
+
+## Тестовые номера: отвязка и возврат в пул (ветка 2010-verification)
+
+Белый список `TEST_NUMBER_ALLOWED` убран: в пул попадает любой Voximplant-номер администратора по галочке.
+Если админ привязывает своего ассистента к номеру из пула, номер временно выходит из пула
+(`return_to_test_pool=True`); `POST /api/telephony/unbind-assistant` («Отвязать» в «Мои номера», работает и для
+обычных номеров) снимает привязку и возвращает такой номер в пул. `rebind_inbound_rule` создаёт правило, если его
+нет, не удаляет общее легаси-правило аккаунта и не оставляет id удалённого правила. `TestNumberService.start`
+под замком процесса (два клика / два пользователя не получат один номер). Удаление номера из пула закрывает его
+аренду. Номера пула и запаса не берутся автоматически как caller_id исходящих.

@@ -77,11 +77,6 @@ class Settings(BaseSettings):
     WALLET_WELCOME_GRANT_RUB: int = int(os.getenv("WALLET_WELCOME_GRANT_RUB", "50"))
     # Тестовые номера телефонии: сколько минут номер из пула отдаётся пользователю
     TEST_NUMBER_LEASE_MINUTES: int = int(os.getenv("TEST_NUMBER_LEASE_MINUTES", "10"))
-    # Белый список тестовых номеров (только цифры, через запятую). В пул и в
-    # админский список попадают только они, остальные номера админов не показываем.
-    TEST_NUMBER_ALLOWED: str = os.getenv(
-        "TEST_NUMBER_ALLOWED", "79330916441,79863319928,79330916186"
-    )
     WALLET_MIN_TOPUP_RUB: int = int(os.getenv("WALLET_MIN_TOPUP_RUB", "100"))
     WALLET_MAX_TOPUP_RUB: int = int(os.getenv("WALLET_MAX_TOPUP_RUB", "100000"))
     # Лимит одной сессии веб-виджета на серверном ключе
@@ -165,6 +160,28 @@ class Settings(BaseSettings):
     R2_ENDPOINT: str = os.getenv("R2_ENDPOINT", "")
     R2_BUCKET: str = os.getenv("R2_BUCKET", "voicyfy")
     R2_PUBLIC_URL: str = os.getenv("R2_PUBLIC_URL", "")
+
+    # =========================================================================
+    # Верификация физлиц для телефонии (своя проверка вместо Voximplant)
+    # =========================================================================
+    # Приватный бакет Timeweb S3 (хранение в РФ, 152-ФЗ): анкета и сканы паспорта.
+    TIMEWEB_S3_ENDPOINT: str = os.getenv("TIMEWEB_S3_ENDPOINT", "https://s3.twcstorage.ru")
+    TIMEWEB_S3_ACCESS_KEY: str = os.getenv("TIMEWEB_S3_ACCESS_KEY", "")
+    TIMEWEB_S3_SECRET_KEY: str = os.getenv("TIMEWEB_S3_SECRET_KEY", "")
+    TIMEWEB_S3_BUCKET: str = os.getenv("TIMEWEB_S3_BUCKET", "")
+    TIMEWEB_S3_REGION: str = os.getenv("TIMEWEB_S3_REGION", "ru-1")
+    # Бот модерации заявок и чат проверяющего
+    VERIFICATION_BOT_TOKEN: str = os.getenv("VERIFICATION_BOT_TOKEN", "")
+    VERIFICATION_ADMIN_CHAT_ID: str = os.getenv("VERIFICATION_ADMIN_CHAT_ID", "")
+    # Номера физлиц покупаются на дочерний аккаунт этого пользователя (верифицирован как ИП)
+    HOSTED_NUMBERS_OWNER_EMAIL: str = os.getenv("HOSTED_NUMBERS_OWNER_EMAIL", "shw00389@gmail.com")
+    # Наценка к месячной цене Voximplant за номер физлица, ₽
+    HOSTED_NUMBER_MARKUP_RUB: int = int(os.getenv("HOSTED_NUMBER_MARKUP_RUB", "100"))
+    # Сколько дней номер ждёт оплаты после неудачного продления, затем уходит в запас админа
+    HOSTED_GRACE_DAYS: int = int(os.getenv("HOSTED_GRACE_DAYS", "7"))
+    # Минимум на телефонном кошельке, чтобы звонок на номере физлица стартовал, ₽
+    TELEPHONY_MIN_BALANCE_RUB: int = int(os.getenv("TELEPHONY_MIN_BALANCE_RUB", "10"))
+    TELEPHONY_MIN_TOPUP_RUB: int = int(os.getenv("TELEPHONY_MIN_TOPUP_RUB", "100"))
 
     # =========================================================================
     # ✅ НОВОЕ: Composio — внешние коннекторы агента (Google Calendar, Gmail)

@@ -12,6 +12,7 @@
 ✅ v1.4: Добавлено поле enable_background_noise для фоновых шумов офиса
 ✅ v1.5: Добавлена поддержка SIP транков (vox_sip_registrations, phone_source, sip_provider, sip_registration_id)
 ✅ v1.6: Флаг is_test_pool — номер в пуле тестовых номеров для новых пользователей
+✅ v1.7: Номера физлиц на аккаунте администратора (is_hosted, hosted_*)
 """
 
 import uuid
@@ -66,7 +67,10 @@ class VoximplantChildAccount(Base, BaseModel):
     # =========================================================================
     
     # Основные данные аккаунта
-    vox_account_id = Column(String(50), nullable=False, unique=True, index=True)
+    # Уникален только среди настоящих аккаунтов (частичный индекс
+    # uq_vox_child_real_account в app.py): у «hosted»-записей физлиц здесь
+    # vox_account_id аккаунта администратора.
+    vox_account_id = Column(String(50), nullable=False, index=True)
     vox_account_name = Column(String(255), nullable=False)
     vox_account_email = Column(String(255), nullable=False)
     vox_api_key = Column(String(255), nullable=False)  # API ключ дочернего аккаунта
@@ -130,6 +134,21 @@ class VoximplantChildAccount(Base, BaseModel):
         nullable=False
     )
     is_active = Column(Boolean, default=True, nullable=False)
+
+    # =========================================================================
+    # 🆕 v1.7: ТЕЛЕФОНИЯ ФИЗЛИЦА НА АККАУНТЕ АДМИНИСТРАТОРА
+    # =========================================================================
+    # Физлицо, прошедшее нашу верификацию, своего аккаунта Voximplant не имеет.
+    # Для него заводится запись с is_hosted=True: ключи, приложение, сценарии и
+    # правила — копия аккаунта администратора (host_child_account_id), а номера
+    # (phone_numbers) — только номера этого пользователя. Поэтому исходящие,
+    # SMS, планировщик и записи работают по прежним путям, а входящие —
+    # по правилам inbound_<номер> в приложении администратора.
+    # Деньги за номер и связь списываются с users.telephony_balance.
+    is_hosted = Column(Boolean, default=False, nullable=False, server_default="false")
+    host_child_account_id = Column(UUID(as_uuid=True), nullable=True)
+    # Поля собственного (неверифицированного) аккаунта, если он был до перехода
+    hosted_backup = Column(JSON, nullable=True)
     
     # =========================================================================
     # ВРЕМЕННЫЕ МЕТКИ
@@ -377,6 +396,25 @@ class VoximplantPhoneNumber(Base, BaseModel):
     # Пока номер в пуле, /config отвечает только по активной аренде, а не по
     # собственной привязке assistant_type/assistant_id.
     is_test_pool = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Админ привязал к номеру из пула своего ассистента: номер временно вне
+    # пула, «Отвязать» вернёт его обратно (/api/telephony/unbind-assistant).
+    return_to_test_pool = Column(Boolean, default=False, nullable=False, server_default="false")
+
+    # =========================================================================
+    # 🆕 v1.7: НОМЕР ФИЗЛИЦА (аренда на аккаунте администратора)
+    # =========================================================================
+    # Свободный номер администратора, предлагаемый физлицам («запас»). Пока
+    # номер в запасе, входящие на него не обслуживаются.
+    hosted_stock = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Месячная цена для пользователя (цена Voximplant + наценка), копейки
+    hosted_price_kopeks = Column(Integer, nullable=True)
+    # Месячная цена Voximplant на момент покупки/продления, ₽
+    vox_monthly_price = Column(String(20), nullable=True)
+    # Оплачено до; продление — services/hosted_numbers.renew_due
+    paid_until = Column(DateTime(timezone=True), nullable=True)
+    # active | suspended (не хватило денег на продление — звонки не идут)
+    hosted_status = Column(String(20), nullable=True)
+    hosted_suspended_at = Column(DateTime(timezone=True), nullable=True)
     
     # =========================================================================
     # ВРЕМЕННЫЕ МЕТКИ

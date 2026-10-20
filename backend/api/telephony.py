@@ -150,12 +150,13 @@ async def rebind_inbound_rule(child_account, phone_record, effective_type: str,
     арендой тестового номера (services/test_number_service.py).
 
     Возвращает True, если правило указывает на нужный сценарий (пересоздано
-    либо пересоздание не требовалось: у номера нет правила / у аккаунта нет
-    сценариев — тогда поведение как раньше, только лог). False — если
-    сценарий не найден или Voximplant отказал в удалении/создании правила.
+    либо пересоздание не требовалось: у аккаунта нет сценариев/приложения —
+    тогда поведение как раньше, только лог). Правила у номера нет — создаём.
+    False — если сценарий не найден или Voximplant отказал в удалении/создании
+    правила.
     """
-    if not (phone_record.vox_rule_id and child_account.vox_scenario_ids):
-        logger.warning(f"{log_prefix} ⚠️ No rule/scenarios to rebind for {phone_record.phone_number}")
+    if not (child_account.vox_scenario_ids and child_account.vox_application_id):
+        logger.warning(f"{log_prefix} ⚠️ No scenarios/application to rebind for {phone_record.phone_number}")
         return True
 
     scenario_name = get_scenario_key(effective_type, "inbound")
@@ -178,16 +179,22 @@ async def rebind_inbound_rule(child_account, phone_record, effective_type: str,
 
     service = get_voximplant_partner_service()
 
-    # Удаляем старый Rule
-    delete_result = await service.delete_rule(
-        child_account_id=child_account.vox_account_id,
-        child_api_key=child_account.vox_api_key,
-        rule_id=phone_record.vox_rule_id
-    )
-    if not delete_result.get("success"):
-        logger.error(f"{log_prefix} ❌ Failed to delete old rule: {delete_result.get('error')}")
-        return False
-    logger.info(f"{log_prefix} ✅ Old rule deleted: {phone_record.vox_rule_id}")
+    # Удаляем старый Rule. Общее легаси-правило аккаунта (vox_rule_id
+    # аккаунта) не трогаем — на нём могут висеть другие номера.
+    old_rule_id = phone_record.vox_rule_id
+    if old_rule_id and str(old_rule_id) != str(child_account.vox_rule_id or ""):
+        delete_result = await service.delete_rule(
+            child_account_id=child_account.vox_account_id,
+            child_api_key=child_account.vox_api_key,
+            rule_id=old_rule_id
+        )
+        if not delete_result.get("success"):
+            logger.error(f"{log_prefix} ❌ Failed to delete old rule: {delete_result.get('error')}")
+            return False
+        logger.info(f"{log_prefix} ✅ Old rule deleted: {old_rule_id}")
+    # Старого правила больше нет: если создание нового сорвётся, следующая
+    # попытка не будет удалять несуществующее правило
+    phone_record.vox_rule_id = None
 
     # Создаём новый Rule с правильным сценарием
     phone_pattern = normalize_phone_number(phone_record.phone_number)
@@ -257,6 +264,19 @@ def validate_phone_id(phone_id: any) -> Optional[str]:
 def normalize_phone_number(phone: str) -> str:
     """Нормализация номера телефона - только цифры."""
     return ''.join(filter(str.isdigit, phone))
+
+
+def forbid_hosted(child_account, action: str = "Действие") -> None:
+    """
+    Запрет прямых операций с аккаунтом администратора от имени физлица:
+    у hosted-записи ключи аккаунта администратора, поэтому покупка номера,
+    SIP, биллинг Voximplant идут только через /api/telephony/hosted/*.
+    """
+    if child_account is not None and getattr(child_account, "is_hosted", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{action} недоступно при верификации как физлицо",
+        )
 
 
 def find_assistant_by_id(db: Session, assistant_id: uuid.UUID) -> tuple[Any, str, uuid.UUID]:
@@ -363,6 +383,9 @@ class TelephonyStatusResponse(BaseModel):
     has_outbound_rules: bool = False
     can_make_outbound_calls: bool = False
     has_service_account: bool = False  # 🆕 v3.2
+    # own — свой аккаунт Voximplant; hosted — физлицо на аккаунте администратора
+    mode: str = "own"
+    telephony_balance: Optional[float] = None
 
 
 class PhoneNumberInfo(BaseModel):
@@ -418,6 +441,11 @@ class MyNumberInfo(BaseModel):
     is_test_pool: bool = False
     phone_next_renewal: Optional[str] = None
     phone_price: Optional[float] = None
+    # Номер физлица на аккаунте администратора: active | suspended
+    hosted_status: Optional[str] = None
+    # Номер администратора в запасе для физлиц / временно вне тестового пула
+    hosted_stock: bool = False
+    return_to_test_pool: bool = False
 
 
 class BindAssistantRequest(BaseModel):
@@ -708,6 +736,13 @@ async def setup_telephony(
     9. Регистрируем webhook для обновлений статуса
     10. Возвращаем ссылку на верификацию
     """
+    if request.verification_type == "individual":
+        # Voximplant больше не верифицирует физлиц — у нас своя проверка
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Физлица проходят верификацию в Voicyfy: выберите «Физическое лицо» в разделе «Телефония»",
+        )
+
     try:
         logger.info(f"[TELEPHONY] Setup request from user {current_user.id}")
         
@@ -716,6 +751,12 @@ async def setup_telephony(
             VoximplantChildAccount.user_id == current_user.id
         ).first()
         
+        if existing and existing.is_hosted:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Телефония уже подключена: вы верифицированы как физлицо",
+            )
+
         if existing:
             logger.info(f"[TELEPHONY] User {current_user.id} already has account {existing.vox_account_id}")
             
@@ -984,6 +1025,24 @@ async def get_telephony_status(
                 has_service_account=False
             )
         
+        if child_account.is_hosted:
+            # Физлицо на аккаунте администратора: в Voximplant не ходим —
+            # статус и баланс администратора пользователю не показываем.
+            from backend.services import telephony_wallet
+            numbers_count = len(child_account.phone_numbers or [])
+            return TelephonyStatusResponse(
+                is_connected=True,
+                verification_status="verified",
+                is_verified=True,
+                numbers_count=numbers_count,
+                has_scenarios=bool(child_account.vox_scenario_ids),
+                has_outbound_rules=bool(child_account.vox_rule_ids),
+                can_make_outbound_calls=bool(numbers_count and child_account.vox_rule_ids),
+                has_service_account=bool(child_account.vox_service_account_key),
+                mode="hosted",
+                telephony_balance=round(telephony_wallet.balance(db, current_user.id) / 100, 2),
+            )
+
         # Получаем актуальный статус из Voximplant
         service = get_voximplant_partner_service()
         
@@ -1088,6 +1147,13 @@ async def get_verification_url(
                 detail="Телефония не подключена"
             )
         
+        forbid_hosted(child_account, "Верификация в Voximplant")
+        if verification_type == "individual":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Физлица проходят верификацию в Voicyfy: выберите «Физическое лицо» в разделе «Телефония»",
+            )
+
         if not child_account.vox_subuser_login:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
@@ -1145,6 +1211,8 @@ async def get_billing_url(
                 detail="Телефония не подключена"
             )
         
+        forbid_hosted(child_account, "Биллинг Voximplant")
+
         service = get_voximplant_partner_service()
         
         result = await service.get_billing_url(
@@ -1184,6 +1252,14 @@ async def get_balance(
                 detail="Телефония не подключена"
             )
         
+        if child_account.is_hosted:
+            from backend.services import telephony_wallet
+            return {
+                "balance": round(telephony_wallet.balance(db, current_user.id) / 100, 2),
+                "currency": "RUB",
+                "mode": "hosted",
+            }
+
         service = get_voximplant_partner_service()
         
         result = await service.get_account_balance(
@@ -1262,6 +1338,20 @@ async def get_call_history(
             "desc_order": "true",
         }
 
+        # Физлицо на аккаунте администратора: только звонки его номеров
+        # (фильтр Voximplant по local_number + проверка каждой сессии здесь)
+        own_digits = None
+        if child_account.is_hosted:
+            own_digits = {
+                normalize_phone_number(p.phone_number)[-10:]
+                for p in (child_account.phone_numbers or [])
+            }
+            if not own_digits:
+                return CallHistoryResponse(success=True, calls=[], total=0)
+            params["local_number"] = ",".join(
+                normalize_phone_number(p.phone_number) for p in child_account.phone_numbers
+            )
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.get(vox_url, params=params)
             response.raise_for_status()
@@ -1299,6 +1389,9 @@ async def get_call_history(
 
             # Данные первого call-leg
             call_leg = session.get("calls", [{}])[0] if session.get("calls") else {}
+            if own_digits is not None and \
+                    normalize_phone_number(call_leg.get("local_number") or "")[-10:] not in own_digits:
+                continue
 
             # Суммируем websocket cost из other_resource_usage
             ws_cost = sum(
@@ -1555,6 +1648,8 @@ async def get_phone_regions(
                 detail="Телефония не подключена"
             )
         
+        forbid_hosted(child_account, "Покупка номера напрямую")
+
         service = get_voximplant_partner_service()
         
         result = await service.get_phone_regions(
@@ -1606,6 +1701,8 @@ async def get_available_numbers(
                 detail="Телефония не подключена"
             )
         
+        forbid_hosted(child_account, "Покупка номера напрямую")
+
         if not child_account.is_verified:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
@@ -1675,6 +1772,10 @@ async def buy_phone_number(
                 detail="Телефония не подключена"
             )
         
+        # Физлицо: номер покупается на аккаунт администратора и оплачивается
+        # с телефонного кошелька — только через /api/telephony/hosted/buy
+        forbid_hosted(child_account, "Покупка номера напрямую")
+
         if not child_account.can_buy_numbers:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, 
@@ -1876,6 +1977,22 @@ async def delete_phone_number(
         service = get_voximplant_partner_service()
         child_account = phone_record.child_account
 
+        # Номер физлица остаётся у администратора: уходит в запас, а не
+        # деактивируется в Voximplant
+        if child_account.is_hosted:
+            from backend.services import hosted_numbers
+            number = phone_record.phone_number
+            hosted_numbers.release_to_stock(db, phone_record, "user")
+            return DeleteNumberResponse(success=True, message=f"Номер {number} отключён")
+
+        # Номер из тестового пула: активная аренда закрывается вместе с номером,
+        # иначе она «висит» без номера и блокирует пользователю новую попытку
+        if getattr(phone_record, "is_test_pool", False):
+            from backend.services.test_number_service import TestNumberService
+            lease = TestNumberService.active_lease_for_phone(db, phone_record.id)
+            if lease:
+                TestNumberService._release_lease(db, lease, "admin")
+
         # Удаляем правило маршрутизации если есть
         if phone_record.vox_rule_id:
             try:
@@ -2040,8 +2157,18 @@ async def get_my_numbers(
                 first_phrase=num.first_phrase,
                 is_active=num.is_active,
                 is_test_pool=bool(getattr(num, "is_test_pool", False)),
-                phone_next_renewal=vox_info.get("phone_next_renewal"),
-                phone_price=vox_info.get("phone_price"),
+                # Физлицу — наши дата продления и цена (с наценкой), а не Voximplant
+                phone_next_renewal=(
+                    num.paid_until.date().isoformat() if child_account.is_hosted and num.paid_until
+                    else vox_info.get("phone_next_renewal")
+                ),
+                phone_price=(
+                    round((num.hosted_price_kopeks or 0) / 100, 2) if child_account.is_hosted
+                    else vox_info.get("phone_price")
+                ),
+                hosted_status=(num.hosted_status or "active") if child_account.is_hosted else None,
+                hosted_stock=bool(getattr(num, "hosted_stock", False)),
+                return_to_test_pool=bool(getattr(num, "return_to_test_pool", False)),
             ))
         
         return {"numbers": result, "total": len(result)}
@@ -2242,12 +2369,18 @@ async def bind_assistant_to_number(
                 # до записи новой, иначе она была бы затёрта.
                 TestNumberService._release_lease(db, lease, "admin_bind")
             phone_record.is_test_pool = False
+            # «Отвязать» (/unbind-assistant) вернёт номер в пул
+            phone_record.return_to_test_pool = True
             left_test_pool = True
             logger.info(
                 f"[TELEPHONY] 🧪 Number {phone_record.phone_number} removed from test pool "
                 f"(admin {current_user.email} bound own assistant)"
                 + (f", lease {lease.id} released" if lease else "")
             )
+
+        # Номер из запаса для физлиц: админ сажает своего ассистента — из запаса выходит
+        if getattr(phone_record, "hosted_stock", False):
+            phone_record.hosted_stock = False
 
         # Обновляем привязку в БД. Сохраняем РЕАЛЬНЫЙ голосовой тип/ID (чтобы
         # /config и сценарий работали как обычно), а привязку к агенту фиксируем
@@ -2268,7 +2401,8 @@ async def bind_assistant_to_number(
 
         message = f"{bound_label} '{assistant.name}' привязан к номеру {phone_record.phone_number}"
         if left_test_pool:
-            message += ". Номер выведен из пула тестовых номеров"
+            message += (". Номер временно выведен из пула тестовых номеров — "
+                        "кнопка «Отвязать» вернёт его в пул")
 
         return {
             "success": True,
@@ -2290,6 +2424,64 @@ async def bind_assistant_to_number(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail=str(e)
         )
+
+
+class UnbindAssistantRequest(BaseModel):
+    """Запрос на отвязку ассистента от номера"""
+    phone_number_id: str
+
+
+@router.post("/unbind-assistant")
+def unbind_assistant_from_number(
+    request: UnbindAssistantRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Отвязать ассистента (или агента) от номера: входящие на номер больше не
+    обслуживаются, пока не привязан новый. Номер тестового пула, к которому
+    админ временно привязал своего ассистента (return_to_test_pool),
+    возвращается в пул — правило Voximplant пересоздаст следующая аренда.
+    """
+    try:
+        phone_record = db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.id == uuid.UUID(request.phone_number_id)
+        ).first()
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Неверный формат UUID")
+    if not phone_record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Номер не найден")
+    if phone_record.child_account.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет доступа к этому номеру")
+    if phone_record.is_test_pool:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Номер в тестовом пуле: привязкой управляют аренды",
+        )
+
+    phone_record.assistant_type = None
+    phone_record.assistant_id = None
+    phone_record.agent_config_id = None
+    phone_record.first_phrase = None
+
+    returned = False
+    if phone_record.return_to_test_pool and current_user.is_admin \
+            and phone_record.phone_source == "voximplant":
+        phone_record.is_test_pool = True
+        returned = True
+    phone_record.return_to_test_pool = False
+    db.commit()
+
+    logger.info(
+        f"[TELEPHONY] Assistant unbound from {phone_record.phone_number} by {current_user.email}"
+        + (" — returned to test pool" if returned else "")
+    )
+    return {
+        "success": True,
+        "returned_to_test_pool": returned,
+        "message": (f"Ассистент отвязан, номер {phone_record.phone_number} снова в тестовом пуле"
+                    if returned else f"Ассистент отвязан от номера {phone_record.phone_number}"),
+    }
 
 
 # =============================================================================
@@ -2822,6 +3014,15 @@ async def start_outbound_call(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Аккаунт не верифицирован"
             )
+
+        if child_account.is_hosted:
+            from backend.services import hosted_numbers
+            if not hosted_numbers.call_allowed(db, child_account, current_user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Пополните телефонный баланс: для звонков нужно не меньше "
+                           f"{settings.TELEPHONY_MIN_BALANCE_RUB} ₽",
+                )
         
         # =====================================================================
         # 2. Проверяем наличие outbound rules
@@ -3399,6 +3600,14 @@ def get_outbound_config(
             logger.warning(f"[TELEPHONY-OUTBOUND] User not found for assistant: {assistant_id}")
             return OutboundConfigResponse(success=False)
 
+        # Физлицо звонит с номера на аккаунте администратора: связь — с
+        # телефонного кошелька, без минимума звонок не стартует
+        from backend.services import hosted_numbers
+        hosted_child = hosted_numbers.hosted_account_for(db, user.id)
+        if hosted_child and not hosted_numbers.call_allowed(db, hosted_child, user.id):
+            logger.warning(f"[TELEPHONY-OUTBOUND] Hosted user {user.id}: telephony balance too low")
+            return OutboundConfigResponse(success=False)
+
         # ✅ v6.0: ключи — из профиля пользователя (бесплатно) или серверные
         # ключи Voicyfy (списание с кошелька по отчёту сценария). Шлагбаум:
         # на серверном ключе нужен баланс ≥ трёх цен минуты, иначе звонок не стартует.
@@ -3576,7 +3785,7 @@ async def admin_update_all_scenarios(
         logger.info(f"[TELEPHONY-ADMIN] Loaded {len(parent_scenarios)} scenarios from parent")
         
         # 2. Получаем все дочерние аккаунты
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Found {len(child_accounts)} child accounts")
         
         results = {
@@ -3697,7 +3906,7 @@ async def admin_deploy_scenarios_sse(
             if script:
                 parent_scenarios[scenario_name] = script
 
-    child_accounts = db.query(VoximplantChildAccount).all()
+    child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
 
     # --- SSE стрим ---
     async def generate():
@@ -3815,7 +4024,7 @@ async def admin_deploy_turn_taking_sse(
                    "Сначала создайте его на родительском аккаунте Voximplant."
         )
 
-    child_accounts = db.query(VoximplantChildAccount).all()
+    child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
 
     # Предзагрузка cascade-номеров для каждого аккаунта
     account_phones = {}
@@ -3989,7 +4198,7 @@ async def admin_setup_outbound_rules(
         service = get_voximplant_partner_service()
         
         # Получаем все дочерние аккаунты
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Found {len(child_accounts)} child accounts for outbound rules setup")
         
         results = {
@@ -4101,7 +4310,7 @@ async def admin_setup_service_accounts(
         service = get_voximplant_partner_service()
         
         # Получаем все дочерние аккаунты
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Found {len(child_accounts)} child accounts for Service Account setup")
         
         results = {
@@ -4250,7 +4459,7 @@ async def admin_setup_cartesia_scenarios(
         logger.info(f"[TELEPHONY-ADMIN] Loaded scripts: {list(cartesia_scripts.keys())}")
 
         # ── 2. Обрабатываем все дочерние аккаунты ────────────────────────────
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
 
         results = {
@@ -4488,7 +4697,7 @@ async def admin_setup_cascade_scenarios(
 
         logger.info(f"[TELEPHONY-ADMIN] Loaded cascade scripts: {list(cascade_scripts.keys())}")
 
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
 
         results = {
@@ -4722,7 +4931,7 @@ async def _deploy_provider_scenarios_iter(
             detail=f"{' / '.join(scenario_names)} not found on parent account.",
         )
 
-    child_accounts = db.query(VoximplantChildAccount).all()
+    child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
     logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
 
     yield {
@@ -5183,7 +5392,7 @@ async def admin_setup_yandex_scenarios(
 
         logger.info(f"[TELEPHONY-ADMIN] Loaded yandex scripts: {list(yandex_scripts.keys())}")
 
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Processing {len(child_accounts)} child accounts")
 
         results = {
@@ -5368,7 +5577,7 @@ async def admin_setup_crm_rules(
     try:
         service = get_voximplant_partner_service()
 
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[TELEPHONY-ADMIN] Setting up outbound_crm rules for {len(child_accounts)} accounts")
 
         results = {
@@ -5758,12 +5967,24 @@ def get_scenario_config(
             logger.warning(f"[TELEPHONY] No assistant bound: {phone}")
             return ScenarioConfigResponse(success=False)
 
+        # Номер в запасе для физлиц: не обслуживается, пока его не возьмут
+        if getattr(phone_record, "hosted_stock", False) and not lease_user:
+            logger.warning(f"[TELEPHONY] Hosted stock number has no tenant: {phone}")
+            return ScenarioConfigResponse(success=False)
+
         # Получаем пользователя (для тестового номера — арендатора)
         child_account = phone_record.child_account
         user = lease_user or db.query(User).filter(User.id == child_account.user_id).first()
 
         if not user:
             return ScenarioConfigResponse(success=False)
+
+        # Номер физлица: связь оплачивается с телефонного кошелька
+        if not lease_user and child_account.is_hosted:
+            from backend.services import hosted_numbers
+            if not hosted_numbers.call_allowed(db, child_account, user.id):
+                logger.warning(f"[TELEPHONY] Hosted number {phone}: telephony balance too low, call refused")
+                return ScenarioConfigResponse(success=False)
         
         # Получаем ассистента в зависимости от типа
         assistant = None
@@ -6051,6 +6272,7 @@ async def connect_sip_trunk(
     child_account = db.query(VoximplantChildAccount).filter(
         VoximplantChildAccount.user_id == current_user.id
     ).first()
+    forbid_hosted(child_account, "Подключение SIP")
 
     if not child_account:
         raise HTTPException(status_code=404, detail="Телефония не подключена. Сначала подключите телефонию.")
@@ -6380,7 +6602,7 @@ async def webhook_verification_status(
 
                     if vox_account_id and from_number and to_number and body_text:
                         child_account = db.query(VoximplantChildAccount).filter(
-                            VoximplantChildAccount.vox_account_id == vox_account_id
+                            VoximplantChildAccount.vox_account_id == vox_account_id, VoximplantChildAccount.is_hosted.is_(False)
                         ).first()
 
                         if child_account:
@@ -6418,7 +6640,7 @@ async def webhook_verification_status(
             logger.info(f"[TELEPHONY] Processing: {account_id} | {previous_status} -> {account_document_status}")
             
             child_account = db.query(VoximplantChildAccount).filter(
-                VoximplantChildAccount.vox_account_id == account_id
+                VoximplantChildAccount.vox_account_id == account_id, VoximplantChildAccount.is_hosted.is_(False)
             ).first()
             
             if not child_account:
@@ -6485,7 +6707,7 @@ async def admin_enable_sms_all(
     import httpx
 
     try:
-        child_accounts = db.query(VoximplantChildAccount).all()
+        child_accounts = db.query(VoximplantChildAccount).filter(VoximplantChildAccount.is_hosted.is_(False)).all()
         logger.info(f"[SMS-ADMIN] Found {len(child_accounts)} child accounts")
 
         results = {
@@ -6688,10 +6910,23 @@ def _save_inbound_sms(callbacks: list) -> list:
                     f"body_len={len(sms_body)}"
                 )
 
+                # Номер физлица на аккаунте администратора: SMS принадлежит
+                # владельцу номера (hosted-записи), а не администратору
+                child_account = None
+                dest_digits = normalize_phone_number(destination_number)
+                if len(dest_digits) >= 10:
+                    dest_phone = db.query(VoximplantPhoneNumber).filter(
+                        VoximplantPhoneNumber.phone_number.contains(dest_digits[-10:])
+                    ).first()
+                    if dest_phone and dest_phone.child_account and dest_phone.child_account.is_hosted:
+                        child_account = dest_phone.child_account
+
                 # Найти child account по vox_account_id
-                child_account = db.query(VoximplantChildAccount).filter(
-                    VoximplantChildAccount.vox_account_id == str(account_id)
-                ).first()
+                if not child_account:
+                    child_account = db.query(VoximplantChildAccount).filter(
+                        VoximplantChildAccount.vox_account_id == str(account_id),
+                        VoximplantChildAccount.is_hosted.is_(False),
+                    ).first()
 
                 if not child_account:
                     logger.warning(
@@ -6826,6 +7061,7 @@ async def admin_setup_sms_webhooks(
 
     service = get_voximplant_partner_service()
     accounts = db.query(VoximplantChildAccount).filter(
+        VoximplantChildAccount.is_hosted.is_(False),
         VoximplantChildAccount.is_active == True
     ).all()
 

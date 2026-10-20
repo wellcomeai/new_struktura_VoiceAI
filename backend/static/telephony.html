@@ -1607,6 +1607,24 @@
     .tn-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .75rem; }
     .tn-wait { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #b45309; }
 
+    /* Выбор пути верификации: ИП/ООО или физлицо */
+    .vpath-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 800px) { .vpath-grid { grid-template-columns: 1fr; } }
+    .vpath-card { position: relative; border: 1px solid var(--border-color, #e2e8f0); border-radius: var(--radius-md, 12px); padding: 1.25rem; background: #fff; display: flex; flex-direction: column; gap: .6rem; }
+    .vpath-card h3 { margin: 0; font-size: 1.05rem; display: flex; gap: .5rem; align-items: center; }
+    .vpath-card p { margin: 0; color: var(--text-gray); font-size: .9rem; line-height: 1.5; }
+    .vpath-card ol { margin: 0 0 .25rem 1.1rem; padding: 0; color: var(--text-gray); font-size: .875rem; line-height: 1.6; }
+    .vpath-card .btn { align-self: flex-start; }
+    .vpath-recommended { border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(37, 99, 235, .08); }
+    .vpath-badge { position: absolute; top: -10px; right: 14px; background: #2563eb; color: #fff; font-size: .7rem; font-weight: 700; padding: .2rem .55rem; border-radius: 999px; }
+    .vf-form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; }
+    .vf-form-grid .vf-span2 { grid-column: span 2; }
+    .vf-form-grid .vf-span3 { grid-column: 1 / -1; }
+    @media (max-width: 640px) { .vf-form-grid { grid-template-columns: 1fr; } .vf-form-grid .vf-span2 { grid-column: 1 / -1; } }
+    .num-note { font-size: .7rem; margin-top: .2rem; }
+    .num-note.warn { color: #b45309; }
+    .num-note.bad { color: #b91c1c; }
+    .num-note.info { color: #2563eb; }
   </style>
   <link rel="stylesheet" href="/static/css/voicyfy.css">
   <link rel="stylesheet" href="/static/css/voicyfy-legacy.css">
@@ -1678,36 +1696,48 @@
         </div>
       </div>
 
-      <!-- Секция: Телефония не подключена -->
+      <!-- Секция: Телефония не подключена — выбор пути верификации -->
       <div id="not-connected-section" class="card hidden">
-        <div class="empty-state">
-          <i class="fas fa-phone-slash"></i>
-          <h3>Телефония не подключена</h3>
-          <p style="margin-bottom: 1.5rem;">Подключите телефонию, чтобы покупать номера и принимать звонки</p>
-          
-          <div class="instructions" style="text-align: left; max-width: 500px; margin: 0 auto 1.5rem;">
-            <h4>📋 Как это работает:</h4>
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Подключение телефонии</h2>
+            <p class="card-description">Чтобы купить номер, по закону РФ нужно пройти верификацию. Выберите, как вы будете работать с номерами.</p>
+          </div>
+        </div>
+        <div class="vpath-grid">
+          <div class="vpath-card vpath-recommended">
+            <div class="vpath-badge">Рекомендуем</div>
+            <h3><i class="fas fa-briefcase"></i> ИП или ООО</h3>
+            <p>Свой аккаунт телефонии, номера на вашу компанию, оплата связи напрямую оператору. Подходит для постоянной работы с клиентами.</p>
             <ol>
-              <li>Нажмите "Подключить телефонию"</li>
-              <li>Пройдите верификацию (загрузите документы)</li>
-              <li>Пополните баланс</li>
-              <li>Купите номер телефона</li>
-              <li>Привяжите ассистента к номеру</li>
+              <li>Подключите телефонию</li>
+              <li>Пройдите верификацию в Voximplant (загрузите документы)</li>
+              <li>Пополните баланс и купите номер</li>
             </ol>
+            <div class="form-group" style="max-width: 280px;">
+              <label for="verification-type-setup">Тип</label>
+              <select id="verification-type-setup" class="form-control">
+                <option value="entrepreneur">ИП</option>
+                <option value="legal_entity">Юридическое лицо (ООО)</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" id="setup-telephony-btn">
+              <i class="fas fa-plug"></i> Подключить как ИП / ООО
+            </button>
           </div>
-          
-          <div class="form-group" style="max-width: 300px; margin: 0 auto 1rem;">
-            <label for="verification-type-setup">Тип верификации</label>
-            <select id="verification-type-setup" class="form-control">
-              <option value="legal_entity">Юридическое лицо</option>
-              <option value="entrepreneur">ИП</option>
-              <option value="individual">Физическое лицо</option>
-            </select>
+          <div class="vpath-card">
+            <h3><i class="fas fa-user"></i> Физическое лицо</h3>
+            <p>Для теста этого достаточно. Проверку проводит Voicyfy: заполните данные паспорта и загрузите фото. Номера и связь оплачиваются с телефонного баланса в Voicyfy.</p>
+            <ol>
+              <li>Заполните анкету и загрузите паспорт и селфи</li>
+              <li>Дождитесь проверки (обычно до одного рабочего дня)</li>
+              <li>Пополните телефонный баланс и выберите номер</li>
+            </ol>
+            <div id="individual-verification-state"></div>
+            <button class="btn btn-secondary" id="open-individual-form-btn">
+              <i class="fas fa-id-card"></i> Пройти верификацию физлица
+            </button>
           </div>
-          
-          <button class="btn btn-primary btn-lg" id="setup-telephony-btn">
-            <i class="fas fa-plug"></i> Подключить телефонию
-          </button>
         </div>
       </div>
       
@@ -1715,13 +1745,13 @@
       <div id="connected-section" class="hidden">
         
         <!-- Информационный блок верификации -->
-        <div class="verification-info-block">
+        <div class="verification-info-block" id="verification-info-block">
           <h4><i class="fas fa-file-alt"></i> Верификация для телефонии</h4>
           <p class="info-text">По законодательству РФ для покупки номеров вы обязаны пройти верификацию:</p>
           <ol>
             <li>Нажмите кнопку «Верификация» ниже</li>
-            <li>Выберите тип: физ. лицо, юр. лицо или ИП</li>
-            <li>Следуйте инструкциям на открывшейся странице</li>
+            <li>ИП или юр. лицо — верификация в Voximplant (рекомендуем); физ. лицо — проверка в Voicyfy</li>
+            <li>Следуйте инструкциям</li>
           </ol>
           <p class="support-link">По вопросам обращайтесь в чат техподдержки: <a href="https://t.me/voicyfy_support" target="_blank">@voicyfy_support</a></p>
         </div>
@@ -1734,7 +1764,7 @@
           
           <div class="status-grid">
             <div class="status-item">
-              <div class="status-item-label">Баланс</div>
+              <div class="status-item-label" id="balance-label">Баланс</div>
               <div id="balance-value" class="status-item-value">— ₽</div>
             </div>
             <div class="status-item">
@@ -1742,7 +1772,7 @@
               <div id="numbers-count" class="status-item-value">0</div>
             </div>
             <div class="status-item">
-              <div class="status-item-label">Account ID</div>
+              <div class="status-item-label" id="account-id-label">Account ID</div>
               <div id="account-id-value" class="status-item-value" style="font-size: 0.875rem; font-family: monospace;">—</div>
             </div>
           </div>
@@ -1945,7 +1975,7 @@
             </div>
             <div class="type-info">
               <div class="type-title">Физ. лицо</div>
-              <div class="type-description">Для частных лиц</div>
+              <div class="type-description">Проверка в Voicyfy, для теста</div>
             </div>
           </div>
           
@@ -1973,7 +2003,7 @@
             </div>
             <div class="type-info">
               <div class="type-title">ИП</div>
-              <div class="type-description">Индивидуальный предприниматель</div>
+              <div class="type-description">Рекомендуем</div>
             </div>
           </div>
         </div>
@@ -2083,13 +2113,16 @@
       let analyzeChatId = null;
       let selectedNumberToBuy = null;
       let selectedNumberPrice = null;
+      let selectedStockId = null;
       let currentBalance = 0;
-      let selectedVerificationType = 'individual';
+      let selectedVerificationType = 'entrepreneur';
       let currentCategory = 'GEOGRAPHIC';
       let currentRegionId = null;
       let currentOffset = 0;
       let hasMoreNumbers = false;
       let regionsCache = {};
+      // own — свой аккаунт Voximplant; hosted — физлицо на номерах Voicyfy
+      let telMode = 'own';
       
       // Дефолтные регионы для каждой категории
       const defaultRegions = {
@@ -2196,16 +2229,27 @@
           if (status.is_connected) {
             notConnectedSection.classList.add('hidden');
             connectedSection.classList.remove('hidden');
-            
-            balanceValue.textContent = status.balance !== null ? `${status.balance.toFixed(2)} ₽` : '— ₽';
+            telMode = status.mode || 'own';
+            const hosted = telMode === 'hosted';
+            regionsCache = {};
+
+            const balance = hosted ? status.telephony_balance : status.balance;
+            balanceValue.textContent = (balance !== null && balance !== undefined) ? `${balance.toFixed(2)} ₽` : '— ₽';
             numbersCount.textContent = status.numbers_count;
-            accountIdValue.textContent = status.account_id || '—';
+            accountIdValue.textContent = hosted ? 'Физлицо · номера Voicyfy' : (status.account_id || '—');
+            accountIdValue.style.fontFamily = hosted ? 'inherit' : 'monospace';
+            document.getElementById('balance-label').textContent = hosted ? 'Телефонный баланс' : 'Баланс';
+            document.getElementById('account-id-label').textContent = hosted ? 'Верификация' : 'Account ID';
+            verificationBtn.classList.toggle('hidden', hosted);
+            document.getElementById('verification-info-block').classList.toggle('hidden', hosted);
             
             await loadMyNumbers();
           } else {
+            telMode = 'own';
             notConnectedSection.classList.remove('hidden');
             connectedSection.classList.add('hidden');
           }
+          if (window.TELV) window.TELV.onStatus(status);
         } catch (error) {
           console.error('Ошибка загрузки статуса:', error);
           notConnectedSection.classList.remove('hidden');
@@ -2288,9 +2332,19 @@
 
             // Номер в тестовом пуле: входящие идут только по активной аренде,
             // собственная привязка на нём не работает — предупреждаем явно.
-            const poolNote = num.is_test_pool
-              ? `<div style="font-size:0.7rem; color:#b45309; margin-top:0.2rem;" title="Входящие обслуживаются только по активной аренде. Привязка своего ассистента выведет номер из пула."><i class="fas fa-flask"></i> Тестовый пул</div>`
+            let poolNote = num.is_test_pool
+              ? `<div style="font-size:0.7rem; color:#b45309; margin-top:0.2rem;" title="Входящие обслуживаются только по активной аренде. Привязка своего ассистента временно выведет номер из пула."><i class="fas fa-flask"></i> Тестовый пул</div>`
               : '';
+            if (num.return_to_test_pool) {
+              poolNote += `<div class="num-note warn" title="«Отвязать» вернёт номер в тестовый пул"><i class="fas fa-flask"></i> Временно вне тестового пула</div>`;
+            }
+            if (num.hosted_stock) {
+              poolNote += `<div class="num-note info"><i class="fas fa-box"></i> Запас для физлиц</div>`;
+            }
+            if (num.hosted_status === 'suspended') {
+              poolNote += `<div class="num-note bad" title="Не хватило средств на продление: пополните телефонный баланс"><i class="fas fa-pause-circle"></i> Приостановлен — пополните баланс</div>`;
+            }
+            const canUnbind = !num.is_test_pool && (num.assistant_id || num.agent_config_id);
 
             tr.innerHTML = `
               <td><span class="phone-number">${num.phone_number}</span>${poolNote}</td>
@@ -2300,6 +2354,9 @@
                 <button class="btn btn-secondary btn-sm bind-assistant-btn" data-id="${num.id}" data-phone="${num.phone_number}">
                   <i class="fas fa-link"></i> Привязать
                 </button>
+                ${canUnbind ? `<button class="btn btn-secondary btn-sm unbind-assistant-btn" data-id="${num.id}" data-phone="${num.phone_number}" data-pool="${num.return_to_test_pool ? '1' : ''}" style="margin-top:0.3rem;">
+                  <i class="fas fa-unlink"></i> Отвязать
+                </button>` : ''}
               </td>
               <td>
                 <a href="/static/test_outbound-calls.html" class="btn btn-secondary btn-sm">
@@ -2325,6 +2382,10 @@
             });
           });
 
+          document.querySelectorAll('.unbind-assistant-btn').forEach(btn => {
+            btn.addEventListener('click', () => unbindAssistant(btn.dataset.id, btn.dataset.phone, !!btn.dataset.pool));
+          });
+
           // Обработчики для кнопок удаления
           document.querySelectorAll('.delete-number-btn').forEach(btn => {
             btn.addEventListener('click', () => deletePhoneNumber(btn.dataset.id, btn.dataset.phone));
@@ -2335,12 +2396,40 @@
         }
       }
       
+      // Отвязка ассистента от номера (номер тестового пула возвращается в пул)
+      async function unbindAssistant(phoneId, phoneNumber, backToPool) {
+        const confirmed = await VF.confirm({
+          title: `Отвязать ассистента от ${formatPhoneNumber(phoneNumber)}?`,
+          message: backToPool
+            ? 'Номер вернётся в тестовый пул и снова будет выдаваться пользователям.'
+            : 'Входящие звонки на номер перестанут обслуживаться, пока вы не привяжете другого ассистента.',
+          confirmText: 'Отвязать',
+        });
+        if (!confirmed) return;
+        try {
+          setLoading(true);
+          const result = await api.post('/telephony/unbind-assistant', { phone_number_id: phoneId });
+          showNotification(result.message || 'Ассистент отвязан', 'success');
+          await loadMyNumbers();
+          if (typeof loadTestNumberStatus === 'function') loadTestNumberStatus();
+          if (window.TELV) window.TELV.refreshAdmin();
+        } catch (error) {
+          showNotification(error.message || 'Ошибка отвязки', 'error');
+        } finally {
+          setLoading(false);
+        }
+      }
+
       // Удаление номера
       async function deletePhoneNumber(phoneId, phoneNumber) {
         const confirmed = await VF.confirm({
-          title: `Удалить номер ${formatPhoneNumber(phoneNumber)}?`,
-          message: 'Номер будет удалён немедленно. Средства за текущий месяц возврату не подлежат. Это действие необратимо.',
-          confirmText: 'Удалить номер',
+          title: telMode === 'hosted'
+            ? `Отказаться от номера ${formatPhoneNumber(phoneNumber)}?`
+            : `Удалить номер ${formatPhoneNumber(phoneNumber)}?`,
+          message: telMode === 'hosted'
+            ? 'Номер отключится сразу, продление прекратится. Оплаченный период не возвращается.'
+            : 'Номер будет удалён немедленно. Средства за текущий месяц возврату не подлежат. Это действие необратимо.',
+          confirmText: telMode === 'hosted' ? 'Отказаться' : 'Удалить номер',
           danger: true,
         });
         if (!confirmed) return;
@@ -2644,7 +2733,9 @@
         regionSelect.disabled = true;
         
         try {
-          const result = await api.get(`/telephony/phone-regions?category=${category}`);
+          const result = await api.get(telMode === 'hosted'
+            ? `/telephony/hosted/regions?category=${category}`
+            : `/telephony/phone-regions?category=${category}`);
           
           if (result.success && result.regions) {
             regionsCache[category] = result.regions;
@@ -2711,14 +2802,24 @@
         currentRegionId = effectiveRegionId;
         
         try {
-          let url = `/telephony/available-numbers?count=30&category=${category}&region_id=${effectiveRegionId}`;
+          const hosted = telMode === 'hosted';
+          let url = `/telephony/${hosted ? 'hosted/available-numbers' : 'available-numbers'}?count=30&category=${category}&region_id=${effectiveRegionId}`;
           if (currentOffset > 0) {
             url += `&offset=${currentOffset}`;
           }
           
           const result = await api.get(url);
+          if (hosted) {
+            // Цена для физлица: месяц Voximplant + наценка, первый платёж — плюс установка
+            result.numbers = result.numbers.map(n => ({ ...n, phone_price: n.first_payment_rub, monthly_rub: n.monthly_rub }));
+            if (typeof result.balance_rub === 'number') {
+              currentBalance = result.balance_rub;
+              document.getElementById('modal-balance').textContent = `${currentBalance.toFixed(2)} ₽`;
+            }
+          }
+          const stock = (hosted && !append) ? (result.stock || []) : [];
           
-          if (result.numbers.length === 0 && !append) {
+          if (result.numbers.length === 0 && !append && !stock.length) {
             container.innerHTML = `
               <div class="empty-state" style="padding: 2rem;">
                 <i class="fas fa-search" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
@@ -2740,6 +2841,29 @@
             container.innerHTML = `<div class="available-numbers-list"></div>`;
             list = container.querySelector('.available-numbers-list');
           }
+
+          // Готовые номера из запаса Voicyfy: без платы за установку
+          stock.forEach(num => {
+            const item = document.createElement('div');
+            item.className = 'number-item';
+            item.innerHTML = `
+              <div class="number-item-radio"></div>
+              <span class="number-item-phone">${formatPhoneNumber(num.phone_number)}</span>
+              <span class="number-item-separator">·</span>
+              <span class="number-item-region">${num.region || 'Россия'} · готовый номер</span>
+              <div class="number-item-dots"></div>
+              <span class="number-item-price">${num.monthly_rub} ₽/мес</span>
+            `;
+            item.addEventListener('click', () => {
+              document.querySelectorAll('.number-item').forEach(i => i.classList.remove('selected'));
+              item.classList.add('selected');
+              selectedNumberToBuy = num.phone_number;
+              selectedNumberPrice = num.monthly_rub;
+              selectedStockId = num.id;
+              updateBuyButton();
+            });
+            list.appendChild(item);
+          });
           
           result.numbers.forEach(num => {
             const item = document.createElement('div');
@@ -2747,7 +2871,9 @@
             item.dataset.phone = num.phone_number;
             item.dataset.price = num.phone_price || 0;
             
-            const priceText = num.phone_price ? `${num.phone_price} ₽` : '—';
+            const priceText = num.phone_price
+              ? (num.monthly_rub ? `${num.phone_price} ₽, далее ${num.monthly_rub} ₽/мес` : `${num.phone_price} ₽`)
+              : '—';
             
             item.innerHTML = `
               <div class="number-item-radio"></div>
@@ -2763,6 +2889,7 @@
               item.classList.add('selected');
               selectedNumberToBuy = num.phone_number;
               selectedNumberPrice = num.phone_price;
+              selectedStockId = null;
               updateBuyButton();
             });
             
@@ -2835,10 +2962,10 @@
       
       // Кнопка верификации
       verificationBtn.addEventListener('click', () => {
-        selectedVerificationType = 'individual';
+        selectedVerificationType = 'entrepreneur';
         document.querySelectorAll('.verification-type-card').forEach(card => {
           card.classList.remove('selected');
-          if (card.dataset.type === 'individual') {
+          if (card.dataset.type === 'entrepreneur') {
             card.classList.add('selected');
           }
         });
@@ -2866,6 +2993,11 @@
       // Подтверждение выбора типа верификации
       document.getElementById('confirm-verification-type-btn').addEventListener('click', async () => {
         verificationTypeModal.classList.remove('show');
+        if (selectedVerificationType === 'individual') {
+          // Физлица проходят проверку в Voicyfy (Voximplant их больше не верифицирует)
+          if (window.TELV) window.TELV.openForm();
+          return;
+        }
         
         try {
           setLoading(true);
@@ -2883,6 +3015,7 @@
       
       // Кнопка биллинга
       billingBtn.addEventListener('click', async () => {
+        if (telMode === 'hosted' && window.TELV) { window.TELV.openWallet(); return; }
         try {
           setLoading(true);
           const result = await api.get('/telephony/billing-url?start_page=card');
@@ -2973,6 +3106,7 @@
         
         buyNumberModal.classList.add('show');
         
+        selectedStockId = null;
         try {
           const balanceResult = await api.get('/telephony/balance');
           currentBalance = balanceResult.balance || 0;
@@ -3033,9 +3167,12 @@
         if (!selectedNumberToBuy) return;
         
         const priceText = selectedNumberPrice ? ` за ${selectedNumberPrice} ₽` : '';
+        const hosted = telMode === 'hosted';
         const buyConfirmed = await VF.confirm({
           title: `Купить номер ${formatPhoneNumber(selectedNumberToBuy)}${priceText}?`,
-          message: 'Стоимость спишется с баланса телефонии. Номер появится в списке «Мои номера».',
+          message: hosted
+            ? 'Сумма спишется с телефонного баланса. Дальше номер продлевается раз в месяц с этого же баланса; если средств не хватит, звонки на номер приостановятся.'
+            : 'Стоимость спишется с баланса телефонии. Номер появится в списке «Мои номера».',
           confirmText: 'Купить',
           icon: 'phone',
         });
@@ -3044,9 +3181,13 @@
         try {
           setLoading(true);
           
-          const result = await api.post('/telephony/buy-number', {
-            phone_number: selectedNumberToBuy
-          });
+          const result = hosted
+            ? await api.post('/telephony/hosted/buy', selectedStockId
+                ? { stock_id: selectedStockId }
+                : { phone_number: selectedNumberToBuy, region_id: currentRegionId, category: currentCategory })
+            : await api.post('/telephony/buy-number', {
+                phone_number: selectedNumberToBuy
+              });
           
           showNotification(result.message || 'Номер успешно куплен!', 'success');
           buyNumberModal.classList.remove('show');
@@ -3058,7 +3199,9 @@
         } catch (error) {
           const errorMsg = error.message || '';
           if (errorMsg.toLowerCase().includes('insufficient funds') || errorMsg.toLowerCase().includes('недостаточно')) {
-            showNotification('На вашем балансе недостаточно средств. Пополните баланс и попробуйте снова.', 'error');
+            showNotification(telMode === 'hosted'
+              ? (errorMsg || 'Недостаточно средств на телефонном балансе')
+              : 'На вашем балансе недостаточно средств. Пополните баланс и попробуйте снова.', 'error');
           } else {
             showNotification(errorMsg || 'Ошибка покупки номера', 'error');
           }
@@ -3216,7 +3359,7 @@
         try {
           setLoading(true);
           
-          await api.post('/telephony/bind-assistant', {
+          const bindResult = await api.post('/telephony/bind-assistant', {
             phone_number_id: phoneId,
             assistant_type: assistantType,
             assistant_id: assistantId
@@ -3226,7 +3369,7 @@
             // обратной совместимости с внешними интеграциями.
           });
           
-          showNotification('Ассистент успешно привязан!', 'success');
+          showNotification((bindResult && bindResult.message) || 'Ассистент успешно привязан!', bindResult && bindResult.left_test_pool ? 'warning' : 'success');
           bindAssistantModal.classList.remove('show');
           
           await loadMyNumbers();
@@ -3808,6 +3951,14 @@
           </div>`);
       }
 
+      // Общие функции страницы для js/telephony-verification.js
+      window.TEL = {
+        api, setLoading, showNotification, formatPhoneNumber,
+        loadTelephonyStatus, loadMyNumbers,
+        reloadTestNumber: () => loadTestNumberStatus(),
+        getMode: () => telMode,
+      };
+
       // Инициализация
       loadUserInfo();
       loadTelephonyStatus();
@@ -3817,6 +3968,7 @@
       setTimeout(updateSmsBadge, 1500);
     });
   </script>
+  <script src="/static/js/telephony-verification.js?v=1"></script>
 
 </body>
 </html>

@@ -427,6 +427,64 @@ class RobokassaService:
         return f"OK{inv_id}"
 
     @classmethod
+    async def _process_telephony_topup_payment(
+        cls,
+        db: Session,
+        user: User,
+        inv_id: str,
+        out_sum: str,
+        declared_amount_rub: str,
+        signature_value: str,
+        custom_params: Dict[str, str],
+    ) -> str:
+        """
+        Пополнение телефонного кошелька физлица (Shp_telephony_topup=<рубли>).
+        Без верной подписи PASSWORD_2 не зачисляем: платёж остаётся pending,
+        проверяющему уходит уведомление (зачислить вручную из «Телефонии»).
+        """
+        from backend.services import telephony_wallet, verification_bot
+
+        if not cls.verify_result_signature(out_sum, inv_id, cls.PASSWORD_2,
+                                           signature_value or "", custom_params):
+            logger.error(f"❌ Telephony topup {inv_id}: signature mismatch, not credited")
+            verification_bot.notify_admin_soon(
+                f"⚠️ Пополнение телефонного баланса {verification_bot.esc(user.email)} на "
+                f"{verification_bot.esc(out_sum)} ₽ (InvId {verification_bot.esc(inv_id)}) не зачислено: "
+                f"подпись Robokassa не совпала. Проверьте ROBOKASSA_PASSWORD_2 и оплату в кабинете "
+                f"Robokassa, при необходимости зачислите вручную."
+            )
+            return "FAIL"
+        try:
+            paid = float(out_sum)
+            declared = float(declared_amount_rub)
+        except (ValueError, TypeError):
+            return "FAIL"
+        if paid <= 0 or abs(paid - declared) > 0.01:
+            logger.error(f"❌ Telephony topup amount mismatch: paid {paid}, declared {declared}")
+            return "FAIL"
+
+        transaction = db.query(PaymentTransaction).filter(
+            PaymentTransaction.external_payment_id == inv_id
+        ).first()
+        if transaction and transaction.is_processed:
+            return f"OK{inv_id}"
+
+        telephony_wallet.credit(
+            db, user.id, int(round(paid * 100)), "topup", ref_key=f"robokassa:{inv_id}",
+            payment_transaction_id=transaction.id if transaction else None,
+            notes=f"Пополнение через Robokassa, InvId {inv_id}", commit=False,
+        )
+        if transaction:
+            now = datetime.now(timezone.utc)
+            transaction.status = "success"
+            transaction.is_processed = True
+            transaction.paid_at = now
+            transaction.processed_at = now
+        db.commit()
+        logger.info(f"✅ Telephony topup +{paid:.2f} ₽ applied to user {user.id}")
+        return f"OK{inv_id}"
+
+    @classmethod
     async def _process_agent_subscription_payment(
         cls,
         db: Session,
@@ -603,6 +661,15 @@ class RobokassaService:
             shp_cascade_package = custom_params.get("Shp_cascade_package")
             shp_wallet_topup = custom_params.get("Shp_wallet_topup")
             shp_plan_code = custom_params.get("Shp_plan_code")
+
+            # 🆕 Телефонный кошелёк физлица: подпись проверяем всегда, даже
+            # при DISABLE_SIGNATURE_VERIFICATION — с него оплачиваются номера
+            # и связь на аккаунте администратора.
+            shp_telephony_topup = custom_params.get("Shp_telephony_topup")
+            if shp_telephony_topup:
+                return await cls._process_telephony_topup_payment(
+                    db, user, inv_id, out_sum, shp_telephony_topup, signature_value, custom_params
+                )
 
             # ✅ v6.0: пополнение единого кошелька Voicyfy
             if shp_wallet_topup:

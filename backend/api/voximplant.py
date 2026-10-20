@@ -540,6 +540,7 @@ async def delayed_cost_recalculation(
         delays = (delay_seconds,) + tuple(
             retry_delays if retry_delays is not None else RECALC_RETRY_DELAYS
         )
+        last_result = None
 
         for attempt, delay in enumerate(delays, start=1):
             logger.info(
@@ -570,9 +571,11 @@ async def delayed_cost_recalculation(
                 delay_seconds=delay,
                 attempt=attempt,
             )
+            last_result = cost_result
 
             if is_settled_cost(cost_result):
                 logger.info(f"[VOXIMPLANT-DELAYED] ✅ Cost settled on attempt {attempt}")
+                await _bill_hosted_call(conversation_id, cost_result)
                 return
 
             logger.info(
@@ -584,12 +587,23 @@ async def delayed_cost_recalculation(
             f"[VOXIMPLANT-DELAYED] ⚠️ Счёт для {conversation_id} так и не досчитан "
             f"за {len(delays)} попыток — в карточке останется последняя полученная сумма"
         )
+        if last_result:
+            await _bill_hosted_call(conversation_id, last_result)
 
     except asyncio.CancelledError:
         logger.info(f"[VOXIMPLANT-DELAYED] ⚠️ Task cancelled for {conversation_id}")
     except Exception as e:
         logger.error(f"[VOXIMPLANT-DELAYED] ❌ Error in delayed recalculation: {e}")
         logger.error(traceback.format_exc())
+
+
+async def _bill_hosted_call(conversation_id: str, cost_result: Dict[str, Any]) -> None:
+    """Номер физлица на аккаунте администратора: связь — с телефонного кошелька."""
+    try:
+        from backend.services.hosted_numbers import bill_call_by_conversation
+        await asyncio.to_thread(bill_call_by_conversation, conversation_id, cost_result)
+    except Exception as e:
+        logger.warning(f"[VOXIMPLANT-DELAYED] hosted billing failed for {conversation_id}: {e}")
 
 
 async def _apply_cost_result(
@@ -1765,6 +1779,19 @@ def log_conversation_data(
                 except Exception as task_error:
                     logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Не удалось запланировать отложенный пересчёт: {task_error}")
             
+            # Номер физлица: счёт уже досчитан — списываем связь с телефонного
+            # кошелька сразу (иначе это сделает отложенный пересчёт)
+            if db_result and cost_settled and call_cost and assistant.user_id:
+                try:
+                    from backend.services.hosted_numbers import bill_call
+                    bill_call(
+                        db, assistant.user_id, str(db_result.id), float(call_cost),
+                        ((cost_breakdown or {}).get("details") or {}).get("rule_name"),
+                    )
+                except Exception as bill_err:
+                    logger.warning(f"[VOXIMPLANT-v3.9] ⚠️ Hosted billing failed: {bill_err}")
+                    db.rollback()
+
             # ================================================================
             # 🆕 EVENT-DRIVEN ФИНАЛИЗАЦИЯ ИСХОДЯЩЕГО ЗВОНКА АГЕНТА
             # ================================================================

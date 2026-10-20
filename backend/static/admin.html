@@ -1827,7 +1827,7 @@
             if(!rows.length){ body.innerHTML='<tr><td colspan="6">Аренд ещё не было</td></tr>'; return; }
             rows.forEach(function(l){
               var st = l.is_active ? ('Активна · осталось '+mmss(l.seconds_left)) :
-                       ({expired:'Истекла',user:'Отключена пользователем',admin:'Снята админом'}[l.release_reason]||'Завершена');
+                       ({expired:'Истекла',user:'Отключена пользователем',admin:'Снята админом',admin_bind:'Админ привязал своего ассистента'}[l.release_reason]||'Завершена');
               var mins = l.duration_seconds ? Math.round(l.duration_seconds/60) : '';
               var tr=document.createElement('tr');
               tr.innerHTML='<td>'+esc(l.user_email)+'</td><td>'+esc(fmtPhone(l.phone_number))+'</td>'+

@@ -75,7 +75,7 @@ class TestNumberLease(Base, BaseModel):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     # Когда фактически освобождён (досрочно или планировщиком по истечении)
     released_at = Column(DateTime(timezone=True), nullable=True)
-    # 'expired' | 'user' | 'admin'
+    # 'expired' | 'user' | 'admin' | 'admin_bind' (админ посадил на номер своего ассистента)
     release_reason = Column(String(20), nullable=True)
 
     user = relationship("User")

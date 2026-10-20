@@ -47,6 +47,7 @@ from backend.api import (
     voximplant_settings,
     telephony,
     test_numbers,  # 🆕 Тестовые номера телефонии (аренда номера админа на N минут)
+    telephony_hosted,  # 🆕 Верификация физлиц и номера на аккаунте администратора
     llm_streaming,  # ✅ LLM Streaming + Agent Config API
     agent,  # ✅ v5.0: Voicyfy Agent API
     agent_telegram,  # ✅ v2.2: Agent Telegram bot integration
@@ -62,6 +63,7 @@ from backend.db.session import engine, check_database_connection
 from backend.core.scheduler import start_subscription_checker
 from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware, TrailingSlashRewriteMiddleware
 from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
+from backend.core.hosted_numbers_loop import start_hosted_numbers_loop  # 🆕 Продление номеров физлиц, удаление документов
 from backend.core.task_scheduler import start_task_scheduler  # ✅ Task Scheduler
 from backend.core.telegram_user_poller import start_telegram_user_poller  # ✅ Поллер личного Telegram агента
 from backend.core.max_connection_supervisor import start_max_supervisor  # ✅ Постоянные соединения личного MAX агента (PyMax)
@@ -222,6 +224,7 @@ app.include_router(email_verification.router, prefix="/api/email-verification", 
 app.include_router(embeds.router, tags=["Embeds"])
 app.include_router(functions.router, prefix="/api/functions", tags=["Functions"])
 app.include_router(voximplant_settings.router, prefix="/api/users", tags=["Voximplant Settings"])
+app.include_router(telephony_hosted.router, prefix="/api/telephony", tags=["Telephony Verification"])  # 🆕 физлица
 app.include_router(telephony.router, prefix="/api/telephony", tags=["Telephony"])
 app.include_router(test_numbers.router, tags=["Test Numbers"])  # 🆕 prefix /api/telephony/test-numbers встроен
 app.include_router(llm_streaming.router, tags=["LLM Streaming"])  # endpoints have /api/llm/ prefix built-in
@@ -2103,6 +2106,81 @@ def ensure_test_number_tables():
         logger.error(f"❌ ensure_test_number_tables error: {e}")
 
 
+def ensure_telephony_verification_schema():
+    """
+    🆕 Верификация физлиц и номера на аккаунте администратора
+    (models/telephony_verification.py, services/hosted_numbers.py):
+    таблицы заявок и телефонного кошелька, колонки hosted-номеров и
+    users.telephony_balance. vox_account_id перестаёт быть уникальным для всех
+    записей: у hosted-записей физлиц он совпадает с аккаунтом администратора,
+    уникальность остаётся частичным индексом по настоящим аккаунтам.
+    """
+    try:
+        from sqlalchemy import inspect, text
+        from backend.models.telephony_verification import (
+            TelephonyVerification, TelephonyWalletTransaction,
+        )
+
+        inspector = inspect(engine)
+        if not inspector.has_table('telephony_verifications'):
+            TelephonyVerification.__table__.create(bind=engine, checkfirst=True)
+            logger.info("✅ Created table telephony_verifications")
+        if not inspector.has_table('telephony_wallet_transactions'):
+            TelephonyWalletTransaction.__table__.create(bind=engine, checkfirst=True)
+            logger.info("✅ Created table telephony_wallet_transactions")
+
+        statements = [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS telephony_balance INTEGER DEFAULT 0 NOT NULL",
+            "ALTER TABLE voximplant_child_accounts ADD COLUMN IF NOT EXISTS is_hosted BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE voximplant_child_accounts ADD COLUMN IF NOT EXISTS host_child_account_id UUID NULL",
+            "ALTER TABLE voximplant_child_accounts ADD COLUMN IF NOT EXISTS hosted_backup JSON NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS return_to_test_pool BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS hosted_stock BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS hosted_price_kopeks INTEGER NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS vox_monthly_price VARCHAR(20) NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS paid_until TIMESTAMP WITH TIME ZONE NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS hosted_status VARCHAR(20) NULL",
+            "ALTER TABLE voximplant_phone_numbers ADD COLUMN IF NOT EXISTS hosted_suspended_at TIMESTAMP WITH TIME ZONE NULL",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_tel_wallet_tx_user_ref "
+            "ON telephony_wallet_transactions (user_id, ref_key) WHERE ref_key IS NOT NULL",
+        ]
+        with engine.connect() as conn:
+            for sql in statements:
+                conn.execute(text(sql))
+
+            # Снять уникальность vox_account_id (constraint или уникальный индекс),
+            # оставив её частичным индексом по настоящим аккаунтам.
+            constraints = conn.execute(text(
+                "SELECT con.conname FROM pg_constraint con "
+                "JOIN pg_class rel ON rel.oid = con.conrelid "
+                "JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = ANY(con.conkey) "
+                "WHERE rel.relname = 'voximplant_child_accounts' AND con.contype = 'u' "
+                "AND att.attname = 'vox_account_id' AND array_length(con.conkey, 1) = 1"
+            )).fetchall()
+            for (name,) in constraints:
+                conn.execute(text(f'ALTER TABLE voximplant_child_accounts DROP CONSTRAINT "{name}"'))
+                logger.info(f"✅ Dropped unique constraint {name} on vox_account_id")
+            indexes = conn.execute(text(
+                "SELECT indexname FROM pg_indexes WHERE tablename = 'voximplant_child_accounts' "
+                "AND indexdef ILIKE 'CREATE UNIQUE INDEX%(vox_account_id)%' "
+                "AND indexname <> 'uq_vox_child_real_account'"
+            )).fetchall()
+            for (name,) in indexes:
+                conn.execute(text(f'DROP INDEX IF EXISTS "{name}"'))
+                logger.info(f"✅ Dropped unique index {name} on vox_account_id")
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_voximplant_child_accounts_vox_account_id "
+                "ON voximplant_child_accounts (vox_account_id)"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_vox_child_real_account "
+                "ON voximplant_child_accounts (vox_account_id) WHERE is_hosted = FALSE"
+            ))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"❌ ensure_telephony_verification_schema error: {e}")
+
+
 # Пользователи, которым при старте гарантированно выставляется is_admin.
 # Переопределяется переменной окружения BOOTSTRAP_ADMIN_EMAILS (через запятую).
 BOOTSTRAP_ADMIN_EMAILS = [
@@ -2324,6 +2402,10 @@ async def startup_event():
                 
                 # Шаг 3: Комплексная проверка и исправление схемы
                 check_and_fix_all_missing_columns()
+
+                # Шаг 3.1: Верификация физлиц, телефонный кошелёк, номера физлиц.
+                # Рано: дальнейшие шаги читают users через ORM (telephony_balance).
+                ensure_telephony_verification_schema()
                 
                 # Шаг 4: Создаем таблицы ElevenLabs и проверяем колонки
                 create_elevenlabs_tables()
@@ -2481,6 +2563,10 @@ async def startup_event():
             # 🆕 Освобождение истёкших аренд тестовых номеров (каждые 15 сек)
             asyncio.create_task(start_test_number_expirer(check_interval=15))
             logger.info("✅ Test number expirer started (check every 15s)")
+
+            # 🆕 Номера физлиц: продление, приостановка, удаление документов (раз в час)
+            asyncio.create_task(start_hosted_numbers_loop(check_interval=3600))
+            logger.info("✅ Hosted numbers loop started (every hour)")
 
             # ✅ Запуск блокировщика истёкших подписок agent (каждые 5 мин)
             asyncio.create_task(start_subscription_blocker())

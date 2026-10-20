@@ -157,6 +157,12 @@ def deactivate_account(
     """
     try:
         UserService.deactivate_user(db, str(current_user.id))
+        # Документы верификации физлица хранятся 30 дней после удаления аккаунта
+        try:
+            from backend.services.telephony_verification_service import schedule_purge_for_user
+            schedule_purge_for_user(db, current_user.id)
+        except Exception as purge_err:
+            logger.warning(f"verification purge scheduling failed: {purge_err}")
         return {"success": True, "message": "Account deactivated successfully"}
     except HTTPException:
         raise

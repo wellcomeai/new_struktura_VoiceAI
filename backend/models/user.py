@@ -101,6 +101,9 @@ class User(Base, BaseModel):
     # на СЕРВЕРНЫХ ключах. Свой ключ в профиле — работа бесплатно, по-старому.
     wallet_balance = Column(Integer, default=0, nullable=False)
     wallet_welcome_granted = Column(Boolean, default=False, nullable=False)
+    # Телефонный кошелёк физлица (копейки): номера и минуты связи на аккаунте
+    # администратора. См. models/telephony_verification.py.
+    telephony_balance = Column(Integer, default=0, nullable=False, server_default="0")
 
     # ✅ Онбординг: когда пользователь впервые включил тестовый номер со своим
     # ассистентом (TestNumberService.start). Пока NULL — кабинет держит его в
