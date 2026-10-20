@@ -744,7 +744,7 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
   (`forbid_hosted`), покупка — `/hosted/buy`.
 - **Деньги** — отдельный телефонный кошелёк `users.telephony_balance` (копейки, `services/telephony_wallet.py`,
   журнал `telephony_wallet_transactions`, идемпотентность по `ref_key`). Пополнение — Robokassa
-  `Shp_telephony_topup` (подпись PASSWORD_2 проверяется всегда, даже при `DISABLE_SIGNATURE_VERIFICATION`; без
+  `Shp_telephony_topup`, минимум `TELEPHONY_MIN_TOPUP_RUB` (1000 ₽) (подпись PASSWORD_2 проверяется всегда, даже при `DISABLE_SIGNATURE_VERIFICATION`; без
   подписи — не зачисляем и пишем в бот). Покупка: установка + месяц Voximplant + `HOSTED_NUMBER_MARKUP_RUB` (100 ₽);
   продление раз в месяц (`renew_due`): не хватило — номер `suspended` (`is_active=False`, звонки не идут), через
   `HOSTED_GRACE_DAYS` (7) — в запас администратора. Минуты связи — себестоимость из GetCallHistory (`bill_call`, из
@@ -760,6 +760,7 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
 - **UI** `telephony.html` + `static/js/telephony-verification.js`: выбор «ИП/ООО (рекомендуем)» или «Физлицо»,
   форма анкеты, режим `mode: hosted` в `/status` (телефонный баланс вместо Voximplant, покупка через `/hosted/*`),
   модалка телефонного баланса. Админ-меню (только `is_admin`) — вкладки «Заявки», «Номера физлиц» (владелец, email,
+  «Документы», кнопки «Начислить» / «Списать» телефонного баланса — `/admin/telephony-wallet/adjust`),
   «Документы»), «Тестовый пул» (галочки пула и запаса, освобождение аренды).
 
 ## Тестовые номера: отвязка и возврат в пул (ветка 2010-verification)

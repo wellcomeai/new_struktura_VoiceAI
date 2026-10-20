@@ -183,7 +183,8 @@ class Settings(BaseSettings):
     HOSTED_GRACE_DAYS: int = int(os.getenv("HOSTED_GRACE_DAYS", "7"))
     # Минимум на телефонном кошельке, чтобы звонок на номере физлица стартовал, ₽
     TELEPHONY_MIN_BALANCE_RUB: int = int(os.getenv("TELEPHONY_MIN_BALANCE_RUB", "10"))
-    TELEPHONY_MIN_TOPUP_RUB: int = int(os.getenv("TELEPHONY_MIN_TOPUP_RUB", "100"))
+    # Минимальное пополнение телефонного баланса физлица через Robokassa, ₽
+    TELEPHONY_MIN_TOPUP_RUB: int = int(os.getenv("TELEPHONY_MIN_TOPUP_RUB", "1000"))
 
     # =========================================================================
     # ✅ НОВОЕ: Composio — внешние коннекторы агента (Google Calendar, Gmail)

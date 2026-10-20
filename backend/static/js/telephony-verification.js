@@ -435,7 +435,8 @@
     var rows = (data.transactions || []).map(function (t) {
       var plus = t.amount_rub > 0;
       return '<tr><td style="white-space:nowrap;">' + fmtDate(t.created_at) + '</td>' +
-        '<td>' + esc(TX_LABELS[t.type] || t.type) + (t.phone_number ? ' · ' + esc(t.phone_number) : '') + '</td>' +
+        '<td>' + esc(t.type === 'manual_adjust' ? (plus ? 'Начисление от Voicyfy' : 'Списание') : (TX_LABELS[t.type] || t.type)) +
+        (t.phone_number ? ' · ' + esc(t.phone_number) : '') + '</td>' +
         '<td style="text-align:right;color:' + (plus ? '#15803d' : '#0f172a') + ';white-space:nowrap;">' +
         (plus ? '+' : '') + t.amount_rub.toFixed(2) + ' ₽</td></tr>';
     }).join('');
@@ -445,13 +446,23 @@
       'Разговор с ассистентом (ИИ) оплачивается с основного кошелька. Звонки идут, пока на балансе не меньше ' + hs.min_call_balance_rub + ' ₽.</p>' +
       '<div style="display:flex;gap:.5rem;align-items:flex-end;flex-wrap:wrap;">' +
         '<div class="form-group" style="margin:0;"><label for="vf-topup-amount">Сумма, ₽</label>' +
-        '<input class="form-control" id="vf-topup-amount" type="number" min="' + hs.min_topup_rub + '" step="1" value="500" style="width:160px;"></div>' +
+        '<input class="form-control" id="vf-topup-amount" type="number" min="' + hs.min_topup_rub + '" step="1" value="' + hs.min_topup_rub + '" style="width:160px;"></div>' +
         '<button class="btn btn-success" id="vf-topup-btn"><i class="fas fa-credit-card"></i> Пополнить</button>' +
       '</div>' +
+      '<div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem;">' +
+        [1, 2, 5].map(function (k) {
+          var v = hs.min_topup_rub * k;
+          return '<button class="btn btn-secondary btn-sm" data-amount="' + v + '">' + v.toLocaleString('ru-RU') + ' ₽</button>';
+        }).join('') +
+      '</div>' +
+      '<p style="color:var(--text-gray);font-size:.8rem;margin:.4rem 0 0;">Минимальное пополнение — ' + hs.min_topup_rub.toLocaleString('ru-RU') + ' ₽</p>' +
       '<h4 style="margin:1.25rem 0 .5rem;">История</h4>' +
       (rows ? '<table class="numbers-table"><tbody>' + rows + '</tbody></table>'
             : '<p style="color:var(--text-gray);font-size:.875rem;">Операций пока нет</p>');
     var m = overlay('vf-wallet-modal', 'Телефонный баланс', body, '<button class="btn btn-secondary" data-close>Закрыть</button>');
+    m.el.querySelectorAll('[data-amount]').forEach(function (b) {
+      b.addEventListener('click', function () { m.el.querySelector('#vf-topup-amount').value = b.dataset.amount; });
+    });
     m.el.querySelector('#vf-topup-btn').addEventListener('click', async function () {
       var amount = parseInt(m.el.querySelector('#vf-topup-amount').value, 10);
       if (!amount || amount < hs.min_topup_rub) {
@@ -653,11 +664,12 @@
     html += d.rented.length
       ? '<table class="numbers-table"><thead><tr><th>Номер</th><th>Email</th><th>Статус</th><th>Оплачен до</th><th>Цена</th><th>Баланс</th><th></th></tr></thead><tbody>' +
         d.rented.map(function (r) {
-          return '<tr><td><span class="phone-number">' + esc(T().formatPhoneNumber(r.phone_number)) + '</span></td>' +
+          return '<tr><td style="white-space:nowrap;"><span class="phone-number">' + esc(T().formatPhoneNumber(r.phone_number)) + '</span></td>' +
             '<td>' + esc(r.email) + '</td><td>' + esc(statusLabel[r.status] || r.status) + '</td>' +
             '<td>' + fmtDate(r.paid_until) + '</td><td style="white-space:nowrap;">' + r.monthly_rub + ' ₽/мес</td>' +
             '<td style="white-space:nowrap;">' + r.telephony_balance_rub.toFixed(2) + ' ₽</td>' +
             '<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-docs="' + r.user_id + '"><i class="fas fa-folder-open"></i> Документы</button> ' +
+            '<button class="btn btn-secondary btn-sm" data-credit="' + esc(r.email) + '" title="Начислить на телефонный баланс"><i class="fas fa-plus"></i> Баланс</button> ' +
             '<button class="btn btn-secondary btn-sm" data-release="' + r.id + '" data-phone="' + esc(r.phone_number) + '" title="Забрать номер у пользователя в запас">Забрать</button></td></tr>';
         }).join('') + '</tbody></table>'
       : '<p class="tn-muted">Пока никто не купил номер</p>';
@@ -672,12 +684,13 @@
             '<button class="btn btn-danger btn-sm" data-deactivate="' + s.id + '" data-phone="' + esc(s.phone_number) + '">Отключить</button></td></tr>';
         }).join('') + '</tbody></table>'
       : '<p class="tn-muted">Свободных номеров нет. Номер, от которого отказался или который не оплатил пользователь, попадает сюда; свой номер можно добавить на вкладке «Тестовый пул».</p>';
-    html += '<h4 style="margin:1.25rem 0 .5rem;">Коррекция телефонного баланса</h4>' +
+    html += '<h4 style="margin:1.25rem 0 .5rem;" id="vf-adj-title">Начислить или списать с телефонного баланса</h4>' +
       '<div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end;">' +
-        '<div class="form-group" style="margin:0;"><label>Email</label><input class="form-control" id="vf-adj-email" style="width:220px;"></div>' +
-        '<div class="form-group" style="margin:0;"><label>Сумма, ₽ (− списать)</label><input class="form-control" id="vf-adj-amount" type="number" step="0.01" style="width:140px;"></div>' +
-        '<div class="form-group" style="margin:0;"><label>Комментарий</label><input class="form-control" id="vf-adj-notes" style="width:220px;"></div>' +
-        '<button class="btn btn-secondary" id="vf-adj-btn">Применить</button>' +
+        '<div class="form-group" style="margin:0;"><label>Email пользователя</label><input class="form-control" id="vf-adj-email" style="width:220px;"></div>' +
+        '<div class="form-group" style="margin:0;"><label>Сумма, ₽</label><input class="form-control" id="vf-adj-amount" type="number" min="0" step="0.01" style="width:140px;"></div>' +
+        '<div class="form-group" style="margin:0;"><label>Комментарий</label><input class="form-control" id="vf-adj-notes" placeholder="Например, бонус за тест" style="width:220px;"></div>' +
+        '<button class="btn btn-success" data-adj="credit"><i class="fas fa-plus"></i> Начислить</button>' +
+        '<button class="btn btn-secondary" data-adj="debit">Списать</button>' +
       '</div>';
     body.innerHTML = html;
     body.querySelectorAll('[data-docs]').forEach(function (b) {
@@ -705,11 +718,33 @@
         await adminAction('/telephony/admin/hosted-numbers/' + b.dataset.deactivate + '/deactivate');
       });
     });
-    body.querySelector('#vf-adj-btn').addEventListener('click', function () {
-      adminAction('/telephony/admin/telephony-wallet/adjust', {
-        email: body.querySelector('#vf-adj-email').value.trim(),
-        amount_rub: parseFloat(body.querySelector('#vf-adj-amount').value),
-        notes: body.querySelector('#vf-adj-notes').value.trim() || null,
+    body.querySelectorAll('[data-credit]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        body.querySelector('#vf-adj-email').value = b.dataset.credit;
+        body.querySelector('#vf-adj-title').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        body.querySelector('#vf-adj-amount').focus({ preventScroll: true });
+      });
+    });
+    body.querySelectorAll('[data-adj]').forEach(function (b) {
+      b.addEventListener('click', async function () {
+        var email = body.querySelector('#vf-adj-email').value.trim();
+        var amount = parseFloat(body.querySelector('#vf-adj-amount').value);
+        if (!email || !(amount > 0)) {
+          T().showNotification('Укажите email и сумму больше нуля', 'warning');
+          return;
+        }
+        var credit = b.dataset.adj === 'credit';
+        var ok = await VF.confirm({
+          title: (credit ? 'Начислить ' : 'Списать ') + amount.toLocaleString('ru-RU') + ' ₽?',
+          message: (credit ? 'Сумма поступит на телефонный баланс ' : 'Сумма будет списана с телефонного баланса ') + email + '.',
+          confirmText: credit ? 'Начислить' : 'Списать', danger: !credit,
+        });
+        if (!ok) return;
+        await adminAction('/telephony/admin/telephony-wallet/adjust', {
+          email: email,
+          amount_rub: credit ? amount : -amount,
+          notes: body.querySelector('#vf-adj-notes').value.trim() || null,
+        });
       });
     });
   }

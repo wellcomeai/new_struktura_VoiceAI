@@ -586,7 +586,7 @@ def admin_set_stock(
 
 class WalletAdjustRequest(BaseModel):
     email: str
-    amount_rub: float = Field(..., description="+ зачислить, - списать")
+    amount_rub: float = Field(..., ge=-1_000_000, le=1_000_000, description="+ начислить, - списать")
     notes: Optional[str] = None
 
 
@@ -600,12 +600,19 @@ def admin_telephony_wallet_adjust(
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     amount = int(round(body.amount_rub * 100))
-    notes = f"{body.notes or 'Ручная коррекция'} ({admin.email})"
+    if amount == 0:
+        raise HTTPException(status_code=400, detail="Укажите сумму")
     if amount > 0:
-        telephony_wallet.credit(db, user.id, amount, "manual_adjust", notes=notes)
-    elif amount < 0:
-        telephony_wallet.debit(db, user.id, -amount, "manual_adjust", notes=notes, allow_partial=True)
-    return {"success": True, "balance_rub": round(telephony_wallet.balance(db, user.id) / 100, 2)}
+        telephony_wallet.credit(db, user.id, amount, "manual_adjust",
+                                notes=f"{body.notes or 'Начисление администратором'} ({admin.email})")
+    else:
+        telephony_wallet.debit(db, user.id, -amount, "manual_adjust", allow_partial=True,
+                               notes=f"{body.notes or 'Списание администратором'} ({admin.email})")
+    balance_rub = round(telephony_wallet.balance(db, user.id) / 100, 2)
+    action = "Начислено" if amount > 0 else "Списано"
+    logger.info(f"[TEL-WALLET] admin {admin.email}: {action} {abs(amount)} kop → {user.email}, balance {balance_rub}")
+    return {"success": True, "balance_rub": balance_rub,
+            "message": f"{action} {abs(amount) / 100:.2f} ₽. Телефонный баланс {user.email}: {balance_rub:.2f} ₽"}
 
 
 # =============================================================================
