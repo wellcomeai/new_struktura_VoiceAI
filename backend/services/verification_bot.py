@@ -139,9 +139,25 @@ def decision_keyboard(verification_id: str) -> dict:
     ]}
 
 
-def format_application(email: str, data: Dict[str, Any], attempt: int, labels: Dict[str, str]) -> str:
-    lines = [f"🪪 <b>Заявка на верификацию физлица</b> (подача №{attempt})",
-             f"Аккаунт: <code>{esc(email)}</code>", ""]
+def format_application(email: str, data: Dict[str, Any], attempt: int, labels: Dict[str, str],
+                       resubmission: Optional[dict] = None) -> str:
+    if resubmission:
+        lines = [f"🔁 <b>Повторная подача №{attempt} после доработки</b>",
+                 f"Аккаунт: <code>{esc(email)}</code>", ""]
+        if resubmission.get("comment"):
+            lines.append(f"<b>Что просили исправить:</b> {esc(resubmission['comment'])}")
+        if resubmission.get("prev_known"):
+            changes = resubmission.get("changes") or []
+            if changes:
+                lines.append("<b>Изменено в анкете:</b>")
+                for label, old, new in changes[:12]:
+                    lines.append(f"• {esc(label)}: {esc(old)} → <b>{esc(new)}</b>")
+            else:
+                lines.append("Данные анкеты не менялись.")
+        lines += ["Фото паспорта и видео загружены заново (файлы выше).", "", "<b>Анкета целиком:</b>"]
+    else:
+        lines = [f"🪪 <b>Заявка на верификацию физлица</b> (подача №{attempt})",
+                 f"Аккаунт: <code>{esc(email)}</code>", ""]
     for key, label in labels.items():
         if data.get(key):
             lines.append(f"<b>{esc(label)}:</b> {esc(data.get(key))}")
@@ -150,7 +166,8 @@ def format_application(email: str, data: Dict[str, Any], attempt: int, labels: D
 
 async def send_application(verification_id: str, email: str, data: Dict[str, Any], attempt: int,
                            labels: Dict[str, str],
-                           files: List[Tuple[str, str, bytes, str]]) -> List[int]:
+                           files: List[Tuple[str, str, bytes, str]],
+                           resubmission: Optional[dict] = None) -> List[int]:
     """
     Отправить заявку проверяющему: файлы документами (без сжатия — мелкий
     текст паспорта должен читаться) и карточку с кнопками решения.
@@ -172,7 +189,7 @@ async def send_application(verification_id: str, email: str, data: Dict[str, Any
                              timeout=180.0 if ctype.startswith("video/") else 60.0)
         if isinstance(res, dict) and res.get("message_id"):
             ids.append(res["message_id"])
-    card = await send_text(format_application(email, data, attempt, labels),
+    card = await send_text(format_application(email, data, attempt, labels, resubmission),
                            reply_markup=decision_keyboard(verification_id))
     if card and card.get("message_id"):
         ids.append(card["message_id"])

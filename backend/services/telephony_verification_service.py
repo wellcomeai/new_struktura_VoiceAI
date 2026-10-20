@@ -3,7 +3,7 @@
 удаление данных по сроку.
 
 Анкета — паспорт РФ (поля FIELDS) и три файла (FILE_KINDS): разворот с фото,
-страница с регистрацией и видео 5–30 с, где человек держит лист с рукописной
+страница с регистрацией и видео 2–30 с, где человек держит лист с рукописной
 надписью «Верификация Voicyfy» и текущей датой и говорит «Это видео записано
 для верификации Voicyfy» (раньше — селфи; старые заявки с селфи открываются). Всё уходит в приватный бакет Timeweb
 (services/verification_storage.py), проверяющему — в Telegram
@@ -32,7 +32,7 @@ CONSENT_VERSION = "2026-10-20.2"
 RETENTION_DAYS = 30
 MAX_FILE_BYTES = 10 * 1024 * 1024
 MAX_VIDEO_BYTES = 50 * 1024 * 1024   # предел Telegram для файлов бота
-VIDEO_MIN_SECONDS = 5
+VIDEO_MIN_SECONDS = 2
 VIDEO_MAX_SECONDS = 30
 VIDEO_PHRASE = "Это видео записано для верификации Voicyfy"
 
@@ -202,10 +202,11 @@ CONTENT_TYPES = {
 
 def store_submission(db: Session, user: User, raw_fields: Dict[str, Any],
                      files: Dict[str, Tuple[bytes, str]], consent: bool,
-                     ip: Optional[str]) -> Tuple[TelephonyVerification, Dict[str, str], List[tuple]]:
+                     ip: Optional[str]) -> Tuple[TelephonyVerification, Dict[str, str], List[tuple], Optional[dict]]:
     """
     Проверить и сохранить заявку (синхронно, вызывать в потоке).
-    Возвращает (заявка, анкета, файлы для бота [(подпись, имя, байты, тип)]).
+    Возвращает (заявка, анкета, файлы для бота [(подпись, имя, байты, тип)],
+    контекст повторной подачи или None).
     """
     if not storage.is_configured():
         raise VerificationError("Хранилище документов не настроено, попробуйте позже", "storage")
@@ -225,7 +226,23 @@ def store_submission(db: Session, user: User, raw_fields: Dict[str, Any],
         checked[kind] = (content, validate_file(kind, content, ctype))
 
     attempt = (existing.attempt + 1) if existing else 1
+    resubmission = None
     if existing:
+        # Контекст для проверяющего: что просили исправить и что поменялось в анкете
+        prev = storage.get_json(existing.data_key) if existing.data_key else None
+        changes = []
+        if prev:
+            for key, label in FIELDS.items():
+                old_v, new_v = (prev.get(key) or "").strip(), (data.get(key) or "").strip()
+                if old_v != new_v:
+                    changes.append((label, old_v or "—", new_v or "—"))
+        resubmission = {
+            "comment": existing.reviewer_comment,
+            "reviewed_by": existing.reviewed_by,
+            "reviewed_at": existing.reviewed_at.isoformat() if existing.reviewed_at else None,
+            "changes": changes,
+            "prev_known": prev is not None,
+        }
         # Прошлая подача больше не нужна — храним только актуальные документы
         try:
             storage.delete_prefix(f"verifications/{user.id}/")
@@ -262,7 +279,7 @@ def store_submission(db: Session, user: User, raw_fields: Dict[str, Any],
     db.commit()
     db.refresh(v)
     logger.info(f"[VERIFY] submission #{attempt} stored for {user.email}")
-    return v, data, bot_files
+    return v, data, bot_files, resubmission
 
 
 def load_details(v: TelephonyVerification) -> Dict[str, Any]:
@@ -321,6 +338,10 @@ def decide(db: Session, v: TelephonyVerification, action: str, comment: Optional
 
     v.status = status_map[action]
     v.reviewer_comment = comment[:2000] or None
+    v.history = list(v.history or []) + [{
+        "attempt": v.attempt, "status": v.status, "comment": v.reviewer_comment,
+        "by": reviewer[:255], "at": _now().isoformat(),
+    }]
     v.reviewed_at = _now()
     v.reviewed_by = reviewer[:255]
     v.tg_pending = None

@@ -712,7 +712,7 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
 `/verification-url`; тип `individual` там теперь 400), физлица — нашу проверку.
 - **Анкета** (`backend/services/telephony_verification_service.py`, API `backend/api/telephony_hosted.py`,
   префикс `/api/telephony`): паспорт РФ (`FIELDS`) + 2 фото (`FILE_KINDS`: разворот, регистрация; JPG/PNG/PDF до
-  10 МБ) + видео `video` 5–30 с, до 50 МБ (MP4/MOV/WEBM): лист «Верификация Voicyfy» с датой и фраза «Это видео
+  10 МБ) + видео `video` 2–30 с, до 50 МБ (MP4/MOV/WEBM): лист «Верификация Voicyfy» с датой и фраза «Это видео
   записано для верификации Voicyfy» (`VIDEO_PHRASE`; длительность MP4/MOV — из атома `mvhd`, `mp4_duration_seconds`;
   раньше было селфи — старые заявки открываются по `LEGACY_FILE_KINDS`). Тип файла — по сигнатуре. Пример видео —
   `GET /verification/example-video` (без авторизации, редирект на свежую подписанную ссылку объекта
@@ -728,7 +728,10 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
   `POST /api/telephony/verification/telegram/{secret}` регистрируется на старте (`hosted_numbers_loop`) на
   `TELEGRAM_WEBHOOK_BASE_URL` (напрямую на Render: прокси voicyfy.ru для Telegram недоступен), решения
   принимаются только из админ-чата; `/id` в чате с ботом показывает chat_id. Решение из кабинета и из бота — один
-  путь `apply_decision` (письмо пользователю, кнопки в Telegram снимаются). Токены ботов в логах httpx
+  путь `apply_decision` (письмо пользователю, кнопки в Telegram снимаются). Каждое решение пишется в
+  `telephony_verifications.history` (подача, статус, комментарий, кто, когда) — видно в «Документах». Повторная
+  подача после доработки приходит в бот карточкой «🔁 Повторная подача №N»: что просили исправить и какие поля
+  анкеты изменились (было → стало, сравнение с прошлой анкетой до её удаления в `store_submission`). Токены ботов в логах httpx
   маскируются (`_MaskBotTokenFilter`).
 - **Номера физлиц** (`services/hosted_numbers.py`): покупаются на верифицированный дочерний аккаунт
   `HOSTED_NUMBERS_OWNER_EMAIL` (по умолчанию shw00389@gmail.com). Физлицу заводится `VoximplantChildAccount` с

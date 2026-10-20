@@ -26,7 +26,7 @@
     passport_registration: 'Страница с действующей регистрацией',
   };
   // Видео вместо селфи: параметры приходят с сервера (GET /verification → video)
-  var VIDEO = { max_mb: 50, min_seconds: 5, max_seconds: 30,
+  var VIDEO = { max_mb: 50, min_seconds: 2, max_seconds: 30,
                 phrase: 'Это видео записано для верификации Voicyfy',
                 example_url: '/api/telephony/verification/example-video' };
   var VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm';
@@ -562,6 +562,18 @@
     });
   }
 
+  // Прошлые решения по заявке: контекст для повторной проверки
+  function historyHtml(history) {
+    if (!history || !history.length) return '';
+    return '<div style="margin-bottom:.9rem;padding:.6rem .8rem;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:.85rem;">' +
+      '<b>История проверки</b>' +
+      history.map(function (h) {
+        return '<div style="margin-top:.3rem;">Подача №' + h.attempt + ' · ' + fmtDate(h.at) + ' · ' +
+          esc(STATUS_LABELS[h.status] || h.status) + (h.comment ? ': «' + esc(h.comment) + '»' : '') +
+          ' <span style="color:var(--text-gray);">(' + esc(h.by || '') + ')</span></div>';
+      }).join('') + '</div>';
+  }
+
   async function openVerificationDetails(id, byUser) {
     var d;
     try {
@@ -593,6 +605,7 @@
       '<div style="margin-bottom:.75rem;">' + esc(d.email) + ' · <b>' + esc(STATUS_LABELS[d.status] || d.status) + '</b> · подача №' + d.attempt +
       (d.consent_at ? ' · согласие ' + fmtDate(d.consent_at) + ' (ред. ' + esc(d.consent_version) + ')' : '') + '</div>' +
       (d.reviewer_comment ? '<div style="margin-bottom:.75rem;">Комментарий: <b>' + esc(d.reviewer_comment) + '</b> (' + esc(d.reviewed_by || '') + ')</div>' : '') +
+      historyHtml(d.history) +
       (fields ? '<table class="numbers-table" style="margin-bottom:1rem;"><tbody>' + fields + '</tbody></table>'
               : '<p class="tn-muted">' + (d.documents_available
                   ? 'Не удалось загрузить анкету из хранилища — попробуйте открыть позже'

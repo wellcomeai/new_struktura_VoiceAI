@@ -2131,6 +2131,7 @@ def ensure_telephony_verification_schema():
 
         statements = [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS telephony_balance INTEGER DEFAULT 0 NOT NULL",
+            "ALTER TABLE telephony_verifications ADD COLUMN IF NOT EXISTS history JSON NULL",
             "ALTER TABLE voximplant_child_accounts ADD COLUMN IF NOT EXISTS is_hosted BOOLEAN DEFAULT FALSE NOT NULL",
             "ALTER TABLE voximplant_child_accounts ADD COLUMN IF NOT EXISTS host_child_account_id UUID NULL",
             "ALTER TABLE voximplant_child_accounts ADD COLUMN IF NOT EXISTS hosted_backup JSON NULL",

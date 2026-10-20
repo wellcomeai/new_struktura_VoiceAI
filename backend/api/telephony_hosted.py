@@ -161,13 +161,13 @@ async def submit_verification(
         db = SessionLocal()
         try:
             user = db.query(User).filter(User.id == user_id).first()
-            v, data, bot_files = verification.store_submission(db, user, fields, files, consent, ip)
-            return str(v.id), v.attempt, user.email, data, bot_files
+            v, data, bot_files, resubmission = verification.store_submission(db, user, fields, files, consent, ip)
+            return str(v.id), v.attempt, user.email, data, bot_files, resubmission
         finally:
             db.close()
 
     try:
-        vid, attempt, email, data, bot_files = await asyncio.to_thread(_store)
+        vid, attempt, email, data, bot_files, resubmission = await asyncio.to_thread(_store)
     except VerificationError as e:
         raise _http(e)
     except Exception as e:
@@ -175,7 +175,7 @@ async def submit_verification(
         raise HTTPException(status_code=500, detail="Не удалось сохранить документы, попробуйте ещё раз")
 
     message_ids = await verification_bot.send_application(
-        vid, email, data, attempt, verification.FIELDS, bot_files,
+        vid, email, data, attempt, verification.FIELDS, bot_files, resubmission=resubmission,
     )
     if message_ids:
         def _save_ids():
@@ -408,6 +408,7 @@ def _details(db: Session, v: TelephonyVerification) -> dict:
             "consent_at": v.consent_at.isoformat() if v.consent_at else None,
             "consent_version": v.consent_version, "reviewed_by": v.reviewed_by,
             "purge_after": v.purge_after.isoformat() if v.purge_after else None,
+            "history": list(v.history or []),
             "documents_available": bool(v.data_key), **details}
 
 

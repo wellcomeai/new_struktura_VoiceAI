@@ -61,6 +61,8 @@ class TelephonyVerification(Base, BaseModel):
     # {"prompt_message_id": int, "action": "revision" | "reject"}
     tg_message_ids = Column(JSON, nullable=True)
     tg_pending = Column(JSON, nullable=True)
+    # Прошлые решения: [{attempt, status, comment, by, at}] — контекст для повторной проверки
+    history = Column(JSON, nullable=True)
 
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     # Когда удалить анкету и файлы (30 дней после отказа или удаления аккаунта)
