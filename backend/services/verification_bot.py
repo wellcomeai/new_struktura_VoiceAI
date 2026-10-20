@@ -18,6 +18,8 @@ telephony_verification_service.decide — тот же путь, что и кно
 import asyncio
 import hashlib
 import html
+import logging
+import re
 from typing import Optional, Dict, Any, List, Tuple
 
 import httpx
@@ -26,6 +28,27 @@ from backend.core.config import settings
 from backend.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class _MaskBotTokenFilter(logging.Filter):
+    """httpx пишет в лог полный URL запроса — вместе с токеном бота. Прячем его."""
+    _re = re.compile(r"/bot\d+:[A-Za-z0-9_-]+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        if "/bot" in msg:
+            masked = self._re.sub("/bot<hidden>", msg)
+            if masked != msg:
+                record.msg, record.args = masked, ()
+        return True
+
+
+_httpx_logger = logging.getLogger("httpx")
+if not any(isinstance(f, _MaskBotTokenFilter) for f in _httpx_logger.filters):
+    _httpx_logger.addFilter(_MaskBotTokenFilter())
 
 API = "https://api.telegram.org/bot{token}/{method}"
 
@@ -179,16 +202,32 @@ async def mark_decided(message_ids: List[int], status_text: str) -> None:
     await send_text(status_text, reply_to=card_id)
 
 
+def webhook_url() -> str:
+    """
+    Адрес webhook — напрямую на Render (TELEGRAM_WEBHOOK_BASE_URL), как у ботов
+    агентов: прокси voicyfy.ru для серверов Telegram недоступен (Connection
+    timed out), и нажатия кнопок не доходили.
+    """
+    base = (
+        settings.TELEGRAM_WEBHOOK_BASE_URL
+        or settings.PUBLIC_BASE_URL
+        or settings.HOST_URL
+        or ""
+    ).rstrip("/")
+    return f"{base}/api/telephony/verification/telegram/{webhook_secret()}" if base else ""
+
+
 async def ensure_webhook() -> None:
     """Зарегистрировать webhook бота (на старте приложения)."""
     # Достаточно токена: в чате с ботом /id подскажет chat_id для
     # VERIFICATION_ADMIN_CHAT_ID, решения принимаются только из этого чата.
-    if not settings.VERIFICATION_BOT_TOKEN or not settings.HOST_URL:
+    url = webhook_url()
+    if not settings.VERIFICATION_BOT_TOKEN or not url:
         return
-    url = f"{settings.HOST_URL.rstrip('/')}/api/telephony/verification/telegram/{webhook_secret()}"
     res = await call("setWebhook", {
         "url": url,
         "secret_token": webhook_secret(),
         "allowed_updates": ["message", "callback_query"],
     })
-    logger.info(f"[VERIFY-BOT] setWebhook → {bool(res)}")
+    host = url.split("/api/")[0]
+    logger.info(f"[VERIFY-BOT] setWebhook {host} → {bool(res)}")

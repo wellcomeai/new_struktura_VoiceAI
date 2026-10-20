@@ -721,9 +721,11 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
 - **Бот модерации** `services/verification_bot.py` (env `VERIFICATION_BOT_TOKEN`, `VERIFICATION_ADMIN_CHAT_ID`):
   файлы документами + карточка с кнопками «Одобрить / На доработку / Отклонить / Открыть в кабинете»; для доработки
   и отказа бот просит комментарий ответом (ForceReply, `tg_pending`). Webhook
-  `POST /api/telephony/verification/telegram/{secret}` регистрируется на старте (`hosted_numbers_loop`), решения
+  `POST /api/telephony/verification/telegram/{secret}` регистрируется на старте (`hosted_numbers_loop`) на
+  `TELEGRAM_WEBHOOK_BASE_URL` (напрямую на Render: прокси voicyfy.ru для Telegram недоступен), решения
   принимаются только из админ-чата; `/id` в чате с ботом показывает chat_id. Решение из кабинета и из бота — один
-  путь `apply_decision` (письмо пользователю, кнопки в Telegram снимаются).
+  путь `apply_decision` (письмо пользователю, кнопки в Telegram снимаются). Токены ботов в логах httpx
+  маскируются (`_MaskBotTokenFilter`).
 - **Номера физлиц** (`services/hosted_numbers.py`): покупаются на верифицированный дочерний аккаунт
   `HOSTED_NUMBERS_OWNER_EMAIL` (по умолчанию shw00389@gmail.com). Физлицу заводится `VoximplantChildAccount` с
   `is_hosted=True` — копия ключей/приложения/сценариев/правил аккаунта администратора (`sync_from_host`, обновляется
