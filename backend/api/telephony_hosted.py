@@ -474,10 +474,13 @@ async def admin_verification_decision(
 # =============================================================================
 
 @router.get("/admin/hosted-numbers")
-def admin_hosted_numbers(
+async def admin_hosted_numbers(
     db: Session = Depends(get_db),
     admin: User = Depends(check_admin_access),
 ):
+    host = hosted_numbers.get_host_account(db)
+    if host:
+        await hosted_numbers.fill_stock_prices(db, host)
     return hosted_numbers.admin_overview(db)
 
 

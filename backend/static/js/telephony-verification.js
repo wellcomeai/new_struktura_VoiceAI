@@ -94,6 +94,7 @@
       'Заявка: <b style="color:' + color + '">' + esc(STATUS_LABELS[v.status] || v.status) + '</b>' +
       (v.submitted_at ? ' · отправлена ' + fmtDate(v.submitted_at) : '');
     if (v.reviewer_comment) html += '<div style="margin-top:.35rem;">Комментарий проверяющего: <b>' + esc(v.reviewer_comment) + '</b></div>';
+    if (v.status === 'submitted') html += '<div style="margin-top:.35rem;color:var(--text-gray);">После проверки пришлём письмо на вашу почту: аккаунт верифицирован или нужно исправить данные.</div>';
     if (v.status === 'rejected') html += '<div style="margin-top:.35rem;">Если считаете это ошибкой, напишите в <a href="https://t.me/voicyfy_support" target="_blank">поддержку</a>.</div>';
     html += '</div>';
     box.innerHTML = html;
@@ -125,27 +126,70 @@
   // ===========================================================================
   // Анкета физлица
   // ===========================================================================
-  // [поле, подпись, тип, ширина в колонках сетки (1–3), placeholder, pattern]
-  var FIELD_LAYOUT = [
-    ['last_name', 'Фамилия', 'text', 1],
-    ['first_name', 'Имя', 'text', 1],
-    ['middle_name', 'Отчество (если есть)', 'text', 1],
-    ['birth_date', 'Дата рождения', 'date', 1],
-    ['birth_place', 'Место рождения (как в паспорте)', 'text', 2],
-    ['passport_series', 'Серия', 'text', 1, '4 цифры', '\\d{4}'],
-    ['passport_number', 'Номер', 'text', 1, '6 цифр', '\\d{6}'],
-    ['division_code', 'Код подразделения', 'text', 1, '123-456'],
-    ['issued_by', 'Кем выдан', 'text', 2],
-    ['issue_date', 'Дата выдачи', 'date', 1],
-    ['registration_address', 'Адрес регистрации', 'text', 3],
-    ['phone', 'Контактный телефон', 'tel', 1, '+7 900 000-00-00'],
+  // [поле, подпись, тип, ширина в колонках сетки (1–3), placeholder, pattern, текст ошибки]
+  var FIELD_SECTIONS = [
+    ['Личные данные', [
+      ['last_name', 'Фамилия', 'text', 1],
+      ['first_name', 'Имя', 'text', 1],
+      ['middle_name', 'Отчество', 'text', 1, 'Если есть'],
+      ['birth_date', 'Дата рождения', 'date', 1],
+      ['birth_place', 'Место рождения', 'text', 2, 'Как в паспорте'],
+    ]],
+    ['Паспорт', [
+      ['passport_series', 'Серия', 'text', 1, '4 цифры', '\\d{4}', 'Серия — 4 цифры'],
+      ['passport_number', 'Номер', 'text', 1, '6 цифр', '\\d{6}', 'Номер — 6 цифр'],
+      ['division_code', 'Код подразделения', 'text', 1, '123-456', '\\d{3}-?\\d{3}', 'Формат 123-456'],
+      ['issued_by', 'Кем выдан', 'text', 2, 'Как в паспорте'],
+      ['issue_date', 'Дата выдачи', 'date', 1],
+    ]],
+    ['Регистрация и связь', [
+      ['registration_address', 'Адрес регистрации', 'text', 3, 'Индекс, город, улица, дом, квартира'],
+      ['phone', 'Контактный телефон', 'tel', 1, '+7 900 000-00-00', '\\+?[\\d\\s()-]{10,20}', 'Укажите номер полностью'],
+    ]],
   ];
-
+  var OPTIONAL_FIELDS = { middle_name: true };
+  var FIELD_LAYOUT = [];
+  FIELD_SECTIONS.forEach(function (s) { FIELD_LAYOUT = FIELD_LAYOUT.concat(s[1]); });
 
   function toInputDate(v) {
     // дд.мм.гггг → гггг-мм-дд для <input type=date>
     var m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(v || '');
     return m ? (m[3] + '-' + m[2] + '-' + m[1]) : (v || '');
+  }
+
+  function reqMark(optional) {
+    return optional ? ' <span class="vf-opt">необязательно</span>' : ' <span class="vf-req" aria-hidden="true">*</span>';
+  }
+
+  function fieldHtml(f, pre) {
+    var optional = !!OPTIONAL_FIELDS[f[0]];
+    var val = f[2] === 'date' ? toInputDate(pre[f[0]]) : (pre[f[0]] || '');
+    return '<div class="form-group vf-field vf-span' + f[3] + '" style="margin:0;">' +
+      '<label for="vf-' + f[0] + '">' + esc(f[1]) + reqMark(optional) + '</label>' +
+      '<input class="form-control" id="vf-' + f[0] + '" name="' + f[0] + '" type="' + f[2] + '"' +
+      (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '') +
+      (f[5] ? ' data-pattern="' + f[5] + '"' : '') +
+      (f[6] ? ' data-error="' + esc(f[6]) + '"' : '') +
+      (f[0] === 'passport_series' || f[0] === 'passport_number' ? ' inputmode="numeric"' : '') +
+      (optional ? '' : ' required aria-required="true"') +
+      ' value="' + esc(val) + '">' +
+      '<div class="vf-field-error"></div></div>';
+  }
+
+  function fileHtml(kind, label) {
+    var selfie = kind === 'selfie';
+    return '<div class="vf-field vf-file" data-kind="' + kind + '">' +
+      '<div class="vf-file-label">' + esc(label) + reqMark(false) + '</div>' +
+      '<label class="vf-drop" for="vf-file-' + kind + '">' +
+        '<input id="vf-file-' + kind + '" name="' + kind + '" type="file" required ' +
+        'accept="' + (selfie ? 'image/jpeg,image/png' : 'image/jpeg,image/png,application/pdf') + '">' +
+        '<span class="vf-drop-thumb"><i class="fas ' + (selfie ? 'fa-user-check' : 'fa-id-card') + '"></i></span>' +
+        '<span class="vf-drop-text"><b class="vf-drop-name">Выбрать файл</b>' +
+        '<span class="vf-drop-hint">' + esc(FILE_HINTS[kind] || '') +
+        (selfie ? ' (например, «Верификация Voicyfy ' + todayRu() + '»)' : '') + '. JPG, PNG' +
+        (selfie ? '' : ' или PDF') + ', до 10 МБ</span></span>' +
+      '</label>' +
+      '<div class="vf-field-error"></div></div>';
   }
 
   async function openForm() {
@@ -167,48 +211,73 @@
       return;
     }
     var pre = st.prefill || {};
-    var fields = FIELD_LAYOUT.map(function (f) {
-      var val = f[2] === 'date' ? toInputDate(pre[f[0]]) : (pre[f[0]] || '');
-      return '<div class="form-group vf-span' + f[3] + '" style="margin:0;">' +
-        '<label for="vf-' + f[0] + '">' + esc(f[1]) + '</label>' +
-        '<input class="form-control" id="vf-' + f[0] + '" name="' + f[0] + '" type="' + f[2] + '"' +
-        (f[4] ? ' placeholder="' + esc(f[4]) + '"' : '') +
-        (f[5] ? ' pattern="' + f[5] + '" inputmode="numeric"' : '') +
-        (f[0] === 'middle_name' ? '' : ' required') +
-        ' value="' + esc(val) + '"></div>';
+    var sections = FIELD_SECTIONS.map(function (s, i) {
+      return '<section class="vf-section"><h4><span class="vf-step">' + (i + 1) + '</span>' + esc(s[0]) + '</h4>' +
+        '<div class="vf-form-grid">' + s[1].map(function (f) { return fieldHtml(f, pre); }).join('') + '</div></section>';
     }).join('');
-    var files = Object.keys(st.file_kinds).map(function (kind) {
-      return '<div class="form-group" style="margin:0;">' +
-        '<label for="vf-file-' + kind + '">' + esc(st.file_kinds[kind]) + '</label>' +
-        '<input class="form-control" id="vf-file-' + kind + '" name="' + kind + '" type="file" required ' +
-        'accept="' + (kind === 'selfie' ? 'image/jpeg,image/png' : 'image/jpeg,image/png,application/pdf') + '">' +
-        '<div style="font-size:.75rem;color:var(--text-gray);margin-top:.25rem;">' + esc(FILE_HINTS[kind] || '') +
-        (kind === 'selfie' ? ' (например, «Верификация Voicyfy ' + todayRu() + '»)' : '') + '. JPG, PNG' +
-        (kind === 'selfie' ? '' : ' или PDF') + ', до 10 МБ.</div></div>';
-    }).join('');
+    var files = Object.keys(st.file_kinds).map(function (kind) { return fileHtml(kind, st.file_kinds[kind]); }).join('');
     var revision = v && v.status === 'needs_revision' && v.reviewer_comment
-      ? '<div style="padding:.7rem .9rem;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;margin-bottom:1rem;font-size:.875rem;">' +
-        'Что исправить: <b>' + esc(v.reviewer_comment) + '</b><br>Файлы нужно загрузить заново.</div>'
+      ? '<div class="vf-alert vf-alert-bad"><i class="fas fa-pen"></i><div>Что исправить: <b>' + esc(v.reviewer_comment) +
+        '</b><br>Проверьте данные и загрузите фотографии заново.</div></div>'
       : '';
     var body =
       '<form id="vf-individual-form" novalidate>' + revision +
-      '<p style="color:var(--text-gray);font-size:.875rem;margin:0 0 1rem;">Данные нужны, чтобы оформить номер по закону о связи. ' +
-      'Мы храним их в защищённом хранилище в России и показываем только проверяющему. ' +
-      'Для постоянной работы советуем верификацию как ИП — так номера будут оформлены на вас напрямую.</p>' +
-      '<div class="vf-form-grid">' + fields + '</div>' +
-      '<h4 style="margin:1.25rem 0 .5rem;">Фотографии</h4>' +
-      '<div style="display:grid;gap:.75rem;">' + files + '</div>' +
-      '<label style="display:flex;gap:.6rem;align-items:flex-start;margin-top:1.25rem;font-size:.875rem;line-height:1.45;">' +
-        '<input type="checkbox" id="vf-consent" style="margin-top:.2rem;">' +
+      '<div class="vf-alert"><i class="fas fa-shield-alt"></i><div>Данные нужны, чтобы оформить номер по закону о связи. ' +
+      'Храним их в защищённом хранилище в России и показываем только проверяющему. ' +
+      'Для постоянной работы советуем верификацию как ИП — так номера будут оформлены на вас напрямую.</div></div>' +
+      '<p class="vf-legend"><span class="vf-req">*</span> — обязательные поля</p>' +
+      sections +
+      '<section class="vf-section"><h4><span class="vf-step">' + (FIELD_SECTIONS.length + 1) + '</span>Фотографии</h4>' +
+      '<div class="vf-files">' + files + '</div></section>' +
+      '<div class="vf-field vf-consent-row"><label class="vf-consent">' +
+        '<input type="checkbox" id="vf-consent">' +
         '<span>Я даю <a href="' + CONSENT_URL + '" target="_blank">согласие на обработку паспортных данных</a> ' +
-        'для верификации и оформления номеров и ознакомлен(а) с <a href="' + PRIVACY_URL + '" target="_blank">политикой обработки персональных данных</a>.</span>' +
-      '</label>' +
-      '<div id="vf-form-error" style="color:#b91c1c;font-size:.875rem;margin-top:.75rem;"></div>' +
+        'для верификации и оформления номеров и ознакомлен(а) с <a href="' + PRIVACY_URL + '" target="_blank">политикой обработки персональных данных</a>.' +
+        reqMark(false) + '</span>' +
+      '</label><div class="vf-field-error"></div></div>' +
+      '<div class="vf-alert vf-alert-info"><i class="fas fa-envelope"></i><div>После проверки пришлём письмо на вашу почту: ' +
+      'аккаунт верифицирован или нужно исправить данные и прислать дополнительные материалы. Обычно проверка занимает до одного рабочего дня.</div></div>' +
+      '<div id="vf-form-error" class="vf-form-error"></div>' +
       '</form>';
     var footer = '<button class="btn btn-secondary" data-close>Отмена</button>' +
       '<button class="btn btn-primary" id="vf-submit-btn"><i class="fas fa-paper-plane"></i> Отправить на проверку</button>';
     var m = overlay('vf-individual-modal', 'Верификация физического лица', body, footer, true);
+    bindFormUi(m.el);
     m.el.querySelector('#vf-submit-btn').addEventListener('click', function () { submitForm(m); });
+  }
+
+  function setFieldError(input, message) {
+    var box = input.closest('.vf-field');
+    if (!box) return;
+    box.classList.toggle('vf-invalid', !!message);
+    var e = box.querySelector('.vf-field-error');
+    if (e) e.textContent = message || '';
+  }
+
+  function bindFormUi(root) {
+    root.querySelectorAll('.vf-field input').forEach(function (input) {
+      input.addEventListener(input.type === 'file' || input.type === 'checkbox' ? 'change' : 'input', function () {
+        setFieldError(input, '');
+      });
+    });
+    root.querySelectorAll('.vf-file input[type=file]').forEach(function (input) {
+      input.addEventListener('change', function () {
+        var drop = input.closest('.vf-drop');
+        var file = input.files[0];
+        var name = drop.querySelector('.vf-drop-name');
+        var thumb = drop.querySelector('.vf-drop-thumb');
+        drop.classList.toggle('vf-has-file', !!file);
+        if (!file) { name.textContent = 'Выбрать файл'; return; }
+        name.textContent = file.name + ' · ' + (file.size / 1024 / 1024).toFixed(1) + ' МБ';
+        if (file.size > 10 * 1024 * 1024) setFieldError(input, 'Файл больше 10 МБ');
+        if (/^image\//.test(file.type)) {
+          var url = URL.createObjectURL(file);
+          thumb.innerHTML = '<img src="' + url + '" alt="">';
+        } else {
+          thumb.innerHTML = '<i class="fas fa-file-pdf"></i>';
+        }
+      });
+    });
   }
 
   function dateToRu(v) {
@@ -216,21 +285,44 @@
     return m ? (m[3] + '.' + m[2] + '.' + m[1]) : (v || '');
   }
 
+  function validateForm(form) {
+    var first = null;
+    function fail(input, msg) { setFieldError(input, msg); if (!first) first = input; }
+    FIELD_LAYOUT.forEach(function (f) {
+      var input = form.querySelector('#vf-' + f[0]);
+      var val = input.value.trim();
+      setFieldError(input, '');
+      if (!val) {
+        if (!OPTIONAL_FIELDS[f[0]]) fail(input, 'Заполните поле');
+        return;
+      }
+      if (f[5] && !new RegExp('^' + f[5] + '$').test(val.replace(/\s/g, f[0] === 'phone' ? ' ' : ''))) {
+        fail(input, f[6] || 'Проверьте значение');
+      }
+    });
+    form.querySelectorAll('.vf-file input[type=file]').forEach(function (input) {
+      var file = input.files[0];
+      if (!file) fail(input, 'Загрузите файл');
+      else if (file.size > 10 * 1024 * 1024) fail(input, 'Файл больше 10 МБ');
+      else setFieldError(input, '');
+    });
+    var consent = form.querySelector('#vf-consent');
+    if (!consent.checked) fail(consent, 'Без согласия мы не можем принять заявку');
+    else setFieldError(consent, '');
+    if (first) {
+      var box = first.closest('.vf-field') || first;
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (first.type !== 'file' && first.type !== 'checkbox') first.focus({ preventScroll: true });
+    }
+    return !first;
+  }
+
   async function submitForm(m) {
     var form = m.el.querySelector('#vf-individual-form');
     var err = m.el.querySelector('#vf-form-error');
     err.textContent = '';
-    var bad = Array.prototype.find.call(form.querySelectorAll('input[required]'), function (i) {
-      return !i.value || (i.pattern && !new RegExp('^' + i.pattern + '$').test(i.value.replace(/\s/g, '')));
-    });
-    if (bad) {
-      var label = form.querySelector('label[for="' + bad.id + '"]');
-      err.textContent = 'Проверьте поле «' + (label ? label.textContent : bad.name) + '»';
-      bad.focus();
-      return;
-    }
-    if (!form.querySelector('#vf-consent').checked) {
-      err.textContent = 'Нужно согласие на обработку паспортных данных';
+    if (!validateForm(form)) {
+      err.textContent = 'Заполните отмеченные поля';
       return;
     }
     var fd = new FormData();
@@ -496,10 +588,11 @@
       : '<p class="tn-muted">Пока никто не купил номер</p>';
     html += '<h4 style="margin:1.25rem 0 .5rem;">Свободны (запас)</h4>';
     html += d.stock.length
-      ? '<table class="numbers-table"><thead><tr><th>Номер</th><th>Регион</th><th>Цена Voximplant</th><th></th></tr></thead><tbody>' +
+      ? '<table class="numbers-table"><thead><tr><th>Номер</th><th>Регион</th><th>Цена Voximplant</th><th>Для пользователя</th><th></th></tr></thead><tbody>' +
         d.stock.map(function (s) {
           return '<tr><td><span class="phone-number">' + esc(T().formatPhoneNumber(s.phone_number)) + '</span></td>' +
             '<td>' + esc(s.region || '—') + '</td><td>' + (s.vox_monthly_rub !== null ? s.vox_monthly_rub + ' ₽/мес' : '—') + '</td>' +
+            '<td>' + (s.user_monthly_rub !== null ? s.user_monthly_rub + ' ₽/мес' : 'цена не получена — физлицам не показывается') + '</td>' +
             '<td style="white-space:nowrap;"><button class="btn btn-secondary btn-sm" data-unstock="' + s.id + '">Убрать из запаса</button> ' +
             '<button class="btn btn-danger btn-sm" data-deactivate="' + s.id + '" data-phone="' + esc(s.phone_number) + '">Отключить</button></td></tr>';
         }).join('') + '</tbody></table>'

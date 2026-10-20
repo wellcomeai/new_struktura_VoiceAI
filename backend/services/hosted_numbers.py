@@ -273,8 +273,11 @@ async def list_available(db: Session, user: User, region_id: Optional[int],
 
     stock = []
     if offset == 0:
+        await fill_stock_prices(db, host)
         for p in stock_numbers(db, host):
-            vox_monthly = float(p.vox_monthly_price) if p.vox_monthly_price else None
+            if not p.vox_monthly_price:
+                continue  # цену у Voximplant узнать не удалось — не показываем
+            vox_monthly = float(p.vox_monthly_price)
             stock.append({
                 "id": str(p.id),
                 "phone_number": p.phone_number,
@@ -317,6 +320,38 @@ async def _fetch_vox_monthly(host: VoximplantChildAccount, phone_number: str) ->
     except Exception as e:
         logger.warning(f"[HOSTED] price lookup failed for {phone_number}: {e}")
     return None
+
+
+async def fill_stock_prices(db: Session, host: VoximplantChildAccount) -> None:
+    """
+    Подтянуть месячную цену Voximplant для номеров запаса, у которых её нет
+    (номер, который админ сам положил в запас). Без неё физлицу показывалась
+    только наценка — 100 ₽ вместо «цена номера + 100 ₽».
+    """
+    missing = [p for p in stock_numbers(db, host) if not p.vox_monthly_price]
+    if not missing:
+        return
+    from backend.services.voximplant_partner import get_voximplant_partner_service
+    try:
+        res = await get_voximplant_partner_service().get_phone_numbers(
+            child_account_id=host.vox_account_id, child_api_key=host.vox_api_key,
+        )
+    except Exception as e:
+        logger.warning(f"[HOSTED] stock prices lookup failed: {e}")
+        return
+    prices = {
+        digits(n.get("phone_number"))[-10:]: n.get("phone_price")
+        for n in (res.get("numbers") or [] if res.get("success") else [])
+        if n.get("phone_price") is not None
+    }
+    changed = False
+    for p in missing:
+        price = prices.get(digits(p.phone_number)[-10:])
+        if price is not None:
+            p.vox_monthly_price = str(float(price))
+            changed = True
+    if changed:
+        db.commit()
 
 
 def _activate_rental(phone: VoximplantPhoneNumber, vox_monthly: Optional[float]) -> None:
@@ -432,6 +467,9 @@ async def take_from_stock(db: Session, user: User, phone_id) -> VoximplantPhoneN
     vox_monthly = await _fetch_vox_monthly(host, phone.phone_number)
     if vox_monthly is None and phone.vox_monthly_price:
         vox_monthly = float(phone.vox_monthly_price)
+    if vox_monthly is None:
+        # Без цены Voximplant списали бы одну наценку — не продаём номер дешевле себестоимости
+        raise HostedError("Не удалось узнать цену номера, попробуйте позже", "price_unknown")
     price = monthly_kopeks(vox_monthly)
     try:
         telephony_wallet.debit(
@@ -674,6 +712,7 @@ def admin_overview(db: Session) -> dict:
         "phone_number": p.phone_number,
         "region": p.phone_region,
         "vox_monthly_rub": float(p.vox_monthly_price) if p.vox_monthly_price else None,
+        "user_monthly_rub": round(monthly_kopeks(p.vox_monthly_price) / 100, 2) if p.vox_monthly_price else None,
     } for p in (stock_numbers(db, host) if host else [])]
     return {
         "host_ready": bool(host and host.is_verified and host.vox_application_id),
