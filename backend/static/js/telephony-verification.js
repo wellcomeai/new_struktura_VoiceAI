@@ -24,8 +24,14 @@
   var FILE_HINTS = {
     passport_main: 'Разворот с фотографией, все поля читаются, без бликов',
     passport_registration: 'Страница с действующей регистрацией',
-    selfie: 'Вы держите раскрытый паспорт и лист, где от руки написано «Верификация Voicyfy» и сегодняшняя дата',
   };
+  // Видео вместо селфи: параметры приходят с сервера (GET /verification → video)
+  var VIDEO = { max_mb: 50, min_seconds: 5, max_seconds: 30,
+                phrase: 'Это видео записано для верификации Voicyfy',
+                example_url: '/api/telephony/verification/example-video' };
+  var VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm';
+
+  function fileLimitMb(kind) { return kind === 'video' ? VIDEO.max_mb : 10; }
 
   function esc(v) {
     return String(v === null || v === undefined ? '' : v)
@@ -176,21 +182,53 @@
       '<div class="vf-field-error"></div></div>';
   }
 
+  function videoInstructionHtml() {
+    return '<div class="vf-video-howto">' +
+      '<div class="vf-video-howto-title"><i class="fas fa-play"></i> Как снять видео</div>' +
+      '<ol>' +
+        '<li>Напишите от руки на листе: <b>«Верификация Voicyfy ' + todayRu() + '»</b> — с сегодняшней датой.</li>' +
+        '<li>Включите фронтальную камеру, держите лист рядом с лицом. Лицо и надпись должны быть хорошо видны.</li>' +
+        '<li>Скажите вслух: <b>«' + esc(VIDEO.phrase) + '»</b>.</li>' +
+        '<li>Длительность — от ' + VIDEO.min_seconds + ' до ' + VIDEO.max_seconds + ' секунд.</li>' +
+      '</ol>' +
+      '<a class="btn btn-secondary btn-sm" href="' + esc(VIDEO.example_url) + '" target="_blank" rel="noopener">' +
+      '<i class="fas fa-play"></i> Посмотреть пример</a>' +
+    '</div>';
+  }
+
   function fileHtml(kind, label) {
-    var selfie = kind === 'selfie';
+    var video = kind === 'video';
+    var hint = video
+      ? 'MP4, MOV или WEBM, ' + VIDEO.min_seconds + '–' + VIDEO.max_seconds + ' секунд, до ' + VIDEO.max_mb + ' МБ'
+      : esc(FILE_HINTS[kind] || '') + '. JPG, PNG или PDF, до 10 МБ';
     return '<div class="vf-field vf-file" data-kind="' + kind + '">' +
       '<div class="vf-file-label">' + esc(label) + reqMark(false) + '</div>' +
+      (video ? videoInstructionHtml() : '') +
       '<label class="vf-drop" for="vf-file-' + kind + '">' +
         '<input id="vf-file-' + kind + '" name="' + kind + '" type="file" required ' +
-        'accept="' + (selfie ? 'image/jpeg,image/png' : 'image/jpeg,image/png,application/pdf') + '">' +
-        '<span class="vf-drop-thumb"><i class="fas ' + (selfie ? 'fa-user-check' : 'fa-id-card') + '"></i></span>' +
-        '<span class="vf-drop-text"><b class="vf-drop-name">Выбрать файл</b>' +
-        '<span class="vf-drop-hint">' + esc(FILE_HINTS[kind] || '') +
-        (selfie ? ' (например, «Верификация Voicyfy ' + todayRu() + '»)' : '') + '. JPG, PNG' +
-        (selfie ? '' : ' или PDF') + ', до 10 МБ</span></span>' +
+        'accept="' + (video ? VIDEO_ACCEPT : 'image/jpeg,image/png,application/pdf') + '">' +
+        '<span class="vf-drop-thumb"><i class="fas ' + (video ? 'fa-play' : 'fa-id-card') + '"></i></span>' +
+        '<span class="vf-drop-text"><b class="vf-drop-name">' + (video ? 'Загрузить видео' : 'Выбрать файл') + '</b>' +
+        '<span class="vf-drop-hint">' + hint + '</span></span>' +
       '</label>' +
       '<div class="vf-field-error"></div></div>';
   }
+
+  // Длительность видео в браузере. MOV в HEVC Chrome может не прочитать —
+  // тогда null, а длительность проверит сервер.
+  function videoDuration(file) {
+    return new Promise(function (resolve) {
+      var el = document.createElement('video');
+      var url = URL.createObjectURL(file);
+      var done = function (v) { URL.revokeObjectURL(url); resolve(v); };
+      el.preload = 'metadata';
+      el.onloadedmetadata = function () { done(isFinite(el.duration) ? el.duration : null); };
+      el.onerror = function () { done(null); };
+      setTimeout(function () { done(null); }, 5000);
+      el.src = url;
+    });
+  }
+  var videoSeconds = {};
 
   async function openForm() {
     var st = verificationState || await loadVerification();
@@ -210,6 +248,7 @@
       T().showNotification('Приём документов временно недоступен, попробуйте позже', 'error');
       return;
     }
+    if (st.video) VIDEO = st.video;
     var pre = st.prefill || {};
     var sections = FIELD_SECTIONS.map(function (s, i) {
       return '<section class="vf-section"><h4><span class="vf-step">' + (i + 1) + '</span>' + esc(s[0]) + '</h4>' +
@@ -227,7 +266,7 @@
       'Для постоянной работы советуем верификацию как ИП — так номера будут оформлены на вас напрямую.</div></div>' +
       '<p class="vf-legend"><span class="vf-req">*</span> — обязательные поля</p>' +
       sections +
-      '<section class="vf-section"><h4><span class="vf-step">' + (FIELD_SECTIONS.length + 1) + '</span>Фотографии</h4>' +
+      '<section class="vf-section"><h4><span class="vf-step">' + (FIELD_SECTIONS.length + 1) + '</span>Фото паспорта и видео</h4>' +
       '<div class="vf-files">' + files + '</div></section>' +
       '<div class="vf-field vf-consent-row"><label class="vf-consent">' +
         '<input type="checkbox" id="vf-consent">' +
@@ -267,14 +306,27 @@
         var name = drop.querySelector('.vf-drop-name');
         var thumb = drop.querySelector('.vf-drop-thumb');
         drop.classList.toggle('vf-has-file', !!file);
-        if (!file) { name.textContent = 'Выбрать файл'; return; }
+        var kind = input.name;
+        delete videoSeconds[kind];
+        if (!file) { name.textContent = kind === 'video' ? 'Загрузить видео' : 'Выбрать файл'; return; }
         name.textContent = file.name + ' · ' + (file.size / 1024 / 1024).toFixed(1) + ' МБ';
-        if (file.size > 10 * 1024 * 1024) setFieldError(input, 'Файл больше 10 МБ');
-        if (/^image\//.test(file.type)) {
+        var limit = fileLimitMb(kind);
+        if (file.size > limit * 1024 * 1024) setFieldError(input, 'Файл больше ' + limit + ' МБ');
+        if (kind === 'video') {
+          thumb.innerHTML = '<i class="fas fa-play"></i>';
+          videoDuration(file).then(function (sec) {
+            videoSeconds[kind] = sec;
+            if (sec === null) return;
+            name.textContent = file.name + ' · ' + Math.round(sec) + ' с · ' + (file.size / 1024 / 1024).toFixed(1) + ' МБ';
+            if (sec < VIDEO.min_seconds - 0.5 || sec > VIDEO.max_seconds + 1) {
+              setFieldError(input, 'Видео должно длиться от ' + VIDEO.min_seconds + ' до ' + VIDEO.max_seconds + ' секунд');
+            }
+          });
+        } else if (/^image\//.test(file.type)) {
           var url = URL.createObjectURL(file);
           thumb.innerHTML = '<img src="' + url + '" alt="">';
         } else {
-          thumb.innerHTML = '<i class="fas fa-file-pdf"></i>';
+          thumb.innerHTML = '<i class="fas fa-file-alt"></i>';
         }
       });
     });
@@ -302,8 +354,14 @@
     });
     form.querySelectorAll('.vf-file input[type=file]').forEach(function (input) {
       var file = input.files[0];
-      if (!file) fail(input, 'Загрузите файл');
-      else if (file.size > 10 * 1024 * 1024) fail(input, 'Файл больше 10 МБ');
+      var limit = fileLimitMb(input.name);
+      var sec = videoSeconds[input.name];
+      if (!file) fail(input, input.name === 'video' ? 'Загрузите видео' : 'Загрузите файл');
+      else if (file.size > limit * 1024 * 1024) fail(input, 'Файл больше ' + limit + ' МБ');
+      else if (input.name === 'video' && typeof sec === 'number' &&
+               (sec < VIDEO.min_seconds - 0.5 || sec > VIDEO.max_seconds + 1)) {
+        fail(input, 'Видео должно длиться от ' + VIDEO.min_seconds + ' до ' + VIDEO.max_seconds + ' секунд');
+      }
       else setFieldError(input, '');
     });
     var consent = form.querySelector('#vf-consent');
@@ -330,7 +388,7 @@
       var val = form.querySelector('#vf-' + f[0]).value.trim();
       fd.append(f[0], f[2] === 'date' ? dateToRu(val) : val);
     });
-    ['passport_main', 'passport_registration', 'selfie'].forEach(function (kind) {
+    ['passport_main', 'passport_registration', 'video'].forEach(function (kind) {
       var input = form.querySelector('#vf-file-' + kind);
       if (input.files[0]) fd.append(kind, input.files[0]);
     });
@@ -523,8 +581,12 @@
       return '<div style="border:1px solid #e2e8f0;border-radius:10px;padding:.5rem;">' +
         '<div style="font-size:.8rem;margin-bottom:.35rem;">' + esc(f.label) + '</div>' +
         (f.is_pdf
-          ? '<a class="btn btn-secondary btn-sm" href="' + esc(f.url) + '" target="_blank"><i class="fas fa-file-pdf"></i> Открыть PDF</a>'
-          : '<a href="' + esc(f.url) + '" target="_blank"><img src="' + esc(f.url) + '" alt="" style="width:100%;max-height:260px;object-fit:contain;background:#f8fafc;border-radius:6px;"></a>') +
+          ? '<a class="btn btn-secondary btn-sm" href="' + esc(f.url) + '" target="_blank"><i class="fas fa-file-alt"></i> Открыть PDF</a>'
+          : f.is_video
+            // MOV в HEVC может не проиграться в браузере — рядом ссылка на файл
+            ? '<video controls preload="metadata" src="' + esc(f.url) + '" style="width:100%;max-height:300px;background:#0f172a;border-radius:6px;"></video>' +
+              '<a class="btn btn-secondary btn-sm" style="margin-top:.4rem;" href="' + esc(f.url) + '" target="_blank"><i class="fas fa-download"></i> Открыть файл</a>'
+            : '<a href="' + esc(f.url) + '" target="_blank"><img src="' + esc(f.url) + '" alt="" style="width:100%;max-height:260px;object-fit:contain;background:#f8fafc;border-radius:6px;"></a>') +
         '</div>';
     }).join('');
     var body =

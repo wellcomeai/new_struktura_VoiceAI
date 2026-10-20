@@ -3,8 +3,9 @@
 удаление данных по сроку.
 
 Анкета — паспорт РФ (поля FIELDS) и три файла (FILE_KINDS): разворот с фото,
-страница с регистрацией, селфи с паспортом и листом, где от руки написано
-«Верификация Voicyfy» и текущая дата. Всё уходит в приватный бакет Timeweb
+страница с регистрацией и видео 5–30 с, где человек держит лист с рукописной
+надписью «Верификация Voicyfy» и текущей датой и говорит «Это видео записано
+для верификации Voicyfy» (раньше — селфи; старые заявки с селфи открываются). Всё уходит в приватный бакет Timeweb
 (services/verification_storage.py), проверяющему — в Telegram
 (services/verification_bot.py). Решение: approve → номера на аккаунте
 администратора (services/hosted_numbers.py), revision → пользователь
@@ -27,9 +28,13 @@ from backend.services import verification_storage as storage
 logger = get_logger(__name__)
 
 # Редакция согласия на обработку паспортных данных (static/verification-consent.html)
-CONSENT_VERSION = "2026-10-20"
+CONSENT_VERSION = "2026-10-20.2"
 RETENTION_DAYS = 30
 MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_VIDEO_BYTES = 50 * 1024 * 1024   # предел Telegram для файлов бота
+VIDEO_MIN_SECONDS = 5
+VIDEO_MAX_SECONDS = 30
+VIDEO_PHRASE = "Это видео записано для верификации Voicyfy"
 
 FIELDS: Dict[str, str] = {
     "last_name": "Фамилия",
@@ -50,11 +55,17 @@ OPTIONAL_FIELDS = {"middle_name"}
 FILE_KINDS: Dict[str, str] = {
     "passport_main": "Разворот паспорта с фото",
     "passport_registration": "Страница с регистрацией",
+    "video": "Видео с листом «Верификация Voicyfy» и датой",
+}
+VIDEO_KINDS = {"video"}
+# Подписи файлов прежних заявок
+LEGACY_FILE_KINDS: Dict[str, str] = {
     "selfie": "Селфи с паспортом и листом «Верификация Voicyfy» и датой",
 }
-ALLOWED_TYPES = {
-    "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "application/pdf": "pdf",
-}
+
+
+def max_bytes(kind: str) -> int:
+    return MAX_VIDEO_BYTES if kind in VIDEO_KINDS else MAX_FILE_BYTES
 
 
 class VerificationError(Exception):
@@ -113,29 +124,65 @@ def validate_fields(raw: Dict[str, Any]) -> Dict[str, str]:
     return data
 
 
+def _video_ext(content: bytes) -> Optional[str]:
+    """mp4 / mov / webm по сигнатуре контейнера."""
+    if content[:4] == b"\x1a\x45\xdf\xa3":
+        return "webm"
+    if content[4:8] == b"ftyp":
+        return "mov" if content[8:10] == b"qt" else "mp4"
+    if content[4:8] in (b"moov", b"wide", b"mdat", b"free", b"skip"):
+        return "mov"  # старый QuickTime без ftyp
+    return None
+
+
+def mp4_duration_seconds(content: bytes) -> Optional[float]:
+    """Длительность MP4/MOV из атома mvhd; None, если не нашли (тогда не проверяем)."""
+    pos = content.find(b"mvhd")
+    if pos < 4 or pos + 32 > len(content):
+        return None
+    try:
+        version = content[pos + 4]
+        if version == 1:
+            timescale = int.from_bytes(content[pos + 24:pos + 28], "big")
+            duration = int.from_bytes(content[pos + 28:pos + 36], "big")
+        else:
+            timescale = int.from_bytes(content[pos + 16:pos + 20], "big")
+            duration = int.from_bytes(content[pos + 20:pos + 24], "big")
+        if timescale <= 0:
+            return None
+        return duration / timescale
+    except Exception:
+        return None
+
+
 def validate_file(kind: str, content: bytes, content_type: str) -> str:
-    """Возвращает расширение файла."""
+    """Возвращает расширение файла. Тип определяется по содержимому, а не по заголовку браузера."""
     label = FILE_KINDS[kind]
     if not content:
         raise VerificationError(f"Загрузите файл: {label}")
-    if len(content) > MAX_FILE_BYTES:
-        raise VerificationError(f"«{label}»: файл больше 10 МБ")
-    ctype = (content_type or "").lower()
-    ext = ALLOWED_TYPES.get(ctype)
-    # Проверка сигнатуры: тип из браузера можно подменить
+    limit = max_bytes(kind)
+    if len(content) > limit:
+        raise VerificationError(f"«{label}»: файл больше {limit // (1024 * 1024)} МБ")
+
+    if kind in VIDEO_KINDS:
+        ext = _video_ext(content)
+        if not ext:
+            raise VerificationError(f"«{label}»: допустимы видео MP4, MOV или WEBM")
+        seconds = mp4_duration_seconds(content) if ext in ("mp4", "mov") else None
+        if seconds is not None and not (VIDEO_MIN_SECONDS - 1 <= seconds <= VIDEO_MAX_SECONDS + 2):
+            raise VerificationError(
+                f"Видео должно длиться от {VIDEO_MIN_SECONDS} до {VIDEO_MAX_SECONDS} секунд "
+                f"(сейчас {seconds:.0f} с)"
+            )
+        return ext
+
     if content[:3] == b"\xff\xd8\xff":
-        ext = "jpg"
-    elif content[:8] == b"\x89PNG\r\n\x1a\n":
-        ext = "png"
-    elif content[:5] == b"%PDF-":
-        ext = "pdf"
-    else:
-        ext = None
-    if not ext:
-        raise VerificationError(f"«{label}»: допустимы JPG, PNG или PDF")
-    if kind == "selfie" and ext == "pdf":
-        raise VerificationError("Селфи загрузите фотографией (JPG или PNG)")
-    return ext
+        return "jpg"
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if content[:5] == b"%PDF-":
+        return "pdf"
+    raise VerificationError(f"«{label}»: допустимы JPG, PNG или PDF")
 
 
 def get_for_user(db: Session, user_id) -> Optional[TelephonyVerification]:
@@ -147,7 +194,10 @@ def is_approved(db: Session, user_id) -> bool:
     return bool(v and v.status == VerificationStatus.APPROVED)
 
 
-CONTENT_TYPES = {"jpg": "image/jpeg", "png": "image/png", "pdf": "application/pdf"}
+CONTENT_TYPES = {
+    "jpg": "image/jpeg", "png": "image/png", "pdf": "application/pdf",
+    "mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm",
+}
 
 
 def store_submission(db: Session, user: User, raw_fields: Dict[str, Any],
@@ -221,8 +271,10 @@ def load_details(v: TelephonyVerification) -> Dict[str, Any]:
     files = {}
     for kind, key in (v.files or {}).items():
         try:
-            files[kind] = {"label": FILE_KINDS.get(kind, kind), "url": storage.presigned_url(key),
-                           "is_pdf": key.endswith(".pdf")}
+            ext = key.rsplit(".", 1)[-1].lower()
+            files[kind] = {"label": FILE_KINDS.get(kind) or LEGACY_FILE_KINDS.get(kind, kind),
+                           "url": storage.presigned_url(key),
+                           "is_pdf": ext == "pdf", "is_video": ext in ("mp4", "mov", "webm")}
         except Exception as e:
             logger.warning(f"[VERIFY] presign {key} failed: {e}")
     return {"fields": {FIELDS[k]: data.get(k) for k in FIELDS if data.get(k)},

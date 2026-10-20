@@ -10,7 +10,8 @@ Voximplant больше не верифицирует физлиц: физлиц
 
 Пользователь:
   GET    /verification                   — статус заявки (+ данные для правки при доработке)
-  POST   /verification                   — отправить заявку (multipart: поля, 3 файла, consent)
+  POST   /verification                   — отправить заявку (multipart: поля, 2 фото паспорта, видео, consent)
+  GET    /verification/example-video     — пример видео (редирект на свежую ссылку S3, без авторизации)
   GET    /hosted/status                  — режим физлица: баланс, номера, готовность
   GET    /hosted/regions                 — регионы номеров
   GET    /hosted/available-numbers       — номера Voximplant + запас администратора с нашими ценами
@@ -40,6 +41,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form, Query, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -90,6 +92,13 @@ def get_my_verification(
         "storage_ready": verification.storage.is_configured(),
         "fields": verification.FIELDS,
         "file_kinds": verification.FILE_KINDS,
+        "video": {
+            "max_mb": verification.MAX_VIDEO_BYTES // (1024 * 1024),
+            "min_seconds": verification.VIDEO_MIN_SECONDS,
+            "max_seconds": verification.VIDEO_MAX_SECONDS,
+            "phrase": verification.VIDEO_PHRASE,
+            "example_url": "/api/telephony/verification/example-video",
+        },
         "prefill": None,
     }
     # На доработке форма открывается заполненной — пользователь правит только нужное
@@ -97,6 +106,19 @@ def get_my_verification(
         data = verification.storage.get_json(v.data_key) or {}
         result["prefill"] = {k: data.get(k) for k in verification.FIELDS}
     return result
+
+
+@router.get("/verification/example-video")
+def verification_example_video():
+    """
+    Пример видео для анкеты. Бакет приватный, поэтому каждый раз выдаём свежую
+    подписанную ссылку на один заранее заданный объект (VERIFICATION_EXAMPLE_VIDEO_KEY).
+    Без авторизации: ссылку открывают в новой вкладке, где нет токена кабинета.
+    """
+    key = (settings.VERIFICATION_EXAMPLE_VIDEO_KEY or "").strip()
+    if not key or not verification.storage.is_configured():
+        raise HTTPException(status_code=404, detail="Пример видео пока не загружен")
+    return RedirectResponse(verification.storage.presigned_url(key, ttl=3600), status_code=302)
 
 
 @router.post("/verification")
@@ -117,7 +139,7 @@ async def submit_verification(
     consent: bool = Form(False),
     passport_main: UploadFile = File(...),
     passport_registration: UploadFile = File(...),
-    selfie: UploadFile = File(...),
+    video: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
     fields = {
@@ -129,8 +151,8 @@ async def submit_verification(
     }
     files = {}
     for kind, upload in (("passport_main", passport_main),
-                         ("passport_registration", passport_registration), ("selfie", selfie)):
-        content = await upload.read(verification.MAX_FILE_BYTES + 1)
+                         ("passport_registration", passport_registration), ("video", video)):
+        content = await upload.read(verification.max_bytes(kind) + 1)
         files[kind] = (content, upload.content_type or "")
     ip = _client_ip(request)
     user_id = current_user.id

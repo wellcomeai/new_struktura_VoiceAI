@@ -711,15 +711,19 @@ Users provide their own API keys for: Google Gemini, xAI Grok, ElevenLabs, Voxim
 Voximplant больше не верифицирует физлиц. ИП/ООО проходят верификацию в Voximplant как раньше (`/setup`,
 `/verification-url`; тип `individual` там теперь 400), физлица — нашу проверку.
 - **Анкета** (`backend/services/telephony_verification_service.py`, API `backend/api/telephony_hosted.py`,
-  префикс `/api/telephony`): паспорт РФ (`FIELDS`) + 3 файла (`FILE_KINDS`: разворот, регистрация, селфи с листом
-  «Верификация Voicyfy» и датой; JPG/PNG/PDF до 10 МБ, тип проверяется по сигнатуре) + отдельное согласие
+  префикс `/api/telephony`): паспорт РФ (`FIELDS`) + 2 фото (`FILE_KINDS`: разворот, регистрация; JPG/PNG/PDF до
+  10 МБ) + видео `video` 5–30 с, до 50 МБ (MP4/MOV/WEBM): лист «Верификация Voicyfy» с датой и фраза «Это видео
+  записано для верификации Voicyfy» (`VIDEO_PHRASE`; длительность MP4/MOV — из атома `mvhd`, `mp4_duration_seconds`;
+  раньше было селфи — старые заявки открываются по `LEGACY_FILE_KINDS`). Тип файла — по сигнатуре. Пример видео —
+  `GET /verification/example-video` (без авторизации, редирект на свежую подписанную ссылку объекта
+  `VERIFICATION_EXAMPLE_VIDEO_KEY`, по умолчанию `IMG_0444.MOV` в том же бакете) + отдельное согласие
   (`static/verification-consent.html`, `CONSENT_VERSION`). Анкета и файлы — только в приватном бакете Timeweb S3
   (`services/verification_storage.py`, env `TIMEWEB_S3_*`), в Postgres (Render, Франкфурт) лишь статус и ключи
   объектов (`telephony_verifications`). Статусы: submitted → approved | needs_revision (комментарий, повторная
   подача, старые файлы удаляются) | rejected (окончательно, документы удаляются через 30 дней; так же при удалении
   аккаунта — `schedule_purge_for_user`, чистка `purge_due`).
 - **Бот модерации** `services/verification_bot.py` (env `VERIFICATION_BOT_TOKEN`, `VERIFICATION_ADMIN_CHAT_ID`):
-  файлы документами + карточка с кнопками «Одобрить / На доработку / Отклонить / Открыть в кабинете»; для доработки
+  фото документами, видео MP4 — `sendVideo` (играет в чате), MOV/WEBM — документом + карточка с кнопками «Одобрить / На доработку / Отклонить / Открыть в кабинете»; для доработки
   и отказа бот просит комментарий ответом (ForceReply, `tg_pending`). Webhook
   `POST /api/telephony/verification/telegram/{secret}` регистрируется на старте (`hosted_numbers_loop`) на
   `TELEGRAM_WEBHOOK_BASE_URL` (напрямую на Render: прокси voicyfy.ru для Telegram недоступен), решения

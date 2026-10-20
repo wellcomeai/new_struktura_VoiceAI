@@ -161,13 +161,16 @@ async def send_application(verification_id: str, email: str, data: Dict[str, Any
         return []
     ids: List[int] = []
     for caption, filename, content, ctype in files:
-        res = await call(
-            "sendDocument",
-            {"chat_id": settings.VERIFICATION_ADMIN_CHAT_ID, "caption": f"{caption} — {email}"[:1000]},
-            files={"document": (filename, content, ctype)},
-            timeout=60.0,
-        )
-        if res and res.get("message_id"):
+        payload = {"chat_id": settings.VERIFICATION_ADMIN_CHAT_ID, "caption": f"{caption} — {email}"[:1000]}
+        if ctype == "video/mp4":
+            # MP4 проигрывается прямо в чате; MOV/WEBM надёжнее отправлять файлом
+            res = await call("sendVideo", {**payload, "supports_streaming": "true"},
+                             files={"video": (filename, content, ctype)}, timeout=180.0)
+        else:
+            res = await call("sendDocument", payload,
+                             files={"document": (filename, content, ctype)},
+                             timeout=180.0 if ctype.startswith("video/") else 60.0)
+        if isinstance(res, dict) and res.get("message_id"):
             ids.append(res["message_id"])
     card = await send_text(format_application(email, data, attempt, labels),
                            reply_markup=decision_keyboard(verification_id))

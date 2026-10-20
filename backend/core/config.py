@@ -173,6 +173,8 @@ class Settings(BaseSettings):
     # Бот модерации заявок и чат проверяющего
     VERIFICATION_BOT_TOKEN: str = os.getenv("VERIFICATION_BOT_TOKEN", "")
     VERIFICATION_ADMIN_CHAT_ID: str = os.getenv("VERIFICATION_ADMIN_CHAT_ID", "")
+    # Пример видео для анкеты: объект в том же бакете, ссылка выдаётся свежей при каждом открытии
+    VERIFICATION_EXAMPLE_VIDEO_KEY: str = os.getenv("VERIFICATION_EXAMPLE_VIDEO_KEY", "IMG_0444.MOV")
     # Номера физлиц покупаются на дочерний аккаунт этого пользователя (верифицирован как ИП)
     HOSTED_NUMBERS_OWNER_EMAIL: str = os.getenv("HOSTED_NUMBERS_OWNER_EMAIL", "shw00389@gmail.com")
     # Наценка к месячной цене Voximplant за номер физлица, ₽
