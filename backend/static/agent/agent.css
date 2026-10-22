@@ -834,3 +834,24 @@ input[type=range] { accent-color: var(--vf-accent); }
 .memory-chip b { font-weight: 600; color: var(--vf-text); }
 .memory-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-chip.forget i { color: var(--vf-text-4); }
+
+/* Настройки агента → Skills (agent/skills.js) */
+#i-skills .skill-steps { margin: 0 0 22px; padding-left: 20px; display: flex; flex-direction: column; gap: 14px; font-size: 13px; line-height: 1.55; color: var(--vf-text-2); }
+#i-skills .skill-steps b { color: var(--vf-text); }
+#i-skills .skill-steps code, #i-skills .skill-key-ok code { font-family: var(--vf-font-mono); font-size: 12px; }
+#i-skills .skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+#i-skills .skill-actions .form-hint { margin: 0; }
+#i-skills .skill-actions a.btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+#i-skills .skill-key-ok { font-size: 12.5px; color: var(--vf-text-2); }
+#i-skills .skill-key-ok i { color: #10b981; margin-right: 4px; }
+#i-skills .skill-block-title { font-size: 13.5px; font-weight: 700; margin: 4px 0 10px; }
+#i-skills .skill-example { margin-bottom: 12px; border: 1px solid var(--vf-border); border-radius: 9px; overflow: hidden; }
+#i-skills .skill-example-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px 8px 13px; background: var(--vf-surface-2); border-bottom: 1px solid var(--vf-border); font-size: 12.5px; font-weight: 600; }
+#i-skills .skill-code { margin: 0; padding: 11px 13px; font-family: var(--vf-font-mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--vf-text-2); }
+#i-skills .skill-scope { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+#i-skills .skill-scope > div { padding: 11px 13px; border: 1px solid var(--vf-border); border-radius: 9px; font-size: 12.5px; }
+#i-skills .skill-scope b i { margin-right: 4px; }
+#i-skills .skill-scope > div:first-child b i { color: #10b981; }
+#i-skills .skill-scope > div:last-child b i { color: var(--vf-text-4); }
+#i-skills .skill-scope ul { margin: 6px 0 0; padding-left: 18px; color: var(--vf-text-2); line-height: 1.55; }
+@media (max-width: 720px) { #i-skills .skill-scope { grid-template-columns: 1fr; } }

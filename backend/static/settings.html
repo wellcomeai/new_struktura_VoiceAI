@@ -2604,6 +2604,7 @@
         await loadUserData();
         await loadSubscriptionForAccess();
         await loadApiKeyStatus();
+        if (location.hash === '#api-key-section') document.getElementById('api-key-section').scrollIntoView({ behavior: 'smooth' });
       }
 
       // Запускаем инициализацию

@@ -363,6 +363,7 @@
         <button type="button" class="settings-nav-item" data-section="orchestrator"><i class="fas fa-brain"></i><span><b>Оркестратор</b><small>Модель, инструкции, вебхук</small></span></button>
         <button type="button" class="settings-nav-item" data-section="calls"><i class="fas fa-phone"></i><span><b>Звонки</b><small>Номер, первая фраза, поведение</small></span></button>
         <button type="button" class="settings-nav-item" data-section="api"><i class="fas fa-plug"></i><span><b>Публичный API</b><small>Приём заявок извне</small></span></button>
+        <button type="button" class="settings-nav-item" data-section="skills"><i class="fas fa-puzzle-piece"></i><span><b>Skills</b><small>Настройка через Claude Code, Codex</small></span></button>
       </nav>
       <div class="modal-body settings-content" id="settings-content">
 
@@ -455,6 +456,59 @@
             <p>Шлите заявки с формы сайта или из вашей CRM по секретному ключу — агент сам решит, что с ними делать (создаст контакт, поставит звонок, ответит). Запросы — только со своего сервера (server-to-server).</p>
           </div>
           <div id="i-public-access"><div class="form-hint">Загрузка…</div></div>
+        </section>
+
+        <!-- ─── РАЗДЕЛ: SKILLS (скилл для Claude Code / Codex; agent/skills.js) ─── -->
+        <section class="settings-section" data-section="skills" id="i-skills">
+          <div class="settings-section-head">
+            <h3>Skills · настройка через ИИ-агента</h3>
+            <p>Скилл — файл-инструкция для Claude Code, Codex и других ИИ-агентов, которые умеют выполнять HTTP-запросы. С ним агент разберётся, как устроены ваши агенты в Voicyfy, и настроит их по вашей просьбе: напишет инструкции, сменит голос и модель, добавит правила в память.</p>
+          </div>
+
+          <ol class="skill-steps">
+            <li>
+              <b>Скачайте скилл.</b> Один файл в формате Markdown: как устроен агент, его инструменты, гайд по промптам и все запросы API.
+              <div class="skill-actions">
+                <a class="btn btn-primary btn-sm" href="/static/agent-api.md" download="SKILL.md"><i class="fas fa-download"></i> Скачать SKILL.md</a>
+              </div>
+            </li>
+            <li>
+              <b>Возьмите API-ключ</b> в настройках Voicyfy: «Настройки → API-ключ для интеграций». Ключ показывается один раз при создании — сохраните его.
+              <div class="skill-actions" id="i-skills-key"><span class="form-hint">Проверяем ключ…</span></div>
+            </li>
+            <li>
+              <b>Отдайте файл агенту.</b> Claude Code: положите его в папку проекта, а чтобы скилл подключался сам — в <code>.claude/skills/voicyfy-agent/SKILL.md</code>. Codex и другие агенты: положите файл в папку проекта или прикрепите к чату.
+            </li>
+            <li>
+              <b>Напишите задачу и вставьте ключ прямо в сообщение.</b> Агент сам найдёт ваших агентов — номер агента указывать не нужно. Ключ даёт доступ к вашим агентам: не публикуйте его и не пересылайте посторонним.
+            </li>
+          </ol>
+
+          <div class="skill-block-title">Примеры запросов</div>
+          <div id="i-skills-examples"></div>
+
+          <div class="skill-block-title">Что агент сможет по ключу</div>
+          <div class="skill-scope">
+            <div><b><i class="fas fa-check"></i> Может</b>
+              <ul>
+                <li>посмотреть ваших агентов и их настройки</li>
+                <li>создать агента (до 3)</li>
+                <li>переписать документы компании и инструкции оркестратора и голосового агента</li>
+                <li>сменить голосовую модель, голос, модель оркестратора, рабочие часы, первую фразу входящих</li>
+                <li>добавить, изменить и удалить правила в памяти агента</li>
+                <li>управлять каскад-ассистентами</li>
+              </ul>
+            </div>
+            <div><b><i class="fas fa-xmark"></i> Только в кабинете</b>
+              <ul>
+                <li>контакты, задачи и звонки</li>
+                <li>номера и телефония</li>
+                <li>база знаний</li>
+                <li>Telegram, MAX, Google-коннекторы</li>
+                <li>оплата и кредиты</li>
+              </ul>
+            </div>
+          </div>
         </section>
 
       </div>
@@ -880,6 +934,7 @@
 <script src="/static/agent/motion.js"></script>
 <script src="/static/agent/panels.js"></script>
 <script src="/static/agent/settings-layout.js"></script>
+<script src="/static/agent/skills.js"></script>
 <script src="/static/agent/init.js"></script>
 </body>
 </html>
