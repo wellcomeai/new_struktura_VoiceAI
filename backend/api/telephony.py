@@ -178,26 +178,59 @@ async def rebind_inbound_rule(child_account, phone_record, effective_type: str,
         scenario_id = int(raw_scenario_id)
 
     service = get_voximplant_partner_service()
+    phone_pattern = normalize_phone_number(phone_record.phone_number)
+    # Общее легаси-правило аккаунта (vox_rule_id аккаунта) не трогаем — на нём
+    # могут висеть другие номера.
+    legacy_rule_id = str(child_account.vox_rule_id or "")
 
-    # Удаляем старый Rule. Общее легаси-правило аккаунта (vox_rule_id
-    # аккаунта) не трогаем — на нём могут висеть другие номера.
+    # Удаляем старый Rule. Ошибка не останавливает перепривязку: id в БД мог
+    # устареть (правило создали, а транзакция откатилась) — тогда DelRule
+    # отвечает ошибкой вечно, и раньше номер навсегда оставался на прежнем
+    # сценарии, хотя в БД тип менялся.
     old_rule_id = phone_record.vox_rule_id
-    if old_rule_id and str(old_rule_id) != str(child_account.vox_rule_id or ""):
+    if old_rule_id and str(old_rule_id) != legacy_rule_id:
         delete_result = await service.delete_rule(
             child_account_id=child_account.vox_account_id,
             child_api_key=child_account.vox_api_key,
             rule_id=old_rule_id
         )
-        if not delete_result.get("success"):
-            logger.error(f"{log_prefix} ❌ Failed to delete old rule: {delete_result.get('error')}")
-            return False
-        logger.info(f"{log_prefix} ✅ Old rule deleted: {old_rule_id}")
+        if delete_result.get("success"):
+            logger.info(f"{log_prefix} ✅ Old rule deleted: {old_rule_id}")
+        else:
+            logger.warning(f"{log_prefix} ⚠️ Old rule {old_rule_id} not deleted "
+                           f"({delete_result.get('error')}), sweeping rules of {phone_pattern}")
     # Старого правила больше нет: если создание нового сорвётся, следующая
     # попытка не будет удалять несуществующее правило
     phone_record.vox_rule_id = None
 
+    # Правила номера, которых нет в БД (осиротевшие), перехватывают звонок
+    # раньше нового — удаляем все правила с паттерном или именем этого номера.
+    rules_result = await service.get_rules(
+        child_account_id=child_account.vox_account_id,
+        child_api_key=child_account.vox_api_key,
+        application_id=child_account.vox_application_id,
+        count=1000,
+    )
+    if not rules_result.get("success"):
+        logger.warning(f"{log_prefix} ⚠️ GetRules failed: {rules_result.get('error')}")
+    for rule in rules_result.get("rules") or []:
+        rule_id = str(rule.get("rule_id") or "")
+        if not rule_id or rule_id == legacy_rule_id:
+            continue
+        if rule.get("rule_pattern") != phone_pattern and rule.get("rule_name") != f"inbound_{phone_pattern}":
+            continue
+        delete_result = await service.delete_rule(
+            child_account_id=child_account.vox_account_id,
+            child_api_key=child_account.vox_api_key,
+            rule_id=rule_id
+        )
+        if not delete_result.get("success"):
+            logger.error(f"{log_prefix} ❌ Failed to delete rule {rule_id} of {phone_pattern}: "
+                         f"{delete_result.get('error')}")
+            return False
+        logger.info(f"{log_prefix} ✅ Rule {rule_id} ({rule.get('rule_name')}) of {phone_pattern} deleted")
+
     # Создаём новый Rule с правильным сценарием
-    phone_pattern = normalize_phone_number(phone_record.phone_number)
     new_rule_result = await service.add_rule(
         child_account_id=child_account.vox_account_id,
         child_api_key=child_account.vox_api_key,
@@ -2347,7 +2380,16 @@ async def bind_assistant_to_number(
         # =====================================================================
         # Обновляем Rule в Voximplant (DELETE + RECREATE)
         # =====================================================================
-        await rebind_inbound_rule(child_account, phone_record, effective_type, "[TELEPHONY]")
+        if not await rebind_inbound_rule(child_account, phone_record, effective_type, "[TELEPHONY]"):
+            # Раньше ошибка глоталась: в БД номер переезжал на нового ассистента,
+            # а звонки шли в сценарий прежнего провайдера («Config invalid»).
+            # Сохраняем только состояние правила (vox_rule_id), привязку не меняем.
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Не удалось перенастроить маршрутизацию номера в Voximplant. "
+                       "Попробуйте ещё раз или напишите в поддержку."
+            )
 
         # =====================================================================
         # Номер из тестового пула: выводим его из пула.

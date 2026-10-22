@@ -1252,16 +1252,22 @@ class VoximplantPartnerService:
         self,
         child_account_id: str,
         child_api_key: str,
-        application_id: str
+        application_id: str,
+        count: Optional[int] = None,
+        with_scenarios: bool = False
     ) -> Dict[str, Any]:
-        """Получить правила роутинга."""
+        """Получить правила роутинга. Без count Voximplant отдаёт первые 20."""
         url = f"{self.API_BASE_URL}/GetRules"
         params = {
             "account_id": child_account_id,
             "api_key": child_api_key,
             "application_id": application_id,
         }
-        
+        if count:
+            params["count"] = count
+        if with_scenarios:
+            params["with_scenarios"] = "true"
+
         client = await self._get_client()
         response = await client.post(url, data=params)
         result = response.json()

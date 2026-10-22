@@ -612,102 +612,55 @@ def _delete_voice_assistant(db: Session, model_cls, va_id, user_id) -> bool:
     return bool(deleted)
 
 
-async def _rebind_agent_phone_numbers(db: Session, agent: AgentConfig,
-                                      new_type: str, new_assistant_id) -> int:
+def _repoint_agent_phone_numbers(db: Session, agent: AgentConfig,
+                                 new_type: str, new_assistant_id) -> list:
     """Перевести номера, привязанные к агенту, на его нового голосового ассистента.
 
     Вызывается при смене assistant_type. Без этого номер остался бы указывать на
-    старого ассистента (которого мы удаляем) и на inbound-сценарий прежнего
-    провайдера — входящие звонки сломались бы.
+    старого ассистента (которого мы удаляем) — входящие звонки сломались бы.
 
-    Правило в Voximplant пересоздаём, т.к. сценарий зависит от типа
-    (inbound_gemini / inbound_cascade / …). Ошибки Voximplant не роняют смену
-    типа: привязка в БД всё равно обновляется, правило можно перевыпустить
-    повторной привязкой номера на странице телефонии.
+    Здесь только БД. Правило Voximplant (сценарий зависит от типа:
+    inbound_gemini / inbound_cascade / …) пересоздаёт _rebind_agent_rules перед
+    самым commit: внешний вызов не откатывается вместе с транзакцией, и при
+    ошибке дальше в запросе в Voximplant оставалось правило, которого нет в БД.
     """
     from backend.models.voximplant_child import VoximplantPhoneNumber
 
     numbers = db.query(VoximplantPhoneNumber).filter(
         VoximplantPhoneNumber.agent_config_id == agent.id
     ).all()
-    if not numbers:
-        return 0
-
-    # Локальные импорты — telephony импортирует agent-модели, на уровне модуля
-    # получилась бы циклическая зависимость.
-    from backend.api.telephony import get_scenario_key, normalize_phone_number
-    from backend.services.voximplant_partner import get_voximplant_partner_service
-
-    scenario_name = get_scenario_key(new_type, "inbound")
-
     for num in numbers:
         num.assistant_type = new_type
         num.assistant_id = new_assistant_id
 
+    # Сессия с autoflush=False: сбрасываем новые привязки до того, как удаление
+    # старого ассистента пройдётся bulk-запросом по voximplant_phone_numbers.
+    db.flush()
+    return numbers
+
+
+async def _rebind_agent_rules(numbers: list, new_type: str) -> None:
+    """Пересоздать inbound-правила номеров агента под сценарий нового типа.
+
+    Ошибки Voximplant не роняют смену типа: привязка в БД всё равно обновляется,
+    правило можно перевыпустить повторной привязкой номера на странице телефонии.
+    """
+    # Локальный импорт — telephony импортирует agent-модели, на уровне модуля
+    # получилась бы циклическая зависимость.
+    from backend.api.telephony import rebind_inbound_rule
+
+    for num in numbers:
         child_account = num.child_account
-        if not child_account or not num.vox_rule_id:
+        if not child_account:
             continue
-
-        raw_scenario_id = child_account.get_scenario_id(scenario_name)
-        if not raw_scenario_id:
-            logger.warning(
-                f"[AGENT] Scenario '{scenario_name}' not found for account "
-                f"{child_account.vox_account_id}, rule for {num.phone_number} left as is"
-            )
-            continue
-
-        # Каскад: сначала vox-turn-taking (объявляет глобальный VoxTurnTaking),
-        # затем сам inbound_cascade — как в telephony.bind_assistant_to_number.
-        if new_type == "cascade":
-            tt_id = child_account.get_scenario_id("vox-turn-taking")
-            scenario_id = [int(tt_id), int(raw_scenario_id)] if tt_id else int(raw_scenario_id)
-        else:
-            scenario_id = int(raw_scenario_id)
-
         try:
-            service = get_voximplant_partner_service()
-            delete_result = await service.delete_rule(
-                child_account_id=child_account.vox_account_id,
-                child_api_key=child_account.vox_api_key,
-                rule_id=num.vox_rule_id,
-            )
-            if not delete_result.get("success"):
-                logger.error(
-                    f"[AGENT] Failed to delete old rule {num.vox_rule_id}: "
-                    f"{delete_result.get('error')}"
-                )
-                continue
-
-            phone_pattern = normalize_phone_number(num.phone_number)
-            new_rule = await service.add_rule(
-                child_account_id=child_account.vox_account_id,
-                child_api_key=child_account.vox_api_key,
-                application_id=child_account.vox_application_id,
-                rule_name=f"inbound_{phone_pattern}",
-                rule_pattern=phone_pattern,
-                scenario_id=scenario_id,
-            )
-            if new_rule.get("success"):
-                num.vox_rule_id = str(new_rule.get("rule_id"))
-                logger.info(
-                    f"[AGENT] Rebound {num.phone_number} to {scenario_name} "
-                    f"(rule {num.vox_rule_id})"
-                )
-            else:
-                logger.error(
-                    f"[AGENT] Failed to create rule for {num.phone_number}: "
-                    f"{new_rule.get('error')}"
-                )
+            if not await rebind_inbound_rule(child_account, num, new_type, "[AGENT]"):
+                logger.error(f"[AGENT] Rule for {num.phone_number} not rebound to {new_type}")
         except Exception as e:
             logger.error(
                 f"[AGENT] Voximplant rule update failed for {num.phone_number}: {e}",
                 exc_info=True,
             )
-
-    # Сессия с autoflush=False: сбрасываем новые привязки до того, как удаление
-    # старого ассистента пройдётся bulk-запросом по voximplant_phone_numbers.
-    db.flush()
-    return len(numbers)
 
 
 def _agent_to_dict(agent: AgentConfig) -> dict:
@@ -937,6 +890,7 @@ async def update_agent(
 
     # ── Смена типа голосового ассистента ──
     new_type = update_data.get("assistant_type")
+    rebind_numbers = []
     if new_type and new_type != agent.assistant_type:
         if new_type not in VALID_ASSISTANT_TYPES:
             raise HTTPException(status_code=400, detail="invalid_assistant_type")
@@ -992,7 +946,8 @@ async def update_agent(
 
         # Номера агента переводим на нового ассистента (и на inbound-сценарий
         # нового провайдера), иначе входящие ушли бы к удалённому ассистенту.
-        rebound = await _rebind_agent_phone_numbers(db, agent, new_type, new_voice.id)
+        rebind_numbers = _repoint_agent_phone_numbers(db, agent, new_type, new_voice.id)
+        rebound = len(rebind_numbers)
 
         # История звонков (conversations) переезжает к новому голосу до удаления
         # старого: иначе OpenAI-диалоги удалялись, а остальные пропадали со
@@ -1092,6 +1047,11 @@ async def update_agent(
         except Exception as e:
             logger.error(f"[AGENT] Failed to regenerate prompt: {e}")
             raise HTTPException(status_code=500, detail=f"prompt_generation_failed: {str(e)}")
+
+    # Правила Voximplant — последним шагом перед commit: проверки выше могут
+    # уронить запрос, а созданное в Voximplant правило с транзакцией не откатится.
+    if rebind_numbers:
+        await _rebind_agent_rules(rebind_numbers, new_type)
 
     db.commit()
     db.refresh(agent)
