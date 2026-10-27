@@ -335,7 +335,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     if (LLM_TRANSPORT === "proxy") {
         CONFIG.llm_proxy_url = "wss://voicyfy.ru/ws/cascade/llm/" + PROXY_ASSISTANT_ID;
     } else if (!OPENROUTER_API_KEY) {
-        Logger.write("❌ Не задан ни OPENROUTER_API_KEY, ни PROXY_ASSISTANT_ID — модели не к чему подключаться");
+        Logger.write("❌ Не задан ни OPENROUTER_API_KEY, ни PROXY_ASSISTANT_ID — модели не к чему подключаться. " +
+                     "Впишите id ассистента Каскада в строку var PROXY_ASSISTANT_ID = \"...\"; в начале файла " +
+                     "(сейчас там: \"" + PROXY_ASSISTANT_ID + "\") и сохраните сценарий");
         VoxEngine.terminate();
         return;
     }
@@ -350,6 +352,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     Logger.write("   🌐 Language: " + (CONFIG.asr_lang || CONFIG.language || "ru"));
     Logger.write("   👂 ASR: " + ASR_PROVIDER + " | VAD silence " + VAD_SILENCE_MS + "ms");
     Logger.write("   🧠 LLM: " + llmModel() + " via " + LLM_TRANSPORT + " (reasoning " + (llmReasoning || "default") + ")");
+    Logger.write("   🔗 PROXY_ASSISTANT_ID: \"" + PROXY_ASSISTANT_ID + "\" → " + LLM_TRANSPORT);
     Logger.write("   🔊 Inworld: " + INWORLD_VOICE + " / " + INWORLD_MODEL + (INWORLD_AUTO_MODE ? " (autoMode)" : ""));
     Logger.write("   🔧 Functions: " + (CONFIG.functions ? CONFIG.functions.length : 0));
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
