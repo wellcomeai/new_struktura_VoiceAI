@@ -23,8 +23,9 @@ require(Modules.Inworld);
  *     в /log ничего не пишем, функций нет — трубку кладёте вы.
  *   - Модель — один из двух путей:
  *       1) OPENROUTER_API_KEY: коннектор Voximplant Chat Completions прямо в
- *          OpenRouter (baseUrl). Ключ вставить перед загрузкой в Voximplant,
- *          В РЕПОЗИТОРИЙ НЕ КОММИТИТЬ.
+ *          OpenRouter (baseUrl). НЕ РАБОТАЕТ: коннектор отвечает «Access denied
+ *          by security policy» (проверено 27.10, baseUrl на OpenRouter не пускают).
+ *          Оставлено на случай, если Voximplant откроет. Ключ в репозиторий не коммитить.
  *       2) PROXY_ASSISTANT_ID: id любого своего ассистента Каскада — модель
  *          через прокси Voicyfy /ws/cascade/llm/{id} на серверном ключе, как
  *          в проде (первый токен ~0.3 с). Если задан — используется он.
@@ -42,7 +43,7 @@ require(Modules.Inworld);
 var OPENROUTER_API_KEY  = "";          // вставить перед загрузкой в Voximplant; в репозиторий не коммитить
 var OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 var OPENROUTER_PROVIDER = { order: ["together"], allow_fallbacks: true, sort: "latency" }; // как OPENROUTER_PROVIDERS в handler_llm_proxy.py
-var PROXY_ASSISTANT_ID  = "";          // id своего ассистента Каскада → модель через прокси Voicyfy (ключ не нужен)
+var PROXY_ASSISTANT_ID  = "";          // ← основной путь: id своего ассистента Каскада → модель через прокси Voicyfy (ключ не нужен)
 var INWORLD_VOICE       = "Galina";
 var INWORLD_MODEL       = "inworld-tts-2";
 var INWORLD_AUTO_MODE   = true;
