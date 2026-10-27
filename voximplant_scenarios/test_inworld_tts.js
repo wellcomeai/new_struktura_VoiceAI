@@ -6,40 +6,57 @@
  * сценарием и позвонить. Ключ Inworld не передаётся — синтез идёт на биллинге
  * Voximplant (тариф «Inworld», $0.00025 за 10 символов).
  *
- * Что проверяем (результаты — в логе сессии, маркеры ===INWORLD===):
- *   1–3. Голос INWORLD_VOICE на моделях inworld-tts-2 / 1.5-max / 1.5-mini:
- *        TTFB от Voximplant (timeToFirstByte) и полное время фразы.
- *        В тексте время и сумма цифрами — слышно, читает ли модель числа
- *        по-русски (нормализации русского у Inworld нет).
- *   4.   Текст кусками без flush, как дельты модели в каскаде: начинается ли
- *        синтез до flush_context.
- *   5.   Перебивание: clearBuffer() посреди длинной фразы — звук должен
- *        оборваться сразу.
- *   6.   Новая фраза после clearBuffer на новом плеере.
+ * Прогон 1 показал: Inworld отдаёт первый байт за ~0.6 с, а звук в звонке
+ * начинается через ~1.9 с (PlaybackReady). Прогон 2 ищет, откуда разрыв:
+ *   - короткая фраза (как первый кусок каскада) против длинной;
+ *   - VoxTTS (плеер каскада сейчас) на тех же фразах — общее ли это поведение
+ *     плеера Voximplant;
+ *   - autoMode у контекста Inworld;
+ *   - speakingRate 1.15 в двух местах (create и create.audioConfig): у какой
+ *     записи сократится длительность фразы (audio=...), та и работает.
+ * Плюс прежние проверки: модели 1.5-max / 1.5-mini, текст кусками,
+ * перебивание clearBuffer().
+ *
+ * Результаты — в логе сессии: по ходу строки ===INWORLD===, в конце сводка
+ * ===INWORLD=== SUMMARY (ready / started / ttfb / audio / total, мс от отправки
+ * текста). Трубку не класть до «Тест окончен» (~2 мин).
  */
 require(Modules.Inworld);
+require(Modules.VoxTTS);
 
 var INWORLD_VOICE = "Galina";
 var STEP_PAUSE_MS = 700;
-var SESSION_LIMIT_MS = 180000;
+var STEP_TIMEOUT_MS = 25000;
+var SESSION_LIMIT_MS = 300000;
 
-var NUMBERS_TEXT = "Записала вас на консультацию завтра в 15:30, стоимость 2500 рублей.";
+var SHORT = "Здравствуйте, слушаю вас.";
+var LONG = "Записала вас на консультацию завтра в 15:30, стоимость 2500 рублей. " +
+           "Адрес пришлю сообщением, а за час до встречи ещё раз напомню.";
 
 var STEPS = [
-    { title: "tts-2",        model: "inworld-tts-2",
-      text: "Здравствуйте! Это модель TTS два. " + NUMBERS_TEXT },
-    { title: "tts-1.5-max",  model: "inworld-tts-1.5-max",
-      text: "Это модель полтора макс. " + NUMBERS_TEXT },
-    { title: "tts-1.5-mini", model: "inworld-tts-1.5-mini",
-      text: "Это модель полтора мини. " + NUMBERS_TEXT },
-    { title: "stream-pieces", model: "inworld-tts-2", pieceGapMs: 150,
+    { title: "voxtts-short",       provider: "voxtts",  text: SHORT },
+    { title: "tts2-short",         provider: "inworld", model: "inworld-tts-2", text: SHORT },
+    { title: "tts2-short-auto",    provider: "inworld", model: "inworld-tts-2", text: SHORT,
+      create: { autoMode: true } },
+    { title: "tts15max-short",     provider: "inworld", model: "inworld-tts-1.5-max", text: SHORT },
+    { title: "tts15mini-short",    provider: "inworld", model: "inworld-tts-1.5-mini", text: SHORT },
+    { title: "voxtts-long",        provider: "voxtts",  text: LONG },
+    { title: "tts2-long",          provider: "inworld", model: "inworld-tts-2", text: LONG },
+    { title: "tts2-long-auto",     provider: "inworld", model: "inworld-tts-2", text: LONG,
+      create: { autoMode: true } },
+    { title: "tts2-long-rate",     provider: "inworld", model: "inworld-tts-2", text: LONG,
+      create: { speakingRate: 1.15 } },
+    { title: "tts2-long-rate-cfg", provider: "inworld", model: "inworld-tts-2", text: LONG,
+      create: { audioConfig: { speakingRate: 1.15 } } },
+    { title: "tts2-pieces-auto",   provider: "inworld", model: "inworld-tts-2", pieceGapMs: 150,
+      create: { autoMode: true },
       pieces: ["Теперь текст приходит кусками, ", "как ответ языковой модели, ",
                "а последний кусок закрывает фразу."] },
-    { title: "barge-in",     model: "inworld-tts-2", clearAfterMs: 2500,
+    { title: "barge-in",           provider: "inworld", model: "inworld-tts-2", clearAfterMs: 2500,
       text: "Сейчас будет длинная фраза, которую тест оборвёт посередине. " +
             "Если вы слышите это предложение целиком, значит очистка буфера не сработала, " +
             "и перебивание в звонке работать не будет." },
-    { title: "after-clear",  model: "inworld-tts-2",
+    { title: "after-clear",        provider: "inworld", model: "inworld-tts-2",
       text: "Перебивание проверено. Тест окончен, до свидания!" }
 ];
 
@@ -48,13 +65,23 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function(e) {
     var player = null;
     var stepIndex = -1;
     var stepDone = false;
+    var results = [];
+    var finished = false;
 
     function log(msg) {
         Logger.write("===INWORLD=== " + msg);
     }
 
-    function finish() {
-        log("done");
+    function finish(reason) {
+        if (finished) return;
+        finished = true;
+        stopPlayer();
+        log("done (" + reason + ")");
+        results.forEach(function(r) {
+            log("SUMMARY " + r.title + " model=" + r.model + " chars=" + r.chars +
+                " ready=" + r.ready + " started=" + r.started + " ttfb=" + r.ttfb +
+                " audio=" + r.audio + " total=" + r.total + " end=" + r.end);
+        });
         try { call.hangup(); } catch (err) {}
         VoxEngine.terminate();
     }
@@ -69,48 +96,90 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function(e) {
         stopPlayer();
         stepIndex++;
         if (stepIndex >= STEPS.length) {
-            setTimeout(finish, 500);
+            setTimeout(function() { finish("all steps"); }, 500);
             return;
         }
         setTimeout(function() { runStep(STEPS[stepIndex]); }, STEP_PAUSE_MS);
     }
 
-    function completeStep(reason) {
-        if (stepDone) return;
-        stepDone = true;
-        log(STEPS[stepIndex].title + " → " + reason);
-        nextStep();
+    function createPlayer(step, contextId) {
+        if (step.provider === "voxtts") {
+            return VoxTTS.createRealtimeTTSPlayer({
+                createContextParameters: {
+                    create: { modelId: VoxTTS.ModelList.VoxTTS, voiceId: VoxTTS.VoiceList.Anna }
+                }
+            });
+        }
+        var create = { voiceId: INWORLD_VOICE, modelId: step.model };
+        var extra = step.create || {};
+        for (var k in extra) create[k] = extra[k];
+        return Inworld.createRealtimeTTSPlayer({
+            createContextParameters: { create: create, contextId: contextId }
+        });
+    }
+
+    function sendText(step, contextId, text, flush) {
+        var msg = { send_text: { text: text } };
+        if (flush) msg.send_text.flush_context = {};
+        // VoxTTS-плеер в каскаде шлёт без contextId — держим так же.
+        if (step.provider === "inworld") msg.contextId = contextId;
+        player.send(msg);
     }
 
     function runStep(step) {
         var contextId = "step-" + stepIndex;
         var sentAt = 0;
+        var startedAt = 0;
+        var r = {
+            title: step.title,
+            model: step.provider === "voxtts" ? "voxtts/Anna" : step.model,
+            chars: (step.text || (step.pieces || []).join("")).length,
+            ready: "-", started: "-", ttfb: "-", audio: "-", total: "-", end: "-"
+        };
+        results.push(r);
         stepDone = false;
 
+        function complete(reason) {
+            if (stepDone) return;
+            stepDone = true;
+            r.end = reason;
+            log(step.title + " → " + reason);
+            nextStep();
+        }
+
         try {
-            player = Inworld.createRealtimeTTSPlayer({
-                createContextParameters: {
-                    create: { voiceId: INWORLD_VOICE, modelId: step.model },
-                    contextId: contextId
-                }
-            });
+            player = createPlayer(step, contextId);
         } catch (err) {
             log(step.title + " create failed: " + err);
-            completeStep("create error");
+            complete("create-error");
             return;
         }
 
+        player.addEventListener(PlayerEvents.PlaybackReady, function() {
+            r.ready = Date.now() - sentAt;
+            log(step.title + " ready +" + r.ready + "ms");
+        });
         player.addEventListener(PlayerEvents.Started, function() {
-            log(step.title + " started +" + (Date.now() - sentAt) + "ms");
+            startedAt = Date.now();
+            r.started = startedAt - sentAt;
+            log(step.title + " started +" + r.started + "ms");
         });
         player.addEventListener(PlayerEvents.AudioChunksPlaybackFinished, function(ev) {
-            log(step.title + " model=" + step.model + " voice=" + INWORLD_VOICE +
-                " ttfb=" + (ev && ev.timeToFirstByte) + "ms total=" + (Date.now() - sentAt) + "ms");
-            completeStep("finished");
+            if (ev && ev.final === false) {
+                log(step.title + " intermediate flush ttfb=" + ev.timeToFirstByte + "ms");
+                return;
+            }
+            var now = Date.now();
+            r.ttfb = ev && ev.timeToFirstByte;
+            r.total = now - sentAt;
+            if (startedAt) r.audio = now - startedAt;
+            log(step.title + " model=" + r.model + " ttfb=" + r.ttfb + "ms audio=" + r.audio +
+                "ms total=" + r.total + "ms");
+            complete("finished");
         });
         player.addEventListener(PlayerEvents.Error, function(ev) {
             log(step.title + " ERROR " + JSON.stringify(ev && (ev.error || ev.reason || ev.code || ev)));
-            completeStep("error");
+            complete("error");
         });
 
         player.sendMediaTo(call);
@@ -121,14 +190,12 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function(e) {
                 setTimeout(function() {
                     if (stepDone) return;
                     var last = i === step.pieces.length - 1;
-                    var msg = { send_text: { text: piece }, contextId: contextId };
-                    if (last) msg.send_text.flush_context = {};
-                    player.send(msg);
+                    sendText(step, contextId, piece, last);
                     log(step.title + " piece " + (i + 1) + (last ? " (flush)" : "") + " +" + (Date.now() - sentAt) + "ms");
                 }, i * step.pieceGapMs);
             });
         } else {
-            player.send({ send_text: { text: step.text, flush_context: {} }, contextId: contextId });
+            sendText(step, contextId, step.text, true);
         }
 
         if (step.clearAfterMs) {
@@ -136,24 +203,25 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, function(e) {
                 if (stepDone || !player) return;
                 player.clearBuffer();
                 log(step.title + " clearBuffer at +" + (Date.now() - sentAt) + "ms");
-                completeStep("cleared");
+                complete("cleared");
             }, step.clearAfterMs);
         }
 
         // Страховка: событие окончания может не прийти.
+        var myIndex = stepIndex;
         setTimeout(function() {
-            if (!stepDone && stepIndex === STEPS.indexOf(step)) completeStep("timeout 20s");
-        }, 20000);
+            if (!stepDone && stepIndex === myIndex) complete("timeout");
+        }, STEP_TIMEOUT_MS);
     }
 
     call.addEventListener(CallEvents.Connected, function() {
-        log("call connected, voice=" + INWORLD_VOICE);
+        log("call connected, voice=" + INWORLD_VOICE + ", steps=" + STEPS.length);
         nextStep();
     });
-    call.addEventListener(CallEvents.Disconnected, function() { VoxEngine.terminate(); });
+    call.addEventListener(CallEvents.Disconnected, function() { finish("caller hung up"); });
     call.addEventListener(CallEvents.Failed, function() { VoxEngine.terminate(); });
 
-    setTimeout(function() { log("session limit"); finish(); }, SESSION_LIMIT_MS);
+    setTimeout(function() { finish("session limit"); }, SESSION_LIMIT_MS);
 
     call.answer();
 });
