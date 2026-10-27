@@ -782,6 +782,23 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
 под замком процесса (два клика / два пользователя не получат один номер). Удаление номера из пула закрывает его
 аренду. Номера пула и запаса не берутся автоматически как caller_id исходящих.
 
+## Голоса Inworld в Каскаде (ветка 2010-verification)
+
+Для клиента это просто ещё 21 голос Каскада (Галина, Полина, … Тимофей), провайдер нигде не показывается.
+Справочник — `INWORLD_VOICES` / `CASCADE_VOICES` в `backend/api/grok_assistants.py` (id голоса = id в Inworld,
+он же уходит в `tts_voice`; `agent.py` берёт `CASCADE_VOICE_IDS` оттуда же; во фронте дубль —
+`CASCADE_VOICE_LIST` в `agent/instructions-voice.js`, редактор `voice-assistants.html` берёт список из API).
+`/config` и `/outbound-config` отдают `tts_provider = cascade_tts_provider(tts_voice)` (`inworld` | `voxtts`),
+сценарии `inbound_cascade.js` / `outbound_cascade.js` v4.1 по нему создают `Inworld.createRealtimeTTSPlayer`
+(`INWORLD_MODEL = "inworld-tts-2"`, `autoMode`) вместо VoxTTS — протокол плеера тот же. Синтез идёт на биллинге
+Voximplant аккаунта, где идёт звонок (физлица и тестовый пул — наш аккаунт, ИП/ООО — их баланс Voximplant);
+кошелёк клиента не трогается, Каскад по-прежнему бесплатен. Замеры: звук через ~0.65–0.9 с после flush
+(VoxTTS ~0.5 с), темп не настраивается, `audioConfig` Voximplant отклоняет. Примеры голосов —
+`INWORLD_API_KEY=… python3 scripts/inworld_voice_samples.py` → R2 `voice-samples/cascade/<голос>.wav`
+(кнопка «Послушать», `js/voice-samples.js`). Тестовые сценарии: `voximplant_scenarios/test_inworld_tts.js`
+(замер моделей), `test_inworld_dialog.js` (живой разговор, модель через прокси по `PROXY_ASSISTANT_ID`).
+Коннектор Voximplant Chat Completions с `baseUrl` на OpenRouter отвечает «Access denied by security policy».
+
 ## Inbound-правила номера: осиротевшие правила (ветка 2010-verification)
 
 Номер мог навсегда застрять на сценарии прежнего провайдера: в Voximplant жило правило `inbound_<номер>`,

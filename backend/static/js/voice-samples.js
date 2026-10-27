@@ -4,7 +4,8 @@
  *
  * Файлы лежат в R2: OpenAI, Gemini, Fish сгенерированы scripts/voice_samples.py —
  * voice-samples/<провайдер>/<голос в нижнем регистре>.wav (у Fish — по имени);
- * Каскад (VoxTTS) записан отдельно — voice-samples/<Имя>.mp3.
+ * Каскад: Анна/Сергей (VoxTTS) записаны отдельно — voice-samples/<Имя>.mp3, остальные
+ * голоса — scripts/inworld_voice_samples.py → voice-samples/cascade/<голос>.wav.
  * Новый голос без файла просто не играет (кнопка гаснет с подсказкой).
  *
  * Использование: VoiceSamples.button('openai', 'marin') → HTML кнопки (или ''
@@ -23,9 +24,13 @@
       '1ac3ce2f7ba24e90ac2a08055c253fe7': 'fish/svetlana.wav',
       '5ddd9a81cc554841a53b75e355d52628': 'fish/sergey.wav',
     },
-    // Голоса Каскада (CASCADE_VOICES в backend/api/agent.py)
+    // Голоса Каскада (CASCADE_VOICES в backend/api/grok_assistants.py): VoxTTS записаны
+    // вручную, остальные — scripts/inworld_voice_samples.py → cascade/<голос>.wav
     cascade: { Anna: 'Анна.mp3', Sergey: 'Сергей.mp3' },
   };
+  ['Galina', 'Polina', 'Yulia', 'Alyona', 'Snezhana', 'Svetlana', 'Elena', 'Tamara', 'Oksana',
+   'Vadim', 'Stepan', 'Yegor', 'Ruslan', 'Arkady', 'Nikolai', 'Lev', 'Rodion', 'Dmitry',
+   'Grigory', 'Gleb', 'Timofey'].forEach(v => { FILES.cascade[v] = 'cascade/' + v.toLowerCase() + '.wav'; });
 
   const ICON_PLAY = '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M4 2.5v11l9-5.5z"/></svg>';
   const ICON_PAUSE = '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></svg>';

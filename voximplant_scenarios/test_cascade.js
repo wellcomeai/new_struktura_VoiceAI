@@ -28,7 +28,7 @@ const BASE_CONFIG = {
 };
 
 function makeSandbox(file, config, customData) {
-    const st = { appHandlers: {}, logs: [], player: null, playerParams: null, llmSockets: [],
+    const st = { appHandlers: {}, logs: [], player: null, playerParams: null, playerKind: null, llmSockets: [],
                  vad: null, vadParams: null, asr: null, asrParams: null, call: null, dialed: null,
                  terminated: false, httpPosts: [] };
     function Emitter() {
@@ -61,7 +61,7 @@ function makeSandbox(file, config, customData) {
         console, setTimeout, clearTimeout, Promise, JSON, Math, Date, String, Array, Object, RegExp, Error, Number,
         isFinite, encodeURIComponent,
         require: () => {},
-        Modules: { ASR: "ASR", Silero: "Silero", OpenAI: "OpenAI", VoxTTS: "VoxTTS" },
+        Modules: { ASR: "ASR", Silero: "Silero", OpenAI: "OpenAI", VoxTTS: "VoxTTS", Inworld: "Inworld" },
         Logger: { write: (m) => st.logs.push(String(m)) },
         AppEvents: { Started: "Started", CallAlerting: "CallAlerting" },
         CallEvents: { Connected: "Connected", Disconnected: "Disconnected", Failed: "Failed",
@@ -81,7 +81,10 @@ function makeSandbox(file, config, customData) {
         VoxTTS: {
             VoiceList: { Anna: "Anna", Sergey: "Sergey" },
             ModelList: { VoxTTS: "voxtts" },
-            createRealtimeTTSPlayer: (p) => { st.playerParams = p; st.player = new FakePlayer(); return st.player; },
+            createRealtimeTTSPlayer: (p) => { st.playerParams = p; st.playerKind = "voxtts"; st.player = new FakePlayer(); return st.player; },
+        },
+        Inworld: {
+            createRealtimeTTSPlayer: (p) => { st.playerParams = p; st.playerKind = "inworld"; st.player = new FakePlayer(); return st.player; },
         },
         VoxEngine: {
             addEventListener: (ev, cb) => { st.appHandlers[ev] = cb; },
@@ -319,6 +322,47 @@ async function inboundGuardFlow() {
     console.log("✅ без first_phrase здоровается модель; без события конца озвучки hangup по оценке");
 }
 
+// Голос Inworld (v4.1): tts_provider = "inworld" в конфиге → плеер Inworld,
+// протокол тот же (send_text + flush_context, clearBuffer, конец по
+// AudioChunksPlaybackFinished без поля final).
+async function inboundInworldFlow() {
+    st = makeSandbox("inbound_cascade.js", Object.assign({}, BASE_CONFIG, { tts_provider: "inworld", tts_voice: "Galina" }));
+    st.appHandlers.Started({ sessionId: "sess-in-iw" });
+    const call = new st.FakeCall();
+    const done = st.appHandlers.CallAlerting({ call, destination: "74951234567" });
+    await tick(10);
+    llm().fire("WebSocket.Open");
+    await done;
+    const create = st.playerParams.createContextParameters.create;
+    assert(st.playerKind === "inworld" && create.voiceId === "Galina" && create.modelId === "inworld-tts-2" &&
+           create.autoMode === true, "плеер Inworld не создан как надо: " + st.playerKind + " " + JSON.stringify(create));
+    assert(st.player.mediaTo === call, "Inworld не подключён к звонку");
+    assert(ttsTexts()[0] === BASE_CONFIG.first_phrase && st.player.sent[0].send_text.flush_context, "приветствие не ушло в Inworld");
+    assert(!st.logs.some((l) => l.indexOf("не поддержан") !== -1), "inworld принят за неподдержанный провайдер");
+    reply(1, "Слушаю.");
+    played();                       // у Inworld нет поля final — событие считается концом
+    await userSays("Сколько стоит?");
+    reply(2, "Консультация стоит тысячу пятьсот рублей, приходите.");
+    await tick();
+    assert(ttsTexts().join("").indexOf("тысячу пятьсот") !== -1 && ttsFlushes() >= 3, "ответ не озвучен Inworld: " + JSON.stringify(ttsTexts()));
+    await userSays("А можно");      // перебивание поверх ответа
+    await tick(400);
+    assert(st.player.cleared > 0, "перебивание не очистило буфер Inworld");
+    console.log("✅ голос Inworld: плеер Inworld (tts-2, autoMode) → звонок, приветствие и ответ с flush, перебивание clearBuffer");
+}
+
+async function outboundInworldFlow() {
+    st = makeSandbox("outbound_cascade.js", Object.assign({}, BASE_CONFIG, { tts_provider: "inworld", tts_voice: "Timofey" }),
+                     JSON.stringify({ phone_number: "+79990000000", assistant_id: ID, caller_id: "+74951234567" }));
+    const done = st.appHandlers.Started({ sessionId: "sess-out-iw" });
+    await tick(10);
+    llm().fire("WebSocket.Open");
+    await done;
+    assert(st.playerKind === "inworld" && st.playerParams.createContextParameters.create.voiceId === "Timofey",
+           "исходящий: плеер Inworld не создан");
+    console.log("✅ исходящий с голосом Inworld: плеер Inworld создан до набора");
+}
+
 async function inboundNoProxyFlow() {
     st = makeSandbox("inbound_cascade.js", Object.assign({}, BASE_CONFIG, { llm_proxy_url: null }));
     const call = new st.FakeCall();
@@ -434,6 +478,8 @@ async function outboundFailFlow() {
     await outboundFlow();
     await outboundFailFlow();
     await inboundGuardFlow();
+    await inboundInworldFlow();
+    await outboundInworldFlow();
     if (process.env.DUMP_LOG) st.logs.forEach((l) => console.log("   " + l));
     console.log("\nвсе проверки inbound_cascade / outbound_cascade пройдены");
     process.exit(0);

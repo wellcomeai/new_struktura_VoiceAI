@@ -2,9 +2,16 @@ require(Modules.ASR);
 require(Modules.Silero);
 require(Modules.OpenAI);
 require(Modules.VoxTTS);
+require(Modules.Inworld);
 
 /*
- * Voximplant INBOUND Cascade Script v4.0 — ASR → LLM → VoxTTS
+ * Voximplant INBOUND Cascade Script v4.1 — ASR → LLM → VoxTTS / Inworld
+ *
+ * v4.1: голоса Inworld. Для клиента это просто ещё голоса Каскада; бэкенд
+ * кладёт в конфиг tts_provider = "inworld" (cascade_tts_provider в
+ * grok_assistants.py), и вместо VoxTTS создаётся Inworld.RealtimeTTSPlayer
+ * (INWORLD_MODEL, голос — CONFIG.tts_voice, синтез на биллинге Voximplant).
+ * Остальная логика (flush, clearBuffer, конец озвучки) у плееров общая.
  * ====================================================================
  * Тот же каскад, что inbound_fish v2.0, только голос — VoxTTS (Anna/Sergey),
  * встроенный в Voximplant, а не Fish через наш прокси:
@@ -69,6 +76,10 @@ var LLM_WARMUP       = true;           // прогрев: пока звучит 
 var WARMUP_MAX_TOKENS = 16;            // ответ прогрева не нужен — режем сразу
 var MS_PER_CHAR      = 95;             // оценка длительности речи VoxTTS (если событие конца не придёт)
 var TTS_START_PAD_MS = 400;            // задержка синтеза до первого звука — тоже «агент звучит»
+var INWORLD_MODEL    = "inworld-tts-2"; // голоса Inworld (tts_provider = "inworld"); 1.5-max/mini в тесте стартовали медленнее
+var INWORLD_AUTO_MODE = true;          // синтез начинается до flush: звук на ~0.1 с раньше
+var INWORLD_MS_PER_CHAR = 120;         // оценка длительности речи Inworld (Галина ~11.6 симв/с)
+var INWORLD_START_PAD_MS = 900;        // Inworld начинает звучать через ~0.7–0.9 с после flush
 var TTS_CLEAR_GRACE_MS = 400;          // события плеера сразу после clearBuffer — хвост сброшенной фразы
 var HANGUP_GUARD_MS  = 15000;          // потолок ожидания конца прощания
 var HANGUP_EST_EXTRA_MS = 2500;        // запас к оценке длительности прощания
@@ -107,7 +118,7 @@ var record_cost = 0;
 VoxEngine.addEventListener(AppEvents.Started, function(e) {
     call_session_history_id = e.sessionId;
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🚀 APP STARTED (INBOUND Cascade v4.0)");
+    Logger.write("🚀 APP STARTED (INBOUND Cascade v4.1)");
     Logger.write("🔑 Session History ID: " + call_session_history_id);
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });
@@ -209,7 +220,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     var LOG_URL = "https://voicyfy.ru/api/voximplant/log";
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("📞 INBOUND CALL (Cascade v4.0)");
+    Logger.write("📞 INBOUND CALL (Cascade v4.1)");
     Logger.write("   From: " + caller_number);
     Logger.write("   To: " + called_number);
     Logger.write("   Call ID: " + call_id);
@@ -366,9 +377,14 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     ASSISTANT_ID = CONFIG.assistant_id;
     VAD_SILENCE_MS = resolveSilenceMs(CONFIG.silence_duration_ms);
 
-    if (CONFIG.tts_provider && CONFIG.tts_provider !== "voxtts") {
+    var useInworld = CONFIG.tts_provider === "inworld";
+    if (CONFIG.tts_provider && CONFIG.tts_provider !== "voxtts" && !useInworld) {
         Logger.write("⚠️ tts_provider='" + CONFIG.tts_provider + "' не поддержан — озвучиваем VoxTTS");
     }
+    var ttsMsPerChar = useInworld ? INWORLD_MS_PER_CHAR : MS_PER_CHAR;
+    var ttsStartPadMs = useInworld ? INWORLD_START_PAD_MS : TTS_START_PAD_MS;
+    var ttsLabel = useInworld ? "Inworld " + CONFIG.tts_voice + " / " + INWORLD_MODEL
+                              : "VoxTTS " + voxttsVoice(CONFIG.tts_voice);
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     Logger.write("✅ CONFIG LOADED:");
@@ -377,7 +393,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     Logger.write("   🌐 Language: " + (CONFIG.asr_lang || CONFIG.language || "ru"));
     Logger.write("   👂 ASR: " + ASR_PROVIDER + " | VAD silence " + VAD_SILENCE_MS + "ms");
     Logger.write("   🧠 LLM: " + llmModel() + " via " + LLM_TRANSPORT + " (reasoning " + (llmReasoning || "default") + ")");
-    Logger.write("   🔊 VoxTTS voice: " + voxttsVoice(CONFIG.tts_voice));
+    Logger.write("   🔊 TTS: " + ttsLabel);
     Logger.write("   🔧 Functions: " + (CONFIG.functions ? CONFIG.functions.length : 0));
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -475,7 +491,11 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // длительности речи (MS_PER_CHAR), как в v3, — флаг не залипнет.
 
     function createTts() {
-        tts = VoxTTS.createRealtimeTTSPlayer({
+        if (useInworld) {
+            var create = { voiceId: CONFIG.tts_voice, modelId: INWORLD_MODEL };
+            if (INWORLD_AUTO_MODE) create.autoMode = true;
+            tts = Inworld.createRealtimeTTSPlayer({ createContextParameters: { create: create } });
+        } else tts = VoxTTS.createRealtimeTTSPlayer({
             createContextParameters: {
                 create: {
                     modelId: VoxTTS.ModelList.VoxTTS,
@@ -500,7 +520,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         try {
             tts.sendMediaTo(call);
             ttsAttached = true;
-            Logger.write("[TTS] 🔊 VoxTTS → call");
+            Logger.write("[TTS] 🔊 " + ttsLabel + " → call");
         } catch (err) {
             Logger.write("[TTS] ❌ sendMediaTo failed: " + err);
         }
@@ -524,8 +544,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     // Оценка: кусок текста продлевает ожидаемый конец речи.
     function noteAgentAudio(text) {
         var now = Date.now();
-        var start = agentAudioEndAt > now ? agentAudioEndAt : now + TTS_START_PAD_MS;
-        agentAudioEndAt = start + Math.max(300, text.length * MS_PER_CHAR);
+        var start = agentAudioEndAt > now ? agentAudioEndAt : now + ttsStartPadMs;
+        agentAudioEndAt = start + Math.max(300, text.length * ttsMsPerChar);
     }
 
     // Агент звучит (или вот-вот зазвучит). Нужно, чтобы отличить перебивание
@@ -1473,7 +1493,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         return;
     }
 
-    Logger.write("✅ LLM + VAD + VoxTTS ready");
+    Logger.write("✅ LLM + VAD + TTS ready (" + ttsLabel + ")");
 
     // Именно «поле присутствует», а не «истинно»: speechStartAt === 0
     // (начало сессии) — валидное значение.
@@ -1566,9 +1586,9 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     startGreeting();
 
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    Logger.write("🎉 READY FOR CONVERSATION (Cascade v4.0)");
+    Logger.write("🎉 READY FOR CONVERSATION (Cascade v4.1)");
     Logger.write("   🔑 Session: " + call_session_history_id);
-    Logger.write("   👂 ASR: " + ASR_PROVIDER + " → 🧠 " + llmModel() + " → 🔊 VoxTTS " + voxttsVoice(CONFIG.tts_voice));
+    Logger.write("   👂 ASR: " + ASR_PROVIDER + " → 🧠 " + llmModel() + " → 🔊 " + ttsLabel);
     Logger.write("   🎧 VAD silence: " + VAD_SILENCE_MS + "ms");
     Logger.write("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });

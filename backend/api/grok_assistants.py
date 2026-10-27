@@ -233,16 +233,60 @@ class CascadeApiKeysStatus(BaseModel):
 # Провайдер синтеза каскада. Настройкой не является: сценарии Voximplant
 # (inbound_cascade / outbound_cascade) умеют только VoxTTS и на любом другом
 # значении молча откатываются на него же — поэтому выбор из UI убран, а всё
-# остальное в TTS_PROVIDERS остаётся справочником голосов.
+# остальное в TTS_PROVIDERS остаётся справочником голосов. Голоса Inworld
+# живут в том же списке; в сценарий провайдер уходит по cascade_tts_provider.
 CASCADE_TTS_PROVIDER = "voxtts"
+
+# Голоса Inworld (inworld-tts-2) для клиента — просто ещё голоса Каскада:
+# id — имя голоса (оно же id в Inworld), провайдер наружу не показываем.
+# Какой плеер создать, сценарию inbound_cascade / outbound_cascade говорит
+# поле tts_provider конфига звонка (cascade_tts_provider). Синтез идёт на
+# биллинге Voximplant, кошелёк клиента не трогается.
+INWORLD_VOICES = [
+    # (id в Inworld, имя, пол, молодой голос)
+    ("Galina",   "Галина",   "female", False),
+    ("Polina",   "Полина",   "female", True),
+    ("Yulia",    "Юлия",     "female", False),
+    ("Alyona",   "Алёна",    "female", False),
+    ("Snezhana", "Снежана",  "female", True),
+    ("Svetlana", "Светлана", "female", False),
+    ("Elena",    "Елена",    "female", False),
+    ("Tamara",   "Тамара",   "female", False),
+    ("Oksana",   "Оксана",   "female", False),
+    ("Vadim",    "Вадим",    "male",   False),
+    ("Stepan",   "Степан",   "male",   False),
+    ("Yegor",    "Егор",     "male",   False),
+    ("Ruslan",   "Руслан",   "male",   False),
+    ("Arkady",   "Аркадий",  "male",   True),
+    ("Nikolai",  "Николай",  "male",   False),
+    ("Lev",      "Лев",      "male",   False),
+    ("Rodion",   "Родион",   "male",   False),
+    ("Dmitry",   "Дмитрий",  "male",   False),
+    ("Grigory",  "Григорий", "male",   False),
+    ("Gleb",     "Глеб",     "male",   False),
+    ("Timofey",  "Тимофей",  "male",   True),
+]
+
+# Все голоса Каскада: VoxTTS (Анна по умолчанию) + Inworld.
+CASCADE_VOICES = [
+    {"id": "Anna",   "name": "Анна",   "gender": "female"},
+    {"id": "Sergey", "name": "Сергей", "gender": "male"},
+] + [
+    {"id": vid, "name": name, "gender": gender, "young": young}
+    for vid, name, gender, young in INWORLD_VOICES
+]
+CASCADE_VOICE_IDS = [v["id"] for v in CASCADE_VOICES]
+INWORLD_VOICE_IDS = {vid for vid, _, _, _ in INWORLD_VOICES}
+
+
+def cascade_tts_provider(voice: Optional[str]) -> str:
+    """Плеер синтеза для голоса каскада: "inworld" или "voxtts" (поле tts_provider конфига звонка)."""
+    return "inworld" if voice in INWORLD_VOICE_IDS else CASCADE_TTS_PROVIDER
 
 TTS_PROVIDERS = {
     "voxtts": {
         "name": "VoxTTS (Voximplant)",
-        "voices": [
-            {"id": "Anna",   "name": "Анна",   "gender": "female"},
-            {"id": "Sergey", "name": "Сергей", "gender": "male"},
-        ]
+        "voices": CASCADE_VOICES,
     },
     "yandex": {
         "name": "Яндекс",
@@ -332,7 +376,7 @@ def validate_cascade_tts(voice: Optional[str]) -> None:
     """
     if voice is None:
         return
-    valid = [v["id"] for v in TTS_PROVIDERS[CASCADE_TTS_PROVIDER]["voices"]]
+    valid = CASCADE_VOICE_IDS
     if voice not in valid:
         raise HTTPException(
             status_code=400,

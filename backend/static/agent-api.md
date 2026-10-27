@@ -738,7 +738,7 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
 - **fish:** `1ac3ce2f7ba24e90ac2a08055c253fe7` — Светлана (по умолчанию),
   `5ddd9a81cc554841a53b75e355d52628` — Сергей; или любой свой `reference_id`
   с fish.audio. Передаётся в `fish_voice_id`.
-- **cascade:** `Anna`, `Sergey` (русская речь)
+- **cascade:** `Anna`, `Sergey`, `Galina`, `Polina`, `Yulia`, `Alyona`, `Snezhana`, `Svetlana`, `Elena`, `Tamara`, `Oksana`, `Vadim`, `Stepan`, `Yegor`, `Ruslan`, `Arkady`, `Nikolai`, `Lev`, `Rodion`, `Dmitry`, `Grigory`, `Gleb`, `Timofey` (русская речь; темп голоса не настраивается)
 - **openai:** `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`, а также голоса GPT-Live `beacon`, `bossa`, `cinder`, `delta`, `gleam`, `meridian`, `quartz`, `ripple`, `stone`, `tempo`, `vesper`, `willow` (голоса GPT-Live)
 - **gemini:** `Zephyr`, `Puck`, `Charon`, `Kore`, `Fenrir`, `Leda`, `Orus`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`, `Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`, `Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`, `Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`, `Sulafat`
 - **yandex:** `marina`, `dasha`, `alexander`, `julia`, `lera`, `masha`, `anton`, `kirill`, `filipp`, `ermil`, `jane`, `omazh`, `zahar`, `madi_ru`, `saule_ru`
@@ -811,7 +811,7 @@ curl -X POST https://voicyfy.ru/api/grok-assistants/cascade \
 | `system_prompt` | string | да | Инструкция ассистента — как себя вести в разговоре |
 | `description` | string | нет | Описание для себя (≤500 символов) |
 | `greeting_message` | string | нет | Первая фраза при входящем звонке (≤500 символов) |
-| `tts_voice` | string | нет | Голос: `Anna` или `Sergey`. По умолчанию `Anna` |
+| `tts_voice` | string | нет | Голос из списка «Голоса по провайдерам» → cascade. По умолчанию `Anna` |
 | `tts_provider` | string | нет | Оставляй значение по умолчанию (`voxtts`) |
 | `temperature` | float 0–2 | нет | Креативность ответов, по умолчанию 0.7 |
 | `max_tokens` | int 1–8192 | нет | Лимит длины ответа, по умолчанию 1024 |

@@ -130,8 +130,25 @@ const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','A
 // Должен совпадать с YANDEX_VOICES в backend/api/agent.py.
 const YANDEX_VOICES = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
 const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy', yandex:'marina', cascade:'Anna' };
-// Голоса каскада — VoxTTS realtime (должны совпадать с CASCADE_VOICES в backend/api/agent.py).
-const CASCADE_VOICES = ['Anna','Sergey'];
+// Голоса каскада (должны совпадать с CASCADE_VOICES в backend/api/grok_assistants.py):
+// Анна и Сергей — VoxTTS, остальные — Inworld (провайдер клиенту не показываем).
+// [id, имя, пол, описание]
+const CASCADE_VOICE_LIST = [
+  ['Anna','Анна','f','Тёплый, дружелюбный'], ['Sergey','Сергей','m','Уверенный, деловой'],
+  ['Galina','Галина','f','Взрослый голос'], ['Polina','Полина','f','Молодой голос'],
+  ['Yulia','Юлия','f','Взрослый голос'], ['Alyona','Алёна','f','Взрослый голос'],
+  ['Snezhana','Снежана','f','Молодой голос'], ['Svetlana','Светлана','f','Взрослый голос'],
+  ['Elena','Елена','f','Взрослый голос'], ['Tamara','Тамара','f','Взрослый голос'],
+  ['Oksana','Оксана','f','Взрослый голос'],
+  ['Vadim','Вадим','m','Взрослый голос'], ['Stepan','Степан','m','Взрослый голос'],
+  ['Yegor','Егор','m','Взрослый голос'], ['Ruslan','Руслан','m','Взрослый голос'],
+  ['Arkady','Аркадий','m','Молодой, тёплый, естественный'], ['Nikolai','Николай','m','Взрослый голос'],
+  ['Lev','Лев','m','Взрослый голос'], ['Rodion','Родион','m','Спокойный, деловой'],
+  ['Dmitry','Дмитрий','m','Взрослый голос'], ['Grigory','Григорий','m','Взрослый голос'],
+  ['Gleb','Глеб','m','Взрослый голос'], ['Timofey','Тимофей','m','Молодой голос'],
+];
+const CASCADE_VOICES = CASCADE_VOICE_LIST.map(v => v[0]);
+const CASCADE_VOICE_NAMES = Object.fromEntries(CASCADE_VOICE_LIST.map(v => [v[0], v[1]]));
 // Режимы синтеза Fish (должны совпадать с FISH_LATENCY_MODES в backend/models/fish_assistant.py).
 const FISH_LATENCY_MODES = ['low','balanced','normal'];
 const FISH_LATENCY_LABELS = { low:'Быстрый старт', balanced:'Сбалансированный', normal:'Качественный' };
@@ -195,15 +212,15 @@ const VOICE_META = {
     ermil:['m','Спокойный, размеренный'], jane:['f','Выразительный, яркий'], omazh:['f','Зрелый, насыщенный'],
     zahar:['m','Низкий, основательный'], madi_ru:['m','Дружелюбный, тёплый'], saule_ru:['f','Мягкий, деликатный'],
   },
-  cascade: {
-    Anna:['f','Тёплый, дружелюбный'], Sergey:['m','Уверенный, деловой'],
-  },
+  cascade: Object.fromEntries(CASCADE_VOICE_LIST.map(v => [v[0], [v[2], v[3]]])),
 };
 const GENDER_INFO = {
   m: { label:'Мужской',     icon:'fa-mars',             cls:'g-m' },
   f: { label:'Женский',     icon:'fa-venus',            cls:'g-f' },
   n: { label:'Нейтральный', icon:'fa-circle-half-stroke', cls:'g-n' },
 };
+// Подпись голоса: у каскада — русское имя вместо id.
+function voiceLabel(type, id){ return (type==='cascade' && CASCADE_VOICE_NAMES[id]) || id; }
 function voiceMeta(type, name){ const m=(VOICE_META[type]||{})[name]; return m ? {gender:m[0], desc:m[1]} : {gender:'n', desc:''}; }
 // Кнопка «Послушать» (js/voice-samples.js): примеры есть у OpenAI, Gemini и готовых голосов Fish
 function sampleButtonHtml(type, voice){
@@ -213,7 +230,7 @@ function voicePreviewHtml(type, name){
   const {gender, desc} = voiceMeta(type, name);
   const g = GENDER_INFO[gender] || GENDER_INFO.n;
   return `<span class="voice-ava ${g.cls}"><i class="fas ${g.icon}"></i></span>
-    <div class="voice-pv-txt"><b>${esc(name)} · ${g.label} голос</b><span>${esc(desc)}</span></div>${sampleButtonHtml(type, name)}`;
+    <div class="voice-pv-txt"><b>${esc(voiceLabel(type, name))} · ${g.label} голос</b><span>${esc(desc)}</span></div>${sampleButtonHtml(type, name)}`;
 }
 function updateVoicePreview(sel, descId, type){
   const el = document.getElementById(descId);
@@ -275,7 +292,7 @@ function voiceControlHtml(type, cur, ids){
   const v = cur.voice || VOICE_DEFAULTS[type] || voices[0];
   const opts = voices.map(x=>{
     const g = GENDER_INFO[voiceMeta(type,x).gender] || GENDER_INFO.n;
-    return `<option value="${x}" ${x===v?'selected':''}>${x} · ${g.label.toLowerCase()}</option>`;
+    return `<option value="${x}" ${x===v?'selected':''}>${esc(voiceLabel(type, x))} · ${g.label.toLowerCase()}</option>`;
   }).join('');
   return `<div class="form-group">
       <label class="form-label">Голос</label>

@@ -7,7 +7,7 @@ Fish (`*_fish`) с v4.0 / v2.0 устроены одинаково:
 (конец реплики — тишина) → модель через **наш прокси** (`/ws/cascade/llm/{id}`
 или `/ws/fish/llm/{id}`, `backend/websockets/handler_llm_proxy.py`; сейчас
 `deepseek/deepseek-v4.1-flash` через OpenRouter/Together, первый токен ~0.3 с)
-→ голос: **VoxTTS** (Anna/Sergey, встроен в Voximplant) у каскада, **Fish
+→ голос: **VoxTTS** (Anna/Sergey, встроен в Voximplant) или **Inworld** (остальные голоса, v4.1) у каскада, **Fish
 Audio** через прокси `/ws/fish/tts/{id}` у Fish.
 
 LLM-часть, ASR/VAD, склейка реплик, перебивания и ошибки модели — один и тот же
@@ -104,8 +104,11 @@ Fish-сценарии раскатываются так же, своими эн�
 
 ## Ограничения текущей версии
 
-- TTS каскада — только VoxTTS (Anna/Sergey); для `tts_provider` не `voxtts`
-  сценарий пишет warning и озвучивает VoxTTS.
+- TTS каскада (v4.1) — VoxTTS (Anna/Sergey) или Inworld (`tts_provider = "inworld"`,
+  его выставляет бэкенд по голосу — `cascade_tts_provider`): `Inworld.createRealtimeTTSPlayer`,
+  `inworld-tts-2`, `autoMode`, синтез на биллинге Voximplant. Темп у Inworld не задать
+  (Voximplant не пропускает `audioConfig`, `speakingRate` в `create` не действует).
+  Прочие значения `tts_provider` — warning и VoxTTS.
 - `vox-turn-taking` в цепочке правила каскада больше не нужен, но бэкенд
   (`bind-assistant`, `setup-cascade-scenarios`, `deploy-turn-taking`) пока
   продолжает собирать цепочку — это безвредно.

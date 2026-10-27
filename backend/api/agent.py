@@ -32,7 +32,7 @@ from backend.models.yandex_assistant import (
     YandexAssistantConfig, YandexConversation, DEFAULT_YANDEX_MODEL,
 )
 from backend.models.grok_assistant import GrokAssistantConfig, GrokConversation
-from backend.api.grok_assistants import CASCADE_TTS_PROVIDER
+from backend.api.grok_assistants import CASCADE_TTS_PROVIDER, CASCADE_VOICE_IDS
 from backend.models.fish_assistant import (
     FishAssistantConfig, FISH_MODELS, FISH_LATENCY_MODES,
     DEFAULT_FISH_MODEL, DEFAULT_FISH_LATENCY, DEFAULT_FISH_SAMPLE_RATE,
@@ -90,8 +90,8 @@ GEMINI_VOICES = [
     "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi",
     "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat",
 ]
-# Голоса каскада — только VoxTTS realtime (сценарий каскада поддерживает VoxTTS).
-CASCADE_VOICES = ["Anna", "Sergey"]
+# Голоса каскада: VoxTTS + Inworld, справочник — CASCADE_VOICES в grok_assistants.py.
+CASCADE_VOICES = CASCADE_VOICE_IDS
 DEFAULT_GEMINI_VOICE = "Kore"
 DEFAULT_OPENAI_VOICE = "alloy"
 DEFAULT_YANDEX_VOICE = "marina"
