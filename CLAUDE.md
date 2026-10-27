@@ -796,8 +796,10 @@ Voximplant аккаунта, где идёт звонок (физлица и т�
 (VoxTTS ~0.5 с), темп не настраивается, `audioConfig` Voximplant отклоняет. Примеры голосов —
 `python3 scripts/inworld_voice_samples.py [голоса]` в Render Shell: без ключа Inworld, через Voximplant —
 кладёт сценарий `voice_samples_inworld` (+ одноимённое правило с паттерном-не-номером) на родительский аккаунт,
-`StartScenarios` без звонка пишет каждый голос в запись `voice-sample-<голос>` (Recorder, mp3 48 кГц), скрипт
-забирает записи из `GetCallHistory` (`with_records`) в R2 `voice-samples/cascade/<голос>.mp3`
+`StartScenarios` без звонка пишет каждый голос в запись `voice-sample-<голос>` (`Modules.Recorder`, mp3 48 кГц;
+сессия без звонков живёт ≤ 60 с — пачки по 5 голосов отдельными сессиями), скрипт забирает записи из
+`GetCallHistory` (`with_records`; записи закрытые — временный ключ `CreateKey` + JWT, ключ удаляется) в R2
+`voice-samples/cascade/<голос>.mp3`
 (кнопка «Послушать», `js/voice-samples.js`). Тестовые сценарии: `voximplant_scenarios/test_inworld_tts.js`
 (замер моделей), `test_inworld_dialog.js` (живой разговор, модель через прокси по `PROXY_ASSISTANT_ID`).
 Коннектор Voximplant Chat Completions с `baseUrl` на OpenRouter отвечает «Access denied by security policy».

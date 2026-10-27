@@ -12,10 +12,14 @@
      (сценарий voice_samples_inworld) и при необходимости создаёт правило с тем же
      именем — паттерн не совпадает ни с одним номером, звонки на него не попадут;
   2. StartScenarios без звонка: сценарий по очереди озвучивает фразу каждым голосом
-     в отдельную запись Voximplant "voice-sample-<голос>" (mp3 48 кГц);
-  3. ждёт конца сессии, берёт записи из GetCallHistory (with_records) и копирует их в
+     в отдельную запись Voximplant "voice-sample-<голос>" (mp3 48 кГц). Сессия без
+     звонков живёт не больше 60 с (лимит VoxEngine), поэтому голоса идут пачками по
+     BATCH_SIZE — отдельными сессиями, одновременно;
+  3. ждёт конца сессий, берёт записи из GetCallHistory (with_records) и копирует их в
      R2 voice-samples/cascade/<голос в нижнем регистре>.mp3 — их играет кнопка
      «Послушать» (js/voice-samples.js); обновляет записи provider=cascade в index.json.
+     Записи на аккаунте закрытые (secure): для скачивания скрипт создаёт временный
+     ключ сервисного аккаунта (CreateKey), подписывает им JWT и в конце ключ удаляет.
 
 Голоса — INWORLD_VOICES в backend/api/grok_assistants.py, модель — как в звонках.
 """
@@ -33,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from voice_samples import PHRASE, R2_PREFIX, make_uploader  # noqa: E402  (импортирует backend.core.config)
 
 from backend.api.grok_assistants import INWORLD_VOICES  # noqa: E402
+from backend.services.r2_storage import VoximplantAuth  # noqa: E402
 from backend.services.voximplant_partner import get_voximplant_partner_service  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,7 +46,8 @@ SCENARIO_FILE = os.path.join(ROOT, "voximplant_scenarios", "voice_samples_inworl
 RULE_PATTERN = "voice_samples_inworld_only"   # не номер — входящие звонки сюда не попадут
 INWORLD_MODEL = "inworld-tts-2"               # как INWORLD_MODEL в inbound_cascade.js / outbound_cascade.js
 POLL_INTERVAL_S = 5
-SECONDS_PER_VOICE = 15
+BATCH_SIZE = 5            # голосов на сессию: ~7 с на голос, сессия без звонка живёт ≤ 60 с
+SESSION_WAIT_S = 120
 
 
 async def vox(svc, method: str, **params) -> dict:
@@ -135,35 +141,56 @@ async def main():
     scenario_id = await ensure_scenario(svc)
     rule_id = await ensure_rule(svc, scenario_id, args.app)
 
-    custom = json.dumps({"voices": [j[0] for j in jobs], "phrase": args.phrase, "model": args.model},
-                        ensure_ascii=False)
-    started = await svc.start_scenarios(svc.parent_account_id, svc.parent_api_key, rule_id, custom)
-    if not started.get("success"):
-        raise SystemExit(f"StartScenarios: {started.get('error')}")
-    session_id = started["call_session_history_id"]
-    print(f"сессия {session_id}: {len(jobs)} голосов, модель {args.model}, фраза «{args.phrase}»")
+    batches = [jobs[i:i + BATCH_SIZE] for i in range(0, len(jobs), BATCH_SIZE)]
+    sessions = []
+    for batch in batches:
+        custom = json.dumps({"voices": [j[0] for j in batch], "phrase": args.phrase, "model": args.model},
+                            ensure_ascii=False)
+        started = await svc.start_scenarios(svc.parent_account_id, svc.parent_api_key, rule_id, custom)
+        if not started.get("success"):
+            raise SystemExit(f"StartScenarios: {started.get('error')}")
+        sessions.append(started["call_session_history_id"])
+        print(f"сессия {started['call_session_history_id']}: {', '.join(j[0] for j in batch)}")
+    print(f"{len(jobs)} голосов в {len(sessions)} сессиях, модель {args.model}, фраза «{args.phrase}»")
 
-    session = await wait_records(svc, session_id, len(jobs), 60 + SECONDS_PER_VOICE * len(jobs))
-    by_name = {r.get("record_name"): r for r in session.get("records") or []}
-    if session.get("log_file_url"):
-        print("лог сессии:", session["log_file_url"])
+    done = await asyncio.gather(*(wait_records(svc, sid, len(b), SESSION_WAIT_S)
+                                  for sid, b in zip(sessions, batches)))
+    by_name = {}
+    for session in done:
+        by_name.update({r.get("record_name"): r for r in session.get("records") or []})
+        if session.get("log_file_url") and len(session.get("records") or []) < BATCH_SIZE:
+            print("лог сессии:", session["log_file_url"])
+
+    # Временный ключ сервисного аккаунта: записи закрытые, без JWT отдают 401.
+    key = await svc.create_key(svc.parent_account_id, svc.parent_api_key,
+                               key_name="voice_samples_tmp", description="временный, удаляется скриптом",
+                               roles=["Owner"])
+    if not key.get("success"):
+        raise SystemExit(f"CreateKey: {key.get('error')}")
+    auth = VoximplantAuth({"account_id": svc.parent_account_id, "key_id": key["key_id"],
+                           "private_key": key["private_key"]})
 
     results = []
-    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as http:
-        for vid, name, gender in jobs:
-            row = {"provider": "cascade", "voice": vid, "slug": vid.lower(), "name": name,
-                   "gender": "ж" if gender == "female" else "м", "model": args.model}
-            rec = by_name.get(f"voice-sample-{vid}")
-            try:
-                if not rec or not rec.get("record_url"):
-                    raise RuntimeError("записи нет (смотрите ===SAMPLE=== в логе сессии)")
-                resp = await http.get(rec["record_url"])
-                resp.raise_for_status()
-                url = uploader(f"{R2_PREFIX}/cascade/{vid.lower()}.mp3", resp.content, "audio/mpeg")
-                row.update(url=url, duration_s=rec.get("duration"), size_kb=len(resp.content) // 1024)
-            except Exception as e:
-                row["error"] = str(e)
-            results.append(row)
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as http:
+            for vid, name, gender in jobs:
+                row = {"provider": "cascade", "voice": vid, "slug": vid.lower(), "name": name,
+                       "gender": "ж" if gender == "female" else "м", "model": args.model}
+                rec = by_name.get(f"voice-sample-{vid}")
+                try:
+                    if not rec or not rec.get("record_url"):
+                        raise RuntimeError("записи нет (смотрите ===SAMPLE=== в логе сессии)")
+                    resp = await http.get(rec["record_url"], headers={"Authorization": auth.build_auth_header()})
+                    if resp.status_code != 200:
+                        raise RuntimeError(f"скачивание: HTTP {resp.status_code}")
+                    url = uploader(f"{R2_PREFIX}/cascade/{vid.lower()}.mp3", resp.content, "audio/mpeg")
+                    row.update(url=url, duration_s=rec.get("duration"), size_kb=len(resp.content) // 1024)
+                except Exception as e:
+                    row["error"] = str(e)
+                results.append(row)
+    finally:
+        deleted = await svc.delete_key(svc.parent_account_id, svc.parent_api_key, key["key_id"])
+        print("временный ключ удалён" if deleted.get("success") else f"⚠️ удалите ключ {key['key_id']} вручную")
 
     print("\n" + "═" * 96)
     print(f"{'голос':<10} {'имя':<10} {'пол':<3} {'сек':>4} {'КБ':>5}  ссылка")
