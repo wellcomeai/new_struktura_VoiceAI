@@ -1,4 +1,5 @@
 require(Modules.Inworld);
+require(Modules.Recorder);   // без него VoxEngine.createRecorder не определён
 
 /*
  * voice_samples_inworld.js — примеры голосов Inworld для Каскада без звонка.
@@ -51,7 +52,14 @@ VoxEngine.addEventListener(AppEvents.Started, function() {
     function record(voice) {
         var done = false;
         var player = null;
-        var recorder = VoxEngine.createRecorder({ name: "voice-sample-" + voice, hd_audio: true, secure: false });
+        var recorder = null;
+        try {
+            recorder = VoxEngine.createRecorder({ name: "voice-sample-" + voice, hd_audio: true, secure: false });
+        } catch (err) {
+            log(voice + " error recorder " + err);
+            setTimeout(next, 0);
+            return;
+        }
 
         function finish(status, info) {
             if (done) return;
