@@ -794,7 +794,10 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
 Voximplant аккаунта, где идёт звонок (физлица и тестовый пул — наш аккаунт, ИП/ООО — их баланс Voximplant);
 кошелёк клиента не трогается, Каскад по-прежнему бесплатен. Замеры: звук через ~0.65–0.9 с после flush
 (VoxTTS ~0.5 с), темп не настраивается, `audioConfig` Voximplant отклоняет. Примеры голосов —
-`INWORLD_API_KEY=… python3 scripts/inworld_voice_samples.py` → R2 `voice-samples/cascade/<голос>.wav`
+`python3 scripts/inworld_voice_samples.py [голоса]` в Render Shell: без ключа Inworld, через Voximplant —
+кладёт сценарий `voice_samples_inworld` (+ одноимённое правило с паттерном-не-номером) на родительский аккаунт,
+`StartScenarios` без звонка пишет каждый голос в запись `voice-sample-<голос>` (Recorder, mp3 48 кГц), скрипт
+забирает записи из `GetCallHistory` (`with_records`) в R2 `voice-samples/cascade/<голос>.mp3`
 (кнопка «Послушать», `js/voice-samples.js`). Тестовые сценарии: `voximplant_scenarios/test_inworld_tts.js`
 (замер моделей), `test_inworld_dialog.js` (живой разговор, модель через прокси по `PROXY_ASSISTANT_ID`).
 Коннектор Voximplant Chat Completions с `baseUrl` на OpenRouter отвечает «Access denied by security policy».
