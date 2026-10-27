@@ -25,6 +25,7 @@ Cloudflare R2 Storage Service для сохранения записей зво�
 
 import boto3
 import httpx
+import json
 import jwt
 import time
 from datetime import datetime
@@ -94,8 +95,10 @@ class VoximplantAuth:
         }
         
         try:
-            token = jwt.encode(
-                payload,
+            # Подписываем как JWS: jwt.encode в PyJWT 2.10+ требует строковый iss
+            # («Issuer (iss) must be a string»), а Voximplant ждёт число.
+            token = jwt.api_jws.PyJWS().encode(
+                json.dumps(payload, separators=(",", ":")).encode(),
                 self.private_key,
                 algorithm='RS256',
                 headers=headers
