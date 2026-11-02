@@ -815,3 +815,32 @@ Voximplant аккаунта, где идёт звонок (физлица и т�
 легаси-правила аккаунта) и создаёт одно; `/bind-assistant` при `False` отвечает 502 и привязку не меняет;
 агент меняет правила последним шагом перед commit (`_repoint_agent_phone_numbers` → `_rebind_agent_rules`).
 Сверка всех номеров с Voximplant: `python3 scripts/check_inbound_rules.py [номер] [--fix]`.
+
+## Чтение Google-таблиц по открытой ссылке (ветка 2010-verification)
+
+`read_google_doc` понимал только `/document/d/…`: на ссылку `/spreadsheets/d/…` отвечал
+`Invalid Google Docs URL`, модель перебирала варианты ссылки и говорила клиенту «таблица недоступна».
+Общий модуль `backend/services/google_sheet_reader.py`:
+- **Ссылка** в любом виде (`/edit`, `?gid=`, `#gid=`, `?usp=sharing`, без хвоста, голый ID) →
+  `parse_google_url` (ID по `/d/([a-zA-Z0-9_-]+)`, только хосты google.com). Скачивается всегда
+  `docs.google.com/spreadsheets/d/{id}/export?format=xlsx` — все видимые листы одним запросом, без
+  ключей; первая непустая строка листа — шапка. Кэш `CACHE_TTL_SECONDS`=60 на таблицу (в памяти процесса).
+- **Ответ модели**: таблица до `max_chars` (голос `VOICE_MAX_CHARS`=6000, агент `AGENT_MAX_CHARS`=12000)
+  — целиком (`mode=full`); больше и без `query` — начало + подсказка передать query (`preview`);
+  с `query` — поиск (`search`): регистр и ё/е не важны, падежи/опечатки через
+  `contact_search._word_similarity`, числа точно, слова вопроса (`STOP_WORDS`) и слова, которых нет
+  в таблице (`ignored_words`, напр. «айфон» при «iPhone» в таблице), не учитываются; строки по доле
+  совпавших слов, шапка листа + до `SEARCH_MAX_ROWS`=15. Ничего — `found=false` + hint «не придумывай».
+- **Ошибки** `{success: false, error, message}`: `invalid_url`, `access_denied` (403 или редирект на
+  страницу входа / HTML вместо xlsx — так Google отвечает на закрытую таблицу), `not_found`, `empty`,
+  `too_large` (>15 МБ), `network_error`, `http_error`, `bad_file`. В лог: HTTP-статус, размер, режим,
+  число совпадений, первые 200 символов ответа (`[GSHEET]`, `[READ_GOOGLE_SHEET]`, `[AGENT-GSHEET]`).
+- **Голосовой ассистент**: функция `read_google_sheet(url, query, sheet)` (`backend/functions/`), ссылку
+  модель берёт из промпта. `read_google_doc` ссылку на таблицу передаёт в тот же модуль (и принимает
+  `query`), поэтому старые ассистенты с таблицей в промпте работают без перенастройки; для документов —
+  прежний txt-экспорт, плюс `access_denied` на страницу входа и лог результата. В редакторе
+  `voice-assistants.html` функция не включает блок «ID Google-таблицы» (он для записи диалогов).
+- **Агент**: инструмент `read_google_sheet` в чате и PostCall (`FILE_CHAT_TOOLS` / `FILE_POSTCALL_TOOLS`,
+  в event loop — ходит в сеть). Голосовому ассистенту агента функция сама не добавляется (список его
+  функций задаёт `agent.py`, как `search_pinecone`).
+- Тест: `python test_google_sheet_reader.py` (без сети, подставной HTTP).

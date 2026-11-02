@@ -1,36 +1,28 @@
 # backend/functions/read_google_doc.py
 """
 Функция для чтения текста из Google Документа по ссылке.
+Ссылку на Google-таблицу передаёт в google_sheet_reader (как read_google_sheet).
 """
-import re
 import aiohttp
 from typing import Dict, Any, Optional
 
 from backend.core.logging import get_logger
 from backend.functions.base import FunctionBase
 from backend.functions.registry import register_function
+from backend.services import google_sheet_reader
 
 logger = get_logger(__name__)
 
 def extract_document_id(url: str) -> Optional[str]:
     """
-    Извлекает ID документа из URL Google Docs.
-    
-    Примеры URL:
-    - https://docs.google.com/document/d/DOCUMENT_ID/edit
-    - https://docs.google.com/document/d/DOCUMENT_ID/
+    ID Google Документа или файла Drive из ссылки (любой хвост: /edit, ?usp=, #...).
+    Для ссылок на таблицы — None (их читает google_sheet_reader).
     """
-    patterns = [
-        r'docs\.google\.com/document/d/([a-zA-Z0-9-_]+)',
-        r'drive\.google\.com/file/d/([a-zA-Z0-9-_]+)',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    
-    return None
+    parsed = google_sheet_reader.parse_google_url(url)
+    if not parsed or parsed["kind"] in ("spreadsheet", "presentation"):
+        return None
+    return parsed["id"]
+
 
 @register_function
 class ReadGoogleDocFunction(FunctionBase):
@@ -46,7 +38,10 @@ class ReadGoogleDocFunction(FunctionBase):
     
     @classmethod
     def get_description(cls) -> str:
-        return "Читает текст из публичного Google Документа по ссылке"
+        return (
+            "Читает текст из публичного Google Документа по ссылке. Ссылку на Google-таблицу "
+            "тоже принимает: для таблиц передай query — что ищем (название как в таблице)."
+        )
     
     @classmethod
     def get_parameters(cls) -> Dict[str, Any]:
@@ -56,6 +51,10 @@ class ReadGoogleDocFunction(FunctionBase):
                 "url": {
                     "type": "string",
                     "description": "Ссылка на Google Документ (должен быть публичным или доступным по ссылке)"
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Только для Google-таблиц: что найти (название как в таблице)"
                 }
             },
             "required": ["url"]
@@ -112,6 +111,8 @@ class ReadGoogleDocFunction(FunctionBase):
 <ul>
     <li><code>https://docs.google.com/document/d/DOCUMENT_ID/edit</code></li>
     <li><code>https://drive.google.com/file/d/DOCUMENT_ID/view</code></li>
+    <li><code>https://docs.google.com/spreadsheets/d/ID/edit</code> — таблица: читается как в
+        <code>read_google_sheet</code> (для таблиц лучше включить её)</li>
 </ul>
 
 <p><strong>Примеры использования:</strong></p>
@@ -125,70 +126,76 @@ class ReadGoogleDocFunction(FunctionBase):
     @staticmethod
     async def execute(arguments: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Читает текст из Google Документа.
-        
-        Args:
-            arguments: {"url": "https://docs.google.com/document/d/..."}
-            context: Контекст выполнения
-            
-        Returns:
-            Dict с текстом документа или ошибкой
+        Читает текст из Google Документа. Ссылку на Google-таблицу передаёт в
+        google_sheet_reader (раньше такая ссылка давала «Invalid Google Docs URL»).
         """
+        url = (arguments or {}).get("url")
         try:
-            url = arguments.get("url")
-            
             if not url:
-                return {"error": "URL is required"}
-            
-            # Извлекаем ID документа
+                logger.warning("[READ_GOOGLE_DOC] Пустой url")
+                return {"success": False, "error": "invalid_url", "message": "URL is required"}
+
+            if google_sheet_reader.is_spreadsheet_url(url):
+                logger.info(f"[READ_GOOGLE_DOC] Ссылка на таблицу → read_google_sheet: {url}")
+                return await google_sheet_reader.read_sheet(
+                    url, query=(arguments or {}).get("query"),
+                    max_chars=google_sheet_reader.VOICE_MAX_CHARS, log_prefix="[READ_GOOGLE_DOC]",
+                )
+
             doc_id = extract_document_id(url)
-            
             if not doc_id:
-                return {"error": "Invalid Google Docs URL"}
-            
-            logger.info(f"[READ_GOOGLE_DOC] Извлечен document ID: {doc_id}")
-            
-            # Формируем URL для экспорта документа в текстовом формате
+                logger.warning(f"[READ_GOOGLE_DOC] invalid_url: {url!r}")
+                return {
+                    "success": False, "error": "invalid_url",
+                    "message": "Не удалось распознать ссылку на Google Документ "
+                               "(нужна docs.google.com/document/d/<ID>/...)",
+                }
+
             export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
-            
-            logger.info(f"[READ_GOOGLE_DOC] Запрашиваем текст документа...")
-            
-            # Загружаем текст документа
             async with aiohttp.ClientSession() as session:
                 async with session.get(export_url, timeout=30) as response:
-                    if response.status == 200:
-                        text = await response.text()
-                        
-                        # Убираем лишние пустые строки
-                        lines = [line for line in text.split('\n') if line.strip()]
-                        cleaned_text = '\n'.join(lines)
-                        
-                        logger.info(f"[READ_GOOGLE_DOC] Успешно получен текст: {len(cleaned_text)} символов")
-                        
-                        return {
-                            "success": True,
-                            "text": cleaned_text,
-                            "length": len(cleaned_text),
-                            "document_id": doc_id
-                        }
-                    
-                    elif response.status == 403:
-                        return {
-                            "error": "Доступ запрещен. Документ должен быть публичным или доступным по ссылке"
-                        }
-                    
-                    elif response.status == 404:
-                        return {
-                            "error": "Документ не найден. Проверьте корректность ссылки"
-                        }
-                    
-                    else:
-                        return {
-                            "error": f"Ошибка при получении документа: HTTP {response.status}"
-                        }
-            
+                    status = response.status
+                    ctype = response.headers.get("Content-Type", "")
+                    final_host = response.url.host or ""
+                    text = await response.text() if status == 200 else ""
+            logger.info(f"[READ_GOOGLE_DOC] {doc_id}: HTTP {status}, {len(text)} символов, "
+                        f"{ctype or '-'}, host={final_host}")
+
+            if status in (401, 403) or "accounts.google.com" in final_host or (
+                    status == 200 and "text/html" in ctype):
+                # Закрытый документ: Google отвечает редиректом на страницу входа (HTML, 200)
+                logger.warning(f"[READ_GOOGLE_DOC] {doc_id}: access_denied")
+                return {
+                    "success": False, "error": "access_denied",
+                    "message": "Доступ запрещен. Документ должен быть открыт «Все, у кого есть ссылка»",
+                }
+            if status == 404:
+                logger.warning(f"[READ_GOOGLE_DOC] {doc_id}: not_found")
+                return {"success": False, "error": "not_found",
+                        "message": "Документ не найден. Проверьте корректность ссылки"}
+            if status != 200:
+                logger.warning(f"[READ_GOOGLE_DOC] {doc_id}: HTTP {status}")
+                return {"success": False, "error": "http_error",
+                        "message": f"Ошибка при получении документа: HTTP {status}"}
+
+            # Убираем лишние пустые строки
+            cleaned_text = "\n".join(line for line in text.split("\n") if line.strip())
+            if not cleaned_text:
+                logger.warning(f"[READ_GOOGLE_DOC] {doc_id}: empty")
+                return {"success": False, "error": "empty", "message": "Документ пустой"}
+
+            logger.info(f"[READ_GOOGLE_DOC] {doc_id}: {len(cleaned_text)} символов | "
+                        f"{cleaned_text[:200]!r}")
+            return {
+                "success": True,
+                "text": cleaned_text,
+                "length": len(cleaned_text),
+                "document_id": doc_id,
+            }
+
         except Exception as e:
             logger.error(f"[READ_GOOGLE_DOC] Ошибка: {str(e)}")
             return {
-                "error": f"Failed to read document: {str(e)}"
+                "success": False, "error": "internal_error",
+                "message": f"Failed to read document: {str(e)}",
             }

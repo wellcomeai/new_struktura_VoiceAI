@@ -719,7 +719,7 @@
     }));
     updateSheetBlock();
   }
-  function updateSheetBlock() { $('sheet-block').style.display = Array.from(state.enabledFunctions).some(n => /sheet/i.test(n)) ? '' : 'none'; }
+  function updateSheetBlock() { $('sheet-block').style.display = Array.from(state.enabledFunctions).some(n => /sheet/i.test(n) && n !== 'read_google_sheet') ? '' : 'none'; }
   function functionsPayload() {
     if (!state.enabledFunctions.size) return null;
     const entry = f => ({ name: f.name, description: f.description || ('Функция ' + f.name) });

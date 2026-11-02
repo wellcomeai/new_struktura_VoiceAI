@@ -1600,10 +1600,43 @@ GET_AGENT_FILES_TOOL = {
     },
 }
 
-FILE_CHAT_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, EXPORT_CONTACTS_TABLE_TOOL, GET_AGENT_FILES_TOOL]
+READ_GOOGLE_SHEET_TOOL = {
+    "type": "function",
+    "name": "read_google_sheet",
+    "description": (
+        "Прочитать Google-таблицу по открытой ссылке (прайс, наличие, расписание, тарифы) и найти "
+        "нужные строки. url — ссылка как есть (docs.google.com/spreadsheets/d/...). query — что "
+        "ищем, так, как записано в таблице: название, бренды латиницей, числа цифрами, без слов "
+        "вопроса. Без query маленькая таблица приходит целиком, у большой — начало и список листов. "
+        "found=false — переформулируй query, не придумывай. access_denied — таблица не открыта "
+        "«Все, у кого есть ссылка»: скажи об этом владельцу, ссылку не перебирай."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "Ссылка на Google-таблицу"},
+            "query": {"type": "string", "description": "Что найти: название как в таблице, например «iPhone 18 Pro 256»"},
+            "sheet": {"type": "string", "description": "Название листа (вкладки), если искать только в нём"},
+        },
+        "required": ["url"],
+    },
+}
+
+
+async def fn_read_google_sheet(args: dict) -> dict:
+    """Открытая Google-таблица: целиком или найденные строки (google_sheet_reader)."""
+    from backend.services import google_sheet_reader
+    return await google_sheet_reader.read_sheet(
+        args.get("url") or "", query=args.get("query"), sheet=args.get("sheet"),
+        max_chars=google_sheet_reader.AGENT_MAX_CHARS, log_prefix="[AGENT-GSHEET]",
+    )
+
+
+FILE_CHAT_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, EXPORT_CONTACTS_TABLE_TOOL, GET_AGENT_FILES_TOOL,
+                   READ_GOOGLE_SHEET_TOOL]
 # Без get_agent_files: в разборе звонка/сообщения клиента модель не должна видеть
 # ссылки на все файлы агента (там выгрузки базы) — клиент мог бы их «попросить».
-FILE_POSTCALL_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL]
+FILE_POSTCALL_TOOLS = [CREATE_PDF_DOCUMENT_TOOL, CREATE_SPREADSHEET_TOOL, READ_GOOGLE_SHEET_TOOL]
 
 
 def _attachment(args: dict, db: Session, agent_config_id) -> tuple:
@@ -4242,6 +4275,7 @@ _TOOL_MAP = {
     "create_spreadsheet": "fn_create_spreadsheet",
     "export_contacts_table": "fn_export_contacts_table",
     "get_agent_files": "fn_get_agent_files",
+    "read_google_sheet": "fn_read_google_sheet",
     "bulk_schedule_messages": "fn_bulk_schedule_messages",
 }
 
@@ -4529,6 +4563,8 @@ async def _dispatch_tool(tool_name: str, tool_args: dict, context: dict, db: Ses
             result = await fn_export_contacts_table(tool_args, user_id, agent_config_id, db)
         elif tool_name == "get_agent_files":
             result = await fn_get_agent_files(tool_args, user_id, agent_config_id, db)
+        elif tool_name == "read_google_sheet":
+            result = await fn_read_google_sheet(tool_args)
         elif tool_name == "bulk_schedule_messages":
             agent_config = context.get("agent_config")
             if agent_config is None and agent_config_id:
