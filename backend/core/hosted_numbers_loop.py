@@ -4,7 +4,9 @@
     hosted-записях (после раскатки сценариев id могли поменяться);
   * продлевает номера, у которых закончился оплаченный месяц, приостанавливает
     неоплаченные и возвращает в запас просроченные (hosted_numbers.renew_due);
-  * удаляет документы верификации, срок хранения которых истёк.
+  * удаляет документы верификации, срок хранения которых истёк;
+  * переносит физлицам входящие SMS на их номера, лёгшие на аккаунт
+    администратора (hosted_numbers.reassign_misrouted_sms).
 
 Вся работа с БД — в потоке (asyncio.to_thread).
 """
@@ -27,7 +29,13 @@ def _run_once() -> dict:
         synced = hosted_numbers.sync_all_hosted(db)
         stats = hosted_numbers.renew_due(db)
         purged = purge_due(db)
-        return {"synced": synced, **stats, "purged": purged}
+        try:
+            sms_moved = hosted_numbers.reassign_misrouted_sms(db)
+        except Exception as e:
+            db.rollback()
+            logger.error(f"[HOSTED] reassign_misrouted_sms error: {e}")
+            sms_moved = 0
+        return {"synced": synced, **stats, "purged": purged, "sms_moved": sms_moved}
     finally:
         db.close()
 
@@ -47,7 +55,7 @@ async def start_hosted_numbers_loop(check_interval: int = 3600):
     while _running:
         try:
             stats = await asyncio.to_thread(_run_once)
-            if any(stats.get(k) for k in ("renewed", "suspended", "released", "purged")):
+            if any(stats.get(k) for k in ("renewed", "suspended", "released", "purged", "sms_moved")):
                 logger.info(f"[HOSTED] {stats}")
         except Exception as e:
             logger.error(f"[HOSTED] loop error: {e}")

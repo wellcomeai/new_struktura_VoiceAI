@@ -742,6 +742,12 @@ Voximplant больше не верифицирует физлиц. ИП/ООО 
   `is_hosted=False`, входящие SMS на номер физлица уходят его hosted-записи по номеру получателя. Прямые
   `/buy-number`, `/phone-regions`, `/available-numbers`, `/billing-url`, `/sip/connect` для hosted запрещены
   (`forbid_hosted`), покупка — `/hosted/buy`.
+- **Входящие SMS на номер физлица.** Voximplant шлёт `sms_inbound` на общий `callback_url` аккаунта
+  (`/webhook/verification-status`), а не только на `/webhook/sms`. Оба вебхука сохраняют SMS одним кодом
+  `_save_inbound_sms` (владелец — по номеру получателя, затем `handle_inbound_sms` агента); повтор той же SMS
+  в пределах `SMS_DUPLICATE_WINDOW` (2 мин) не сохраняется. Раньше `/verification-status` писал SMS на аккаунт
+  администратора и агента не звал — такие SMS переносит физлицу `reassign_misrouted_sms` (часовой цикл
+  `hosted_numbers_loop`, только SMS после первой оплаты номера физлицом, агент на них не запускается).
 - **Деньги** — отдельный телефонный кошелёк `users.telephony_balance` (копейки, `services/telephony_wallet.py`,
   журнал `telephony_wallet_transactions`, идемпотентность по `ref_key`). Пополнение — Robokassa
   `Shp_telephony_topup`, минимум `TELEPHONY_MIN_TOPUP_RUB` (1000 ₽) (подпись PASSWORD_2 проверяется всегда, даже при `DISABLE_SIGNATURE_VERIFICATION`; без

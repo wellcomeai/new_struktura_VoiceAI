@@ -78,6 +78,7 @@ Routes:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, Body
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel, Field
@@ -6627,44 +6628,17 @@ async def webhook_verification_status(
             callbacks = [body]
         
         processed_count = 0
-        
+        sms_callbacks = []
+
         for callback in callbacks:
             callback_type = callback.get("type", "account_document_status_updated")
 
-            # 🆕 Обработка входящих SMS
+            # Входящие SMS: Voximplant шлёт их на общий callback_url аккаунта,
+            # то есть сюда. Сохраняем тем же кодом, что /webhook/sms: владелец —
+            # по номеру получателя (номер физлица на аккаунте администратора
+            # принадлежит физлицу), затем разбор агентом.
             if callback_type == "sms_inbound":
-                try:
-                    sms_data = callback.get("sms_inbound", {})
-                    vox_account_id = str(callback.get("account_id", ""))
-                    from_number = sms_data.get("source_number", "")
-                    to_number = sms_data.get("destination_number", "")
-                    body_text = sms_data.get("sms_body", "")
-
-                    logger.info(f"[TELEPHONY-SMS] Incoming SMS: from={from_number} to={to_number} account={vox_account_id}")
-
-                    if vox_account_id and from_number and to_number and body_text:
-                        child_account = db.query(VoximplantChildAccount).filter(
-                            VoximplantChildAccount.vox_account_id == vox_account_id, VoximplantChildAccount.is_hosted.is_(False)
-                        ).first()
-
-                        if child_account:
-                            from backend.models.sms_message import SmsMessage
-                            sms = SmsMessage(
-                                child_account_id=child_account.id,
-                                vox_account_id=vox_account_id,
-                                from_number=from_number,
-                                to_number=to_number,
-                                body=body_text,
-                                direction="inbound",
-                                is_read=False,
-                            )
-                            db.add(sms)
-                            db.commit()
-                            logger.info(f"[TELEPHONY-SMS] ✅ SMS saved for account {vox_account_id}")
-                        else:
-                            logger.warning(f"[TELEPHONY-SMS] ⚠️ Child account not found: {vox_account_id}")
-                except Exception as sms_err:
-                    logger.error(f"[TELEPHONY-SMS] ❌ Error saving SMS: {sms_err}")
+                sms_callbacks.append(callback)
                 continue
 
             if callback_type not in ["account_document_status_updated", None]:
@@ -6714,7 +6688,14 @@ async def webhook_verification_status(
                 logger.info(f"[TELEPHONY] ✅ Status updated via webhook: {account_id} | {old_status} -> {new_status}")
             else:
                 logger.warning(f"[TELEPHONY] Unknown status: {account_document_status}")
-        
+
+        if sms_callbacks:
+            try:
+                sms_ids = await asyncio.to_thread(_save_inbound_sms, sms_callbacks)
+                _spawn_inbound_sms_handlers(sms_ids)
+            except Exception as sms_err:
+                logger.error(f"[TELEPHONY-SMS] ❌ Error saving SMS: {sms_err}", exc_info=True)
+
         return {
             "status": "ok",
             "processed": processed_count,
@@ -6906,9 +6887,6 @@ async def webhook_sms(request: Request):
     запросы не останавливали event loop с живыми звонками; разбор агентом
     запускается фоновой задачей уже в loop.
     """
-    import asyncio
-    from backend.services.agent_orchestrator import handle_inbound_sms
-
     try:
         payload = await request.json()
         callbacks = payload.get("callbacks", [])
@@ -6918,16 +6896,25 @@ async def webhook_sms(request: Request):
         logger.error(f"[TELEPHONY-SMS] Webhook error: {e}", exc_info=True)
         return {"status": "ok"}
 
-    # ✅ Event-driven: запускаем оркестратор агента на анализ входящего
-    # SMS (перезвонить / ответить / завести контакт / сменить стадию).
-    # handler открывает собственную сессию БД — безопасно для create_task.
+    _spawn_inbound_sms_handlers(sms_ids)
+    return {"status": "ok"}
+
+
+def _spawn_inbound_sms_handlers(sms_ids: list) -> None:
+    """Event-driven: запустить оркестратор агента на каждое новое входящее SMS
+    (перезвонить / ответить / завести контакт / сменить стадию). Handler открывает
+    собственную сессию БД — безопасно для create_task. Вызывать из event loop."""
+    from backend.services.agent_orchestrator import handle_inbound_sms
+
     for sms_id in sms_ids:
         try:
             asyncio.create_task(handle_inbound_sms(sms_id))
         except Exception as trigger_err:
             logger.error(f"[TELEPHONY-SMS] failed to schedule agent handler: {trigger_err}")
 
-    return {"status": "ok"}
+
+# Окно, в котором та же SMS (отправитель, получатель, текст) считается повтором вебхука
+SMS_DUPLICATE_WINDOW = timedelta(minutes=2)
 
 
 def _save_inbound_sms(callbacks: list) -> list:
@@ -6973,6 +6960,30 @@ def _save_inbound_sms(callbacks: list) -> list:
                 if not child_account:
                     logger.warning(
                         f"[TELEPHONY-SMS] Child account not found for vox_account_id={account_id}"
+                    )
+                    continue
+
+                # Одна SMS может прийти и на /webhook/sms, и на общий callback_url
+                # (/webhook/verification-status) — вторую копию не сохраняем и агента
+                # второй раз не зовём. Замок на ключ сообщения — чтобы два вебхука,
+                # пришедшие одновременно, не прошли проверку оба.
+                db.execute(
+                    text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+                    {"k": f"sms:{account_id}:{source_number}:{destination_number}:{sms_body}"},
+                )
+                duplicate = db.query(SmsMessage.id).filter(
+                    SmsMessage.direction == "inbound",
+                    SmsMessage.vox_account_id == str(account_id),
+                    SmsMessage.from_number == source_number,
+                    SmsMessage.to_number == destination_number,
+                    SmsMessage.body == sms_body,
+                    SmsMessage.received_at >= datetime.now(timezone.utc) - SMS_DUPLICATE_WINDOW,
+                ).first()
+                if duplicate:
+                    db.rollback()
+                    logger.info(
+                        f"[TELEPHONY-SMS] Duplicate SMS skipped: from={source_number}, "
+                        f"to={destination_number}, existing id={duplicate.id}"
                     )
                     continue
 

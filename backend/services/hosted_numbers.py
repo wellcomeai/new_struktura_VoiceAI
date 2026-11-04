@@ -720,3 +720,65 @@ def admin_overview(db: Session) -> dict:
         "rented": rented,
         "stock": stock,
     }
+
+
+# =============================================================================
+# SMS, ошибочно записанные на аккаунт администратора
+# =============================================================================
+
+def _number_owned_since(db: Session, phone: VoximplantPhoneNumber, user_id) -> Optional[datetime]:
+    """С какого момента номер числится за физлицом: первая оплата номера в его
+    телефонном кошельке (покупка или взятие из запаса). Без оплаты — None:
+    не знаем, с какого момента SMS его, и ничего не переносим."""
+    from backend.models.telephony_verification import TelephonyWalletTransaction
+
+    suffix = digits(phone.phone_number)[-10:]
+    rows = db.query(TelephonyWalletTransaction.phone_number, TelephonyWalletTransaction.created_at).filter(
+        TelephonyWalletTransaction.user_id == user_id,
+        TelephonyWalletTransaction.type == "number",
+        TelephonyWalletTransaction.phone_number.isnot(None),
+    ).all()
+    dates = [created for number, created in rows if digits(number or "")[-10:] == suffix]
+    return min(dates) if dates else None
+
+
+def reassign_misrouted_sms(db: Session) -> int:
+    """Перенести физлицу входящие SMS на его номер, лёгшие на аккаунт администратора.
+
+    Voximplant присылает SMS с account_id администратора (номер физически там),
+    и вебхук /verification-status раньше записывал их администратору, а не
+    владельцу номера. Переносим только SMS, пришедшие после того, как номер
+    стал его (_number_owned_since). Повторный запуск ничего не меняет.
+    """
+    from backend.models.sms_message import SmsMessage
+
+    moved = 0
+    phones = db.query(VoximplantPhoneNumber).join(
+        VoximplantChildAccount, VoximplantPhoneNumber.child_account_id == VoximplantChildAccount.id,
+    ).filter(
+        VoximplantChildAccount.is_hosted.is_(True),
+        VoximplantPhoneNumber.hosted_stock.is_(False),
+    ).all()
+    for phone in phones:
+        row = phone.child_account
+        if not row.host_child_account_id:
+            continue
+        since = _number_owned_since(db, phone, row.user_id)
+        if not since:
+            continue
+        suffix = digits(phone.phone_number)[-10:]
+        if len(suffix) < 10:
+            continue
+        sms_rows = db.query(SmsMessage).filter(
+            SmsMessage.child_account_id == row.host_child_account_id,
+            SmsMessage.direction == "inbound",
+            SmsMessage.received_at >= since,
+            SmsMessage.to_number.op("~")(f"{suffix}$"),
+        ).all()
+        for sms in sms_rows:
+            sms.child_account_id = row.id
+        if sms_rows:
+            db.commit()
+            moved += len(sms_rows)
+            logger.info(f"[HOSTED] moved {len(sms_rows)} inbound SMS on {phone.phone_number} to user {row.user_id}")
+    return moved
