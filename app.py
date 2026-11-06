@@ -1874,6 +1874,21 @@ def ensure_agent_orchestrator_model_migration():
         logger.error(f"❌ ensure_agent_orchestrator_model_migration error: {e}")
 
 
+def ensure_agent_voice_functions_backfill():
+    """Голосу агентов — недостающие функции по умолчанию (read_google_sheet). Фоновый поток, идемпотентно."""
+    try:
+        from backend.db.session import SessionLocal
+        from backend.api.agent import ensure_agent_voice_default_functions
+        db = SessionLocal()
+        try:
+            changed = ensure_agent_voice_default_functions(db)
+            logger.info(f"✅ Agent voice default functions: updated {changed} assistants")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_voice_functions_backfill error: {e}")
+
+
 def ensure_voice_assistant_fk_rules():
     """
     Идемпотентно приводит правила ON DELETE для FK голосовых ассистентов к SET NULL.
@@ -2520,6 +2535,10 @@ async def startup_event():
 
                 # 🆕 Шаг 23: Таблица файлов агента (PDF / xlsx)
                 ensure_agent_files_table()
+
+                # 🆕 Шаг 24: Чтение Google-таблиц у голоса существующих агентов (фоном)
+                import threading
+                threading.Thread(target=ensure_agent_voice_functions_backfill, daemon=True).start()
 
                 migration_completed = True
                 logger.info("✅ All migrations and schema fixes completed")

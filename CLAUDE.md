@@ -847,8 +847,10 @@ Voximplant аккаунта, где идёт звонок (физлица и т�
   прежний txt-экспорт, плюс `access_denied` на страницу входа и лог результата. В редакторе
   `voice-assistants.html` функция не включает блок «ID Google-таблицы» (он для записи диалогов).
 - **Агент**: инструмент `read_google_sheet` в чате и PostCall (`FILE_CHAT_TOOLS` / `FILE_POSTCALL_TOOLS`,
-  в event loop — ходит в сеть). Голосовому ассистенту агента функция сама не добавляется (список его
-  функций задаёт `agent.py`, как `search_pinecone`).
+  в event loop — ходит в сеть). Голосу агента функция включена по умолчанию (ветка 0711):
+  `_default_voice_functions` в `agent.py` (новые агенты), существующим её дописывает на старте
+  `ensure_agent_voice_functions_backfill` (`app.py`, фоновый поток, идемпотентно, `_voice_ensure_function`),
+  правило вызова — в `VOICE_AGENT_FUNCTIONS_BLOCK`; ссылку голос берёт из «Инструкций для голосового агента».
 - Тест: `python test_google_sheet_reader.py` (без сети, подставной HTTP).
 
 ## Меню «Что умеет агент» в чате (ветка 0711)

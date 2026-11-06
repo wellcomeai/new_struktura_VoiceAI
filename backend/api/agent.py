@@ -404,7 +404,48 @@ def _default_voice_functions():
     return [
         {"name": "send_sms", "description": "Отправить SMS клиенту во время звонка (адрес, ссылка, код, реквизиты)."},
         {"name": "hangup_call", "description": "Завершить телефонный звонок, когда разговор окончен или по просьбе клиента."},
+        {"name": "read_google_sheet", "description": "Прочитать Google-таблицу по ссылке из инструкций (прайс, наличие, расписание) и найти нужные строки."},
     ]
+
+
+def _voice_function_names(funcs) -> list:
+    if isinstance(funcs, dict) and "enabled_functions" in funcs:
+        return list(funcs.get("enabled_functions") or [])
+    if isinstance(funcs, list):
+        return [f.get("name") if isinstance(f, dict) else f for f in funcs]
+    return []
+
+
+def _voice_ensure_function(va, name: str, description: str) -> bool:
+    """Добавить функцию голосовому ассистенту, если её нет. True — список изменился."""
+    if va is None or name in _voice_function_names(va.functions):
+        return False
+    funcs = va.functions
+    if isinstance(funcs, dict) and "enabled_functions" in funcs:
+        va.functions = {**funcs, "enabled_functions": list(funcs.get("enabled_functions") or []) + [name]}
+    else:
+        items = list(funcs) if isinstance(funcs, list) else []
+        va.functions = items + [{"name": name, "description": description}]
+    flag_modified(va, "functions")
+    return True
+
+
+def ensure_agent_voice_default_functions(db: Session) -> int:
+    """
+    Дописывает голосовым ассистентам всех агентов недостающие функции из
+    _default_voice_functions (чтение Google-таблиц появилось позже остальных).
+    Идемпотентно; вызывается на старте из app.py. Возвращает число изменённых ассистентов.
+    """
+    changed = 0
+    for agent in db.query(AgentConfig).all():
+        va = _resolve_voice_assistant(db, agent)
+        touched = False
+        for f in _default_voice_functions():
+            touched = _voice_ensure_function(va, f["name"], f["description"]) or touched
+        changed += int(touched)
+    if changed:
+        db.commit()
+    return changed
 
 
 def _create_voice_assistant(assistant_type: str, name: str, user_id, db,
