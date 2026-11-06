@@ -635,7 +635,7 @@
     'bullseye': 'circle', 'flag': 'bookmark', 'building': 'building', 'box-open': 'inbox', 'comment-sms': 'message-square', 'compass': 'globe',
     'forward': 'arrow-right', 'circle-pause': 'circle-minus', 'pause-circle': 'circle-minus', 'mug-hot': 'hourglass', 'arrows-turn-right': 'route',
     'quote-left': 'message-square', 'user-minus': 'circle-minus', 'ban': 'circle-x', 'clone': 'copy', 'person-walking': 'activity', 'shuffle': 'route',
-    'venus': 'user', 'mars': 'user', 'circle-half-stroke': 'circle', 'wand-magic-sparkles': 'wand-2'
+    'venus': 'user', 'mars': 'user', 'circle-half-stroke': 'circle', 'wand-magic-sparkles': 'wand-2', 'screwdriver-wrench': 'wrench', 'wrench': 'wrench'
   };
   function faName(el) {
     var cl = el.classList;

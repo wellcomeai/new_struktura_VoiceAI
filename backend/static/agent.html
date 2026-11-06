@@ -193,10 +193,13 @@
     </button>
     <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-foot">
+      <!-- Меню «Что умеет агент» (agent/capabilities.js) -->
+      <div class="caps-pop" id="caps-pop" role="dialog" aria-label="Что умеет агент" hidden></div>
       <div class="chat-input-area">
         <!-- Слот живого орба: presence.js вставляет .agent-orb первым ребёнком .chat-header -->
         <div class="chat-header chat-orb-slot" aria-hidden="true"></div>
         <textarea class="chat-input" id="chat-input" placeholder="Напишите оркестратору…" rows="1" title="Enter — отправить, Shift+Enter — перенос строки"></textarea>
+        <button class="chat-caps" id="chat-caps" type="button" title="Что умеет агент" aria-label="Что умеет агент" aria-haspopup="dialog" aria-expanded="false" onclick="toggleCapsMenu()"><i class="fas fa-screwdriver-wrench"></i></button>
         <button class="chat-mic" id="chat-mic" title="Записать голосом" onclick="toggleRecording()"><i class="fas fa-microphone"></i></button>
         <button class="chat-send" id="chat-send" title="Отправить (Enter)"><i class="fas fa-paper-plane"></i></button>
       </div>
@@ -915,6 +918,7 @@
 <script src="/static/agent/dashboard.js"></script>
 <script src="/static/agent/tasks-calendar.js"></script>
 <script src="/static/agent/chat.js"></script>
+<script src="/static/agent/capabilities.js"></script>
 <script src="/static/js/voice-samples.js"></script>
 <script src="/static/agent/instructions-voice.js"></script>
 <script src="/static/agent/telegram.js"></script>

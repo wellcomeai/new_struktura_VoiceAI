@@ -456,6 +456,49 @@ i.vf-fa::before, span.vf-fa::before { content: none !important; display: none !i
 .chat-send:disabled { background: var(--vf-border-strong); cursor: not-allowed; }
 .chat-send:active:not(:disabled) { transform: scale(.92); }
 .chat-hint { display: none; }
+/* Меню «Что умеет агент» (agent/capabilities.js): кнопка у микрофона + панель над полем ввода */
+.chat-caps { width: 34px; height: 34px; border-radius: 11px; border: 1px solid transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; flex: 0 0 auto; background: transparent; color: var(--vf-text-3); transition: background var(--vf-fast), color var(--vf-fast); }
+.chat-caps:hover { background: var(--vf-surface-3); color: var(--vf-text); }
+.chat-caps.active { background: var(--vf-accent-soft); color: var(--vf-accent); }
+.chat-foot { position: relative; }
+.caps-pop { position: absolute; left: 50%; bottom: calc(100% - 2px); width: min(560px, calc(100% - 36px)); max-height: min(640px, 72vh); transform: translate(-50%, 8px); opacity: 0; display: flex; flex-direction: column; background: var(--vf-surface); border: 1px solid var(--vf-border); border-radius: 18px; box-shadow: var(--vf-shadow-3); z-index: 40; overflow: hidden; transition: opacity var(--vf-fast), transform var(--vf-fast); }
+.caps-pop.open { opacity: 1; transform: translate(-50%, 0); }
+.caps-pop[hidden] { display: none; }
+.caps-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 14px 10px 16px; }
+.caps-title { display: flex; align-items: center; gap: 10px; font-family: var(--vf-font-display); font-size: 15px; font-weight: 700; color: var(--vf-text); }
+.caps-title-ic { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; background: var(--vf-accent-soft); color: var(--vf-accent); }
+.caps-close { width: 30px; height: 30px; border: none; border-radius: 9px; background: transparent; color: var(--vf-text-3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.caps-close:hover { background: var(--vf-surface-3); color: var(--vf-text); }
+.caps-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 14px; padding: 4px; background: var(--vf-surface-2); border: 1px solid var(--vf-border); border-radius: 12px; }
+.caps-tab { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 10px; border: none; border-radius: 9px; background: transparent; color: var(--vf-text-2); font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--vf-fast), color var(--vf-fast), box-shadow var(--vf-fast); }
+.caps-tab:hover { color: var(--vf-text); }
+.caps-tab.active { background: var(--vf-surface); color: var(--vf-accent); box-shadow: var(--vf-shadow-1); }
+.caps-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--vf-surface-3); color: var(--vf-text-3); font-size: 11px; font-weight: 600; }
+.caps-tab.active .caps-count { background: var(--vf-accent-soft); color: var(--vf-accent); }
+.caps-lead { margin: 10px 16px 0; font-size: 12.5px; line-height: 1.5; color: var(--vf-text-2); }
+.caps-search { position: relative; margin: 10px 14px 4px; }
+.caps-search i { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--vf-text-4); pointer-events: none; }
+.caps-search input { width: 100%; box-sizing: border-box; padding: 8px 10px 8px 32px; border: 1px solid var(--vf-border); border-radius: 10px; background: var(--vf-surface); color: var(--vf-text); font-size: 13px; outline: none; transition: border-color var(--vf-fast), box-shadow var(--vf-fast); }
+.caps-search input:focus { border-color: var(--vf-accent); box-shadow: 0 0 0 3px var(--vf-accent-ring); }
+.caps-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 8px; overscroll-behavior: contain; }
+.caps-group-title { padding: 12px 8px 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--vf-text-4); }
+.caps-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 12px; transition: background var(--vf-fast); }
+.caps-item:hover { background: var(--vf-surface-2); }
+.caps-ic { width: 30px; height: 30px; border-radius: 8px; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: 12.5px; background: var(--vf-accent-soft); color: var(--vf-accent); }
+.caps-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.caps-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; font-weight: 600; color: var(--vf-text); }
+.caps-need { padding: 1px 7px; border-radius: 999px; background: var(--vf-surface-3); color: var(--vf-text-3); font-size: 10.5px; font-weight: 500; }
+.caps-desc { font-size: 12px; line-height: 1.4; color: var(--vf-text-3); }
+.caps-ask { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--vf-border); border-radius: 999px; background: var(--vf-surface); color: var(--vf-accent); font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background var(--vf-fast), border-color var(--vf-fast); }
+.caps-ask:hover { background: var(--vf-accent-soft); border-color: var(--vf-accent); }
+.caps-ask i { font-size: 11px; }
+.caps-empty { padding: 24px 12px; text-align: center; font-size: 13px; color: var(--vf-text-3); }
+.caps-foot { display: flex; align-items: flex-start; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--vf-border); font-size: 11.5px; line-height: 1.45; color: var(--vf-text-3); background: var(--vf-surface-2); }
+.caps-foot i { margin-top: 2px; color: var(--vf-text-4); }
+@media (max-width: 720px) {
+  .caps-pop { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 82vh; border-radius: 18px 18px 0 0; transform: translateY(16px); }
+  .caps-pop.open { transform: translateY(0); }
+}
 .kbd { font-family: var(--vf-font-mono); font-size: 10.5px; padding: 0 5px; border: 1px solid var(--vf-border-strong); border-bottom-width: 2px; border-radius: 4px; color: var(--vf-text-3); }
 
 /* Орб присутствия (инъектируется presence.js первым элементом .chat-header) */
