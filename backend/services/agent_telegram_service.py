@@ -325,6 +325,97 @@ def markdown_to_telegram_html(md: str) -> str:
     return text.strip()
 
 
+# ---------------------------------------------------------------------------
+# Группы: бот отвечает только когда к нему обращаются
+# ---------------------------------------------------------------------------
+GROUP_CHAT_TYPES = ("group", "supergroup")
+
+
+def is_group_chat(message: dict) -> bool:
+    chat = (message or {}).get("chat") or {}
+    return chat.get("type") in GROUP_CHAT_TYPES
+
+
+def bot_id_from_token(token: Optional[str]) -> Optional[str]:
+    """Числовой id бота — часть токена до двоеточия (123456:ABC… → '123456')."""
+    head = (token or "").split(":", 1)[0]
+    return head if head.isdigit() else None
+
+
+def _utf16_slice(text: str, offset: int, length: int) -> str:
+    """Telegram считает offset/length сущностей в UTF-16 code units."""
+    raw = text.encode("utf-16-le")
+    return raw[offset * 2:(offset + length) * 2].decode("utf-16-le", errors="ignore")
+
+
+def is_addressed_to_bot(message: dict, bot_username: Optional[str], bot_id: Optional[str]) -> bool:
+    """
+    В группе сообщение адресовано боту, если: есть @username бота (mention или
+    /команда@username), text_mention на пользователя-бота или это ответ (reply)
+    на сообщение самого бота.
+    """
+    if not isinstance(message, dict):
+        return False
+    uname = (bot_username or "").lstrip("@").lower()
+
+    reply = message.get("reply_to_message") or {}
+    rfrom = reply.get("from") or {}
+    if rfrom.get("is_bot") and (
+        (bot_id and str(rfrom.get("id")) == str(bot_id))
+        or (uname and (rfrom.get("username") or "").lower() == uname)
+    ):
+        return True
+
+    for text_key, ent_key in (("text", "entities"), ("caption", "caption_entities")):
+        text = message.get(text_key) or ""
+        for ent in message.get(ent_key) or []:
+            etype = ent.get("type")
+            if etype == "text_mention":
+                u = ent.get("user") or {}
+                if bot_id and str(u.get("id")) == str(bot_id):
+                    return True
+            elif etype in ("mention", "bot_command") and uname:
+                frag = _utf16_slice(text, int(ent.get("offset", 0)), int(ent.get("length", 0))).lower()
+                if frag == "@" + uname or frag.endswith("@" + uname):
+                    return True
+        # Подстраховка, если сущностей нет (пересланный/отредактированный текст)
+        if uname and re.search(r"(?<![\w@])@" + re.escape(uname) + r"\b", text, re.IGNORECASE):
+            return True
+    return False
+
+
+def strip_bot_mention(text: str, bot_username: Optional[str]) -> str:
+    """Убирает @username бота (и /команда@username → /команда) из текста для модели."""
+    uname = (bot_username or "").lstrip("@")
+    if not text or not uname:
+        return text or ""
+    text = re.sub(r"(/\w+)@" + re.escape(uname) + r"\b", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<![\w@])@" + re.escape(uname) + r"\b[,:]?", "", text, flags=re.IGNORECASE)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def group_reply_extra(message: dict) -> dict:
+    """
+    Параметры ответа в группе: реплай на сообщение того, кто обратился, и та же
+    тема форума (message_thread_id). В личном чате — пусто.
+    """
+    if not is_group_chat(message):
+        return {}
+    extra: dict = {}
+    if message.get("message_id"):
+        extra["reply_parameters"] = {
+            "message_id": message["message_id"],
+            "allow_sending_without_reply": True,
+        }
+    if message.get("is_topic_message") and message.get("message_thread_id"):
+        extra["message_thread_id"] = message["message_thread_id"]
+    return extra
+
+
+def _thread_only(extra: Optional[dict]) -> dict:
+    return {"message_thread_id": extra["message_thread_id"]} if extra and extra.get("message_thread_id") else {}
+
+
 def _split_for_telegram(text: str, limit: int = TELEGRAM_MAX_LEN) -> List[str]:
     """Режет длинный текст на части ≤ limit по границам строк (для лимита Telegram 4096)."""
     if len(text) <= limit:
@@ -435,9 +526,11 @@ class AgentTelegramService:
         text: str,
         parse_mode: Optional[str],
         preview_url: Optional[str] = None,
+        extra: Optional[dict] = None,
     ) -> bool:
         """
-        Отправляет один кусок. При сбое HTML-парсинга — повтор без parse_mode (plain).
+        Отправляет один кусок. extra — доп. поля sendMessage (reply_parameters,
+        message_thread_id для ответа в группе). При сбое HTML-парсинга — повтор без parse_mode (plain).
 
         Предпросмотр ссылок выключен, кроме preview_url (запись звонка): если она
         есть в этом куске, Telegram строит предпросмотр только по ней — для mp3
@@ -448,7 +541,7 @@ class AgentTelegramService:
                 return {"link_preview_options": {"url": preview_url}}
             return {"disable_web_page_preview": True}
 
-        payload = {"chat_id": chat_id, "text": text, **_preview_opts(text)}
+        payload = {"chat_id": chat_id, "text": text, **_preview_opts(text), **(extra or {})}
         if parse_mode:
             payload["parse_mode"] = parse_mode
         result = await AgentTelegramService._call(token, "sendMessage", payload)
@@ -461,6 +554,7 @@ class AgentTelegramService:
                 "chat_id": chat_id,
                 "text": plain,
                 **_preview_opts(plain),
+                **(extra or {}),
             })
             return result is not None
         return False
@@ -472,6 +566,7 @@ class AgentTelegramService:
         text: str,
         parse_mode: str = "HTML",
         preview_url: Optional[str] = None,
+        extra: Optional[dict] = None,
     ) -> bool:
         """
         sendMessage. Безопасная обёртка — не бросает наружу, только логирует.
@@ -484,8 +579,10 @@ class AgentTelegramService:
             return False
         chunks = _split_for_telegram(text)
         ok_any = False
-        for chunk in chunks:
-            ok = await AgentTelegramService._send_chunk(token, chat_id, chunk, parse_mode, preview_url)
+        for i, chunk in enumerate(chunks):
+            # Реплай — только у первого куска, тема форума — у всех
+            chunk_extra = extra if i == 0 else _thread_only(extra)
+            ok = await AgentTelegramService._send_chunk(token, chat_id, chunk, parse_mode, preview_url, chunk_extra)
             ok_any = ok_any or ok
         return ok_any
 
@@ -567,7 +664,8 @@ class AgentTelegramService:
         return result is True or bool(result)
 
     @staticmethod
-    async def send_rich_or_fallback(token: str, chat_id: str, markdown: str) -> bool:
+    async def send_rich_or_fallback(token: str, chat_id: str, markdown: str,
+                                    extra: Optional[dict] = None) -> bool:
         """
         Пробует отправить ответ как rich (sendRichMessage, лимит 32768, сырой
         Markdown модели). При ошибке (старый клиент / 400) откатывается на
@@ -577,12 +675,15 @@ class AgentTelegramService:
             return False
         if not markdown:
             markdown = "Готово."
-        result = await AgentTelegramService.send_rich_message(token, chat_id, markdown=markdown)
+        result = await AgentTelegramService.send_rich_message(token, chat_id, markdown=markdown, **(extra or {}))
+        if result is None and extra:
+            # Сообщение, на которое отвечаем, могли удалить / тему закрыть — без extra
+            result = await AgentTelegramService.send_rich_message(token, chat_id, markdown=markdown)
         if result is not None:
             return True
         # Fallback: безопасный Telegram-HTML обычным sendMessage
         html = markdown_to_telegram_html(markdown)
-        return await AgentTelegramService.send_message(token, chat_id, html, parse_mode="HTML")
+        return await AgentTelegramService.send_message(token, chat_id, html, parse_mode="HTML", extra=extra)
 
     @staticmethod
     async def transcribe_voice(token: str, voice: dict) -> Optional[str]:
@@ -721,6 +822,7 @@ async def process_telegram_message(
                     token=agent.telegram_bot_token,
                     chat_id=chat_id,
                     text=notice,
+                    extra=group_reply_extra(message),
                 )
                 _mark_sub_notice_sent(history_row, db)
             else:
@@ -741,9 +843,10 @@ async def process_telegram_message(
         )
         return
 
+    reply_extra = group_reply_extra(message)
     await AgentTelegramService._call(
         agent.telegram_bot_token, "sendChatAction",
-        {"chat_id": chat_id, "action": "typing"},
+        {"chat_id": chat_id, "action": "typing", **_thread_only(reply_extra)},
     )
     result = await orchestrator.run_telegram(
         message=text,
@@ -757,6 +860,7 @@ async def process_telegram_message(
         token=agent.telegram_bot_token,
         chat_id=chat_id,
         markdown=result.get("reply") or "Готово.",
+        extra=reply_extra,
     )
 
 

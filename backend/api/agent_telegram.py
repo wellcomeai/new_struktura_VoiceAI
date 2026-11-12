@@ -25,6 +25,11 @@ from backend.models.agent_config import AgentConfig
 from backend.services.agent_telegram_service import (
     AgentTelegramService,
     process_telegram_message,
+    is_group_chat,
+    is_addressed_to_bot,
+    bot_id_from_token,
+    strip_bot_mention,
+    group_reply_extra,
     generate_webhook_secret,
     build_webhook_url,
 )
@@ -395,14 +400,26 @@ async def telegram_webhook(
             )
             return {"ok": True}
 
+        # 5a. В группе отвечаем, только когда обращаются к боту: @упоминание,
+        #     /команда@бот или ответ (reply) на сообщение бота. Остальное молча
+        #     пропускаем — без ответа, распознавания голосовых и записи в историю.
+        in_group = is_group_chat(message)
+        if in_group and not is_addressed_to_bot(
+            message, agent.telegram_bot_username, bot_id_from_token(agent.telegram_bot_token),
+        ):
+            return {"ok": True}
+        reply_extra = group_reply_extra(message)
+
         # 6. Текст или голосовое (voice → распознаём в текст через STT)
-        text = message.get("text")
+        text = message.get("text") or (message.get("caption") if in_group else None)
         if not text:
             voice = message.get("voice")
             if voice:
                 await AgentTelegramService._call(
                     agent.telegram_bot_token, "sendChatAction",
-                    {"chat_id": chat_id, "action": "typing"},
+                    {"chat_id": chat_id, "action": "typing",
+                     **({"message_thread_id": reply_extra["message_thread_id"]}
+                        if reply_extra.get("message_thread_id") else {})},
                 )
                 text = await AgentTelegramService.transcribe_voice(
                     agent.telegram_bot_token, voice,
@@ -412,6 +429,7 @@ async def telegram_webhook(
                         token=agent.telegram_bot_token,
                         chat_id=chat_id,
                         text="Не удалось распознать голосовое. Попробуйте ещё раз или напишите текстом.",
+                        extra=reply_extra,
                     )
                     return {"ok": True}
             else:
@@ -419,6 +437,19 @@ async def telegram_webhook(
                     token=agent.telegram_bot_token,
                     chat_id=chat_id,
                     text="Я понимаю только текстовые и голосовые сообщения.",
+                    extra=reply_extra,
+                )
+                return {"ok": True}
+
+        # Упоминание бота модели не нужно: «@bot сколько звонков?» → «сколько звонков?»
+        if in_group:
+            text = strip_bot_mention(text, agent.telegram_bot_username)
+            if not text:
+                await AgentTelegramService.send_message(
+                    token=agent.telegram_bot_token,
+                    chat_id=chat_id,
+                    text="Слушаю! Напишите вопрос после упоминания или ответьте на моё сообщение.",
+                    extra=reply_extra,
                 )
                 return {"ok": True}
 
