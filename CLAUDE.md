@@ -634,6 +634,11 @@ Gemini (−20…−35 против −13…−18 dBFS; самые тихие sag
   Теперь опрос аккаунта ограничен `POLL_ACCOUNT_TIMEOUT_SECONDS`=120, `disconnect` — 10 с (`_safe_disconnect`),
   раз в 30 тиков в лог пишется `[TG-POLLER] alive`. Служебные чаты (`SERVICE_PEER_IDS` = 777000, 42777, флаг `support`)
   поллер пропускает — код входа не уходит в модель.
+- **MAX: версия клиента.** PyMax 2.4.0 на каждое подключение выбирает случайную версию Android-клиента и в ~10%
+  берёт старую (build < `MIN_PREFERRED_BUILD`); сервер MAX её отклоняет: `client.unsupported-version` («Приложение
+  устарело»), падал и вход, и переподключение живого клиента. `_extra_config` / `_modern_user_agent` в
+  `max_user_service.py` подставляют только версии из `PREFERRED_VERSION`; env `MAX_CLIENT_APP_VERSION="26.25.0:6790"`
+  задаёт версию явно. Обновление до PyMax 2.5.0 не делали: там новые зависимости (`websockets>=16`, `zstandard`, `aiofiles`).
 - **Удаление агента** (`DELETE /api/agent`) разлогинивает его Telegram-сессию и закрывает окно QR
   (`_release_telegram_account`); раньше сессия оставалась в Telegram → Устройства.
 

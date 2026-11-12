@@ -114,6 +114,43 @@ def _ensure_ws_compat() -> None:
         websockets.asyncio = asyncio_mod
 
 
+def _modern_user_agent(extra_config):
+    """
+    User-agent с актуальной версией приложения MAX.
+
+    PyMax 2.4.0 на каждое подключение выбирает случайную версию Android-клиента и
+    в ~10% случаев берёт «старую» (build < MIN_PREFERRED_BUILD). Сервер MAX такие
+    версии больше не принимает: `client.unsupported-version` («Приложение устарело»),
+    и вход/переподключение падают. Берём только версии из PREFERRED_VERSION.
+    Env MAX_CLIENT_APP_VERSION="26.25.0:6790" — задать версию явно, если MAX
+    поднимет минимальную планку раньше, чем выйдет обновлённая библиотека.
+    """
+    import os
+    from random import choice
+    from pymax import config as pymax_config
+
+    ua = extra_config.generate_user_agent()
+    forced = (os.getenv("MAX_CLIENT_APP_VERSION") or "").strip()
+    if forced and ":" in forced:
+        version, build = forced.split(":", 1)
+        return ua.model_copy(update={"app_version": version.strip(), "build_number": int(build)})
+    preferred = list(getattr(pymax_config, "PREFERRED_VERSION", []) or [])
+    if preferred and int(getattr(ua, "build_number", 0) or 0) < int(pymax_config.MIN_PREFERRED_BUILD):
+        version, build = choice(preferred)
+        ua = ua.model_copy(update={"app_version": version, "build_number": build})
+    return ua
+
+
+def _extra_config(pymax, **kwargs):
+    """ExtraConfig PyMax с актуальной версией клиента (см. _modern_user_agent)."""
+    cfg = pymax.ExtraConfig(**kwargs)
+    try:
+        cfg.user_agent = _modern_user_agent(cfg)
+    except Exception as e:
+        logger.warning(f"[MAX-USER] user-agent override failed, using library default: {e}")
+    return cfg
+
+
 def _import_pymax():
     """Импорт pymax с shim-ом совместимости. Кэширует результат (успех и ошибку)."""
     global _pymax_import_error, _pymax_module, _pymax_import_attempted
@@ -352,7 +389,8 @@ async def _start_client(
 
     client = pymax.Client(
         phone=phone or "",
-        extra_config=pymax.ExtraConfig(
+        extra_config=_extra_config(
+            pymax,
             store=_DbSessionStore(account_id),
             reconnect=False,     # поллинг-модель: короткая сессия, без вечного цикла
             telemetry=False,
@@ -939,7 +977,8 @@ async def _run_live_client(account_id: str, phone: str) -> None:
     pymax = _import_pymax()
     client = pymax.Client(
         phone=phone or "",
-        extra_config=pymax.ExtraConfig(
+        extra_config=_extra_config(
+            pymax,
             store=_DbSessionStore(account_id),
             reconnect=True,
             reconnect_delay=5.0,
