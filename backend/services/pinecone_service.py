@@ -64,6 +64,12 @@ class PineconeService:
         namespace: Optional[str] = None
     ) -> Tuple[str, int]:
         """Create a new namespace in Pinecone with embeddings from content or update existing"""
+        # KB_BACKEND=pgvector: база пишется в собственный Postgres (kb_store),
+        # Pinecone и ключ OpenAI не нужны.
+        from backend.services import kb_store
+        if kb_store.enabled():
+            return await kb_store.save(content, namespace)
+
         try:
             # Initialize Pinecone
             pc = await PineconeService.initialize()
@@ -194,6 +200,13 @@ class PineconeService:
         if not query or not namespace:
             return []
 
+        # KB_BACKEND=pgvector: ищем у себя; None — база ещё не перенесена, идём в Pinecone.
+        from backend.services import kb_store
+        if kb_store.enabled():
+            found = await kb_store.search(query, namespace, top_k)
+            if found is not None:
+                return found
+
         pc = await PineconeService.initialize()
         index = await asyncio.to_thread(pc.Index, "voicufi")
 
@@ -221,6 +234,17 @@ class PineconeService:
     @staticmethod
     async def delete_knowledge_base(namespace: str) -> bool:
         """Delete a namespace from Pinecone"""
+        from backend.services import kb_store
+        if kb_store.enabled():
+            try:
+                await kb_store.delete(namespace)
+            except Exception as e:
+                logger.error(f"Error deleting knowledge base from kb_chunks: {str(e)}")
+                return False
+            if not os.environ.get("PINECONE_API_KEY"):
+                return True
+            # Ниже — чистка старых векторов той же базы в Pinecone (если остались).
+
         try:
             # Initialize Pinecone
             pc = await PineconeService.initialize()

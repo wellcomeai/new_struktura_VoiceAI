@@ -326,109 +326,134 @@ class PineconeSearchFunction(FunctionBase):
             if not namespace:
                 return {"error": "Namespace is required"}
             
-            # Получение ключа Pinecone из переменных окружения
-            pinecone_api_key = os.environ.get("PINECONE_API_KEY")
-            if not pinecone_api_key:
-                logger.error("PINECONE_API_KEY not found in environment variables")
-                return {"error": "Pinecone API key not configured"}
-            
-            # Создаем эмбеддинг через OpenAI API
-            openai_api_key = None
-            if assistant_config and hasattr(assistant_config, "user_id"):
-                # Импортируем здесь, чтобы избежать циклических импортов
-                from backend.models.user import User
-                
-                # Получаем сессию базы данных
-                db_session = getattr(assistant_config, 'db_session', None)
-                own_session = db_session is None
-                if own_session:
-                    # Своя сессия — обязательно закрываем, иначе соединение утекает из пула
-                    from backend.db.session import SessionLocal
-                    db_session = SessionLocal()
-                try:
-                    # Получаем пользователя и его API ключ
-                    user = db_session.query(User).get(assistant_config.user_id)
-                    if user and user.openai_api_key:
-                        openai_api_key = user.openai_api_key
-                finally:
-                    if own_session:
-                        db_session.close()
-            
-            if not openai_api_key:
-                # Попытка использовать ключ из переменных окружения
-                openai_api_key = os.environ.get("OPENAI_API_KEY")
-                if not openai_api_key:
-                    return {"error": "OpenAI API key not available"}
-            
-            # Создаем эмбеддинг через OpenAI API
-            # Два HTTP-запроса (OpenAI + Pinecone) — в отдельном потоке и с таймаутами.
-            # Раньше они шли синхронно внутри async-функции и без таймаута: зависший
-            # ответ останавливал весь процесс (все звонки и виджеты) до перезапуска.
-            error, results = await asyncio.to_thread(
-                _embed_and_query_sync, query, openai_api_key, pinecone_api_key, namespace, top_k
-            )
-            if error:
-                return error
-            
-            # Форматируем результаты и укладываемся в бюджет MAX_RESULT_CHARS.
-            # Фрагменты идут от самого релевантного к менее релевантным (так их
-            # отдаёт Pinecone), поэтому просто набираем, пока есть место.
-            formatted_results = []
-            budget = MAX_RESULT_CHARS
-            truncated = False
-            matches = results.get("matches", []) or []
-            below_threshold = 0
+            # KB_BACKEND=pgvector: поиск в собственном Postgres (kb_store). None —
+            # база ещё не перенесена, тогда ниже прежний путь через Pinecone.
+            from backend.services import kb_store
+            min_score = MIN_SCORE
+            own_matches = None
+            if kb_store.enabled():
+                own_matches = await kb_store.search(query, namespace, top_k)
+                if own_matches is not None:
+                    min_score = kb_store.MIN_SCORE
 
-            for match in matches:
-                score = match.get("score") or 0
-                if score < MIN_SCORE:
-                    below_threshold += 1
-                    continue
+            if own_matches is None:
+                results, error = await PineconeSearchFunction._pinecone_matches(
+                    query, namespace, top_k, assistant_config
+                )
+                if error:
+                    return error
+            else:
+                results = {"matches": own_matches}
+            return PineconeSearchFunction._format_response(query, namespace, top_k, results, min_score)
 
-                metadata = dict(match.get("metadata") or {})
-                text = metadata.get("text") or ""
-
-                if text:
-                    if budget < MIN_FRAGMENT_CHARS:
-                        truncated = True
-                        break
-                    limit = min(MAX_FRAGMENT_CHARS, budget)
-                    if len(text) > limit:
-                        text = _trim(text, limit)
-                        truncated = True
-                    metadata["text"] = text
-                    budget -= len(text)
-
-                formatted_results.append({
-                    "id": match.get("id"),
-                    "score": score,
-                    "metadata": metadata,
-                })
-
-            chars_returned = MAX_RESULT_CHARS - budget
-            scores = ",".join(f"{(m.get('score') or 0):.2f}" for m in matches)
-            logger.info(
-                f"[PINECONE] namespace={namespace} top_k={top_k} "
-                f"matches={len(matches)} scores=[{scores}] "
-                f"below_threshold={below_threshold} "
-                f"returned={len(formatted_results)} chars={chars_returned}"
-                + (" (обрезано)" if truncated else "")
-            )
-
-            response = {
-                "success": True,
-                "query": query,
-                "namespace": namespace,
-                "results": formatted_results,
-                "total": len(formatted_results),
-                "chars_returned": chars_returned,
-                "truncated": truncated,
-            }
-            if not formatted_results:
-                response["found"] = False
-                response["message"] = NOT_FOUND_MESSAGE
-            return response
-            
         except Exception as e:
             logger.error(f"Error in search_pinecone: {str(e)}")
             return {"error": f"Search failed: {str(e)}"}
+
+    @staticmethod
+    async def _pinecone_matches(query, namespace, top_k, assistant_config):
+        """Прежний путь: эмбеддинг OpenAI + запрос в Pinecone. → (results, error)."""
+        # Получение ключа Pinecone из переменных окружения
+        pinecone_api_key = os.environ.get("PINECONE_API_KEY")
+        if not pinecone_api_key:
+            logger.error("PINECONE_API_KEY not found in environment variables")
+            return None, {"error": "Pinecone API key not configured"}
+        
+        # Создаем эмбеддинг через OpenAI API
+        openai_api_key = None
+        if assistant_config and hasattr(assistant_config, "user_id"):
+            # Импортируем здесь, чтобы избежать циклических импортов
+            from backend.models.user import User
+            
+            # Получаем сессию базы данных
+            db_session = getattr(assistant_config, 'db_session', None)
+            own_session = db_session is None
+            if own_session:
+                # Своя сессия — обязательно закрываем, иначе соединение утекает из пула
+                from backend.db.session import SessionLocal
+                db_session = SessionLocal()
+            try:
+                # Получаем пользователя и его API ключ
+                user = db_session.query(User).get(assistant_config.user_id)
+                if user and user.openai_api_key:
+                    openai_api_key = user.openai_api_key
+            finally:
+                if own_session:
+                    db_session.close()
+        
+        if not openai_api_key:
+            # Попытка использовать ключ из переменных окружения
+            openai_api_key = os.environ.get("OPENAI_API_KEY")
+            if not openai_api_key:
+                return None, {"error": "OpenAI API key not available"}
+        
+        # Создаем эмбеддинг через OpenAI API
+        # Два HTTP-запроса (OpenAI + Pinecone) — в отдельном потоке и с таймаутами.
+        # Раньше они шли синхронно внутри async-функции и без таймаута: зависший
+        # ответ останавливал весь процесс (все звонки и виджеты) до перезапуска.
+        error, results = await asyncio.to_thread(
+            _embed_and_query_sync, query, openai_api_key, pinecone_api_key, namespace, top_k
+        )
+        return results, error
+
+    @staticmethod
+    def _format_response(query, namespace, top_k, results, min_score):
+        """Отбор по порогу и укладка фрагментов в бюджет MAX_RESULT_CHARS."""
+        # Форматируем результаты и укладываемся в бюджет MAX_RESULT_CHARS.
+        # Фрагменты идут от самого релевантного к менее релевантным (так их
+        # отдаёт Pinecone), поэтому просто набираем, пока есть место.
+        formatted_results = []
+        budget = MAX_RESULT_CHARS
+        truncated = False
+        matches = results.get("matches", []) or []
+        below_threshold = 0
+
+        for match in matches:
+            score = match.get("score") or 0
+            if score < min_score:
+                below_threshold += 1
+                continue
+
+            metadata = dict(match.get("metadata") or {})
+            text = metadata.get("text") or ""
+
+            if text:
+                if budget < MIN_FRAGMENT_CHARS:
+                    truncated = True
+                    break
+                limit = min(MAX_FRAGMENT_CHARS, budget)
+                if len(text) > limit:
+                    text = _trim(text, limit)
+                    truncated = True
+                metadata["text"] = text
+                budget -= len(text)
+
+            formatted_results.append({
+                "id": match.get("id"),
+                "score": score,
+                "metadata": metadata,
+            })
+
+        chars_returned = MAX_RESULT_CHARS - budget
+        scores = ",".join(f"{(m.get('score') or 0):.2f}" for m in matches)
+        logger.info(
+            f"[PINECONE] namespace={namespace} top_k={top_k} "
+            f"matches={len(matches)} scores=[{scores}] "
+            f"below_threshold={below_threshold} "
+            f"returned={len(formatted_results)} chars={chars_returned}"
+            + (" (обрезано)" if truncated else "")
+        )
+
+        response = {
+            "success": True,
+            "query": query,
+            "namespace": namespace,
+            "results": formatted_results,
+            "total": len(formatted_results),
+            "chars_returned": chars_returned,
+            "truncated": truncated,
+        }
+        if not formatted_results:
+            response["found"] = False
+            response["message"] = NOT_FOUND_MESSAGE
+        return response

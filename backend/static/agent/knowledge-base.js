@@ -10,8 +10,9 @@
 
 let knowledgeBaseState = null;
 
-// Лимит размера базы знаний (символов) — зеркалит MAX_KB_CHARS в backend/api/agent.py.
-const KB_MAX_CHARS = 200000;
+// Лимит размера базы знаний (символов). Настоящее значение приходит с сервера
+// (max_chars в статусе: 200 000 на Pinecone, 2 000 000 на собственном хранилище).
+let KB_MAX_CHARS = 200000;
 
 function updateKbCharCounter(){
   const el = document.getElementById('kb-char-counter');
@@ -19,6 +20,8 @@ function updateKbCharCounter(){
   const len = (document.getElementById('kb-content').value || '').length;
   el.textContent = `${len.toLocaleString('ru-RU')} / ${KB_MAX_CHARS.toLocaleString('ru-RU')}`;
   el.style.color = len > KB_MAX_CHARS ? 'var(--red,#dc2626)' : '';
+  const lim = document.getElementById('kb-limit-text');
+  if(lim) lim.textContent = KB_MAX_CHARS.toLocaleString('ru-RU') + ' символов';
 }
 
 async function loadKnowledgeBaseStatus(){
@@ -26,6 +29,7 @@ async function loadKnowledgeBaseStatus(){
     const r = await apiFetch(API + '/knowledge-base');
     if(!r || r.status !== 200){ knowledgeBaseState = null; renderKnowledgeBaseBlock(); return; }
     knowledgeBaseState = await r.json();
+    if(knowledgeBaseState.max_chars) KB_MAX_CHARS = knowledgeBaseState.max_chars;
   }catch(e){ knowledgeBaseState = null; }
   renderKnowledgeBaseBlock();
 }
@@ -49,7 +53,7 @@ function renderKnowledgeBaseBlock(){
     + `<i class="fas fa-circle-check"></i> ${name} · ${kbFormatChars(s.char_count)}</div>`;
 }
 
-function openKnowledgeBaseModal(){
+async function openKnowledgeBaseModal(){
   document.getElementById('kb-modal-overlay').classList.remove('hidden');
   // Заполняем форму из текущего состояния (если уже загружено).
   const s = knowledgeBaseState;
@@ -59,8 +63,26 @@ function openKnowledgeBaseModal(){
   const meta = document.getElementById('kb-modal-meta');
   if(s && s.has_knowledge_base){
     nameEl.value = s.name || '';
-    contentEl.value = s.content || '';
     delBtn.style.display = '';
+    // Текст базы (до 2 млн символов) в статусе не приходит — грузим при открытии редактора.
+    if(typeof s.content !== 'string'){
+      const saveBtn = document.getElementById('kb-save-btn');
+      contentEl.value = '';
+      contentEl.placeholder = 'Загрузка текста…';
+      contentEl.disabled = true; saveBtn.disabled = true;
+      try{
+        const r = await apiFetch(API + '/knowledge-base?with_content=true');
+        if(r && r.status === 200) s.content = (await r.json()).content || '';
+      }catch(e){}
+      contentEl.disabled = false; contentEl.placeholder = '';
+      if(typeof s.content !== 'string'){
+        showToast('Не удалось загрузить текст базы знаний', 'error');
+        closeKnowledgeBaseModal();
+        return;
+      }
+      saveBtn.disabled = false;
+    }
+    contentEl.value = s.content;
     meta.innerHTML = `<i class="fas fa-database"></i> База создана · ${kbFormatChars(s.char_count)}`
       + (s.updated_at ? ` · обновлено ${esc(fmtDate(s.updated_at))}` : '');
   } else {
@@ -83,7 +105,7 @@ async function saveKnowledgeBase(){
 
   if(!content){ showToast('Добавьте текст для базы знаний', 'error'); return; }
   if(content.length > KB_MAX_CHARS){
-    showToast(`База знаний слишком большая: ${content.length.toLocaleString('ru-RU')} символов. Максимум 200 000.`, 'error');
+    showToast(`База знаний слишком большая: ${content.length.toLocaleString('ru-RU')} символов. Максимум ${KB_MAX_CHARS.toLocaleString('ru-RU')}.`, 'error');
     return;
   }
 
@@ -96,6 +118,7 @@ async function saveKnowledgeBase(){
     });
     if(r && r.status === 200){
       knowledgeBaseState = await r.json();
+      knowledgeBaseState.content = content;
       renderKnowledgeBaseBlock();
       closeKnowledgeBaseModal();
       showToast('База знаний сохранена', 'success');

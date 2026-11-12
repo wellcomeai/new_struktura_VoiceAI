@@ -912,3 +912,34 @@ Telegram ID **отправителя** (`from.id`), а не чата: в гру�
   `guest: true` (ответы владельцу и уведомления гость не видит), свои реплики сохраняются с этой пометкой.
   v2-агенты гостю отвечают шаблоном `GUEST_V2_REPLY` без модели. Кредиты за ответы гостям списываются с владельца.
 - Уведомления агента по-прежнему уходят во все чаты списка — какие чаты добавлять, решает владелец.
+
+## База знаний в собственном Postgres вместо Pinecone (ветка 1211-2026)
+
+Переключатель — env `KB_BACKEND` (`pinecone` по умолчанию | `pgvector`), откат — убрать переменную.
+Логика в `backend/services/kb_store.py`; точки входа прежние: `PineconeService.create_or_update_knowledge_base` /
+`search` / `delete_knowledge_base` и функция звонка `search_pinecone` сами уходят в `kb_store`, когда бэкенд включён.
+Namespace остаётся ключом базы (`Pinecone namespace: <ns>` в промптах, `agent_configs.kb_namespace`).
+- **Хранение**: таблица `kb_chunks` (namespace, chunk_index, content, embedding `vector`, model), расширение
+  `vector` и таблицу создаёт `kb_store.ensure_table` на старте (при любом `KB_BACKEND`) и миграция `add_kb_chunks`.
+  Векторного индекса нет: поиск всегда внутри одной базы, точный перебор по btree-индексу namespace. Библиотека
+  pgvector для Python не нужна — вектор передаётся строкой `CAST(:e AS vector)`.
+- **Эмбеддинги**: OpenRouter (`OPENROUTER_API_KEY`), `google/gemini-embedding-2`, 1024 измерения, нормализуем сами.
+  Env: `KB_EMBEDDING_MODEL`, `KB_EMBEDDING_DIMS`, `KB_EMBEDDING_PROVIDERS` (порядок провайдеров OpenRouter;
+  `google-vertex/eu` в замере втрое медленнее). В строках хранится метка `модель@размерность` (`MODEL_KEY`): после смены
+  модели старые векторы не находятся — базы нужно пересчитать (`scripts/migrate_kb_to_pgvector.py --force`).
+  Свой ключ OpenAI пользователя для базы знаний больше не используется. Замер моделей — `scripts/bench_embeddings.py`.
+- **Запись**: `split_chunks` (абзацы → предложения → символы, до 1000 символов, ничего не теряется), эмбеддинги
+  пачками по 32 в 4 потока, затем одна транзакция «удалить старые + вставить новые»; не посчитались эмбеддинги —
+  502, прежняя база цела. Лимит 2 000 000 символов (`kb_store.MAX_CHARS`) у всех баз; на Pinecone прежние 200 000
+  (агент) / 500 000. Сохранение идёт внутри HTTP-запроса (2 млн символов — около полуминуты), фоновой задачи нет.
+- **Поиск**: `kb_store.search` → `None`, если базы нет в `kb_chunks` (не перенесена) — тогда прежний путь через
+  Pinecone. Порог живого звонка — `KB_MIN_SCORE` (0.57): у Gemini оценки сжаты (не по теме до 0.55, верные от 0.65),
+  старый 0.25 пропускал бы всё. Подбирать по логу `[PINECONE] ... scores=[...]`. Поиск оркестратора агента — без порога.
+- **Перенос**: `python3 scripts/migrate_kb_to_pgvector.py [--dry-run] [namespace] [--force]` — текст из Postgres
+  (`full_content` / `kb_content`), для баз без текста фрагменты вытаскиваются из Pinecone. Pinecone не чистится.
+  Порядок: деплой → перенос → `KB_BACKEND=pgvector`. Удаление базы при pgvector чистит и Pinecone (если есть ключ).
+- **Текст базы агента**: `AgentConfig.kb_content` — `deferred` (не читается при каждой загрузке агента);
+  `GET /api/agent/knowledge-base` отдаёт текст только с `?with_content=true` (редактор грузит его при открытии),
+  в статусе — `max_chars` (лимит для фронта, `agent/knowledge-base.js`).
+- Тест: `python test_kb_store.py` (нарезка; с `DATABASE_URL` на Postgres с pgvector — запись и поиск, без сети).
+- Не сделано: фоновая загрузка с прогрессом, загрузка файлом, виджет Pinecone в админке (считает только Pinecone).

@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, Text, Boolean, Integer, DateTime, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, deferred
 from backend.models.base import Base
 
 
@@ -97,7 +97,10 @@ class AgentConfig(Base):
     # ассистента (функция search_pinecone) во всех трёх провайдерах.
     kb_namespace = Column(String(64), nullable=True)
     kb_char_count = Column(Integer, default=0, nullable=False)
-    kb_content = Column(Text, nullable=True)        # полный текст для просмотра/редактирования
+    # Полный текст для просмотра/редактирования. deferred: до 2 млн символов, а строка
+    # агента читается на каждый звонок, сообщение и проход планировщика — текст
+    # подтягивается из БД только при обращении к полю (редактор базы знаний).
+    kb_content = deferred(Column(Text, nullable=True))
     kb_name = Column(String(100), nullable=True)    # опциональное название базы
     kb_updated_at = Column(DateTime, nullable=True)
 

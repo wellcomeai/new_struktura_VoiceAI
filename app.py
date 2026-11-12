@@ -2570,6 +2570,11 @@ async def startup_event():
                 # 🆕 Шаг 23: Таблица файлов агента (PDF / xlsx)
                 ensure_agent_files_table()
 
+                # 🆕 Шаг 23.1: База знаний в собственном Postgres (pgvector, kb_chunks).
+                # Таблица создаётся всегда — перенос баз идёт до включения KB_BACKEND.
+                from backend.services import kb_store
+                kb_store.ensure_table(engine)
+
                 # 🆕 Шаг 24: Чтение Google-таблиц у голоса существующих агентов (фоном)
                 import threading
                 threading.Thread(target=ensure_agent_voice_functions_backfill, daemon=True).start()

@@ -1261,8 +1261,14 @@ def delete_agent(
 # ============================================================================
 
 
-# Максимальный размер базы знаний агента (символов).
+# Максимальный размер базы знаний агента (символов) на Pinecone; на собственном
+# хранилище (KB_BACKEND=pgvector) — kb_store.MAX_CHARS, см. _kb_max_chars.
 MAX_KB_CHARS = 200_000
+
+
+def _kb_max_chars() -> int:
+    from backend.services import kb_store
+    return kb_store.max_chars(MAX_KB_CHARS)
 
 
 class KnowledgeBaseRequest(BaseModel):
@@ -1270,28 +1276,34 @@ class KnowledgeBaseRequest(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
 
 
-def _kb_status_dict(agent: AgentConfig) -> dict:
-    return {
+def _kb_status_dict(agent: AgentConfig, with_content: bool = False) -> dict:
+    """Статус базы знаний. Текст (до 2 млн символов) — только по явному запросу:
+    kb_content — deferred-колонка, без with_content она из БД не читается."""
+    data = {
         "has_knowledge_base": agent.has_knowledge_base(),
         "namespace": agent.kb_namespace,
         "char_count": agent.kb_char_count or 0,
         "name": agent.kb_name,
-        "content": agent.kb_content or "",
+        "max_chars": _kb_max_chars(),
         "updated_at": agent.kb_updated_at.isoformat() if agent.kb_updated_at else None,
     }
+    if with_content:
+        data["content"] = agent.kb_content or ""
+    return data
 
 
 @router.get("/knowledge-base")
 def get_agent_knowledge_base(
     agent_id: Optional[str] = Query(None),
+    with_content: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Статус базы знаний агента."""
+    """Статус базы знаний агента; with_content=true — вместе с текстом (для редактора)."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
-    return _kb_status_dict(agent)
+    return _kb_status_dict(agent, with_content=with_content)
 
 
 @router.post("/knowledge-base")
@@ -1314,14 +1326,15 @@ async def upsert_agent_knowledge_base(
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
 
+    from backend.services import kb_store
     api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
+    if not api_key and not kb_store.enabled():
         raise HTTPException(status_code=500, detail="openai_key_not_configured")
 
     content = body.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="empty_content")
-    if len(content) > MAX_KB_CHARS:
+    if len(content) > _kb_max_chars():
         raise HTTPException(status_code=400, detail="kb_too_large")
 
     try:
