@@ -139,7 +139,12 @@ def _store_baseline(account_id, agent_config_id, dialogs: list) -> None:
             if int(d["peer_id"]) in known:
                 continue
             contact_id = None
-            suf = phone_suffix(d.get("phone") or "")
+            # Сначала — прежняя переписка с этим пользователем (переподключение
+            # аккаунта), потом — видимый номер телефона.
+            prev = tg_user.match_contact_by_peer(db, agent_config_id, d["peer_id"])
+            if prev:
+                contact_id = prev.id
+            suf = phone_suffix(d.get("phone") or "") if contact_id is None else ""
             if suf:
                 contact = db.query(AgentContact).filter(
                     AgentContact.agent_config_id == agent_config_id,
@@ -168,7 +173,8 @@ async def _baseline_dialogs(account_id, agent_config_id, session_str: str) -> No
     """
     Снимок диалогов при подключении: записываем текущие top_message_id, чтобы
     поллер не начал отвечать на старую переписку. Заодно связываем диалоги с
-    контактами агента по видимому номеру телефона. Best-effort.
+    контактами агента: по прежней переписке с этим пользователем, затем по
+    видимому номеру телефона. Best-effort.
     """
     try:
         snap = await asyncio.wait_for(

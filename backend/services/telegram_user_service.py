@@ -719,6 +719,34 @@ def store_message(
         return None
 
 
+def match_contact_by_peer(db, agent_config_id, tg_peer_id):
+    """
+    Контакт агента, с которым уже была переписка у этого Telegram-пользователя.
+
+    Связь диалог ↔ контакт (agent_telegram_dialogs) удаляется вместе с аккаунтом
+    при отключении, а сама переписка остаётся (agent_telegram_messages.account_id
+    → SET NULL). При повторном подключении номер собеседника часто скрыт его
+    настройками приватности, и без этого поиска человек превращался в новый
+    контакт «tg:<id>» без истории и памяти. ID пользователя Telegram постоянный,
+    поэтому ищем по нему. Если таких контактов несколько — самый ранний (исходный).
+    """
+    from backend.models.agent_contact import AgentContact
+    from backend.models.agent_telegram_account import AgentTelegramMessage
+
+    if not tg_peer_id:
+        return None
+    return (
+        db.query(AgentContact)
+        .join(AgentTelegramMessage, AgentTelegramMessage.agent_contact_id == AgentContact.id)
+        .filter(
+            AgentContact.agent_config_id == agent_config_id,
+            AgentTelegramMessage.tg_peer_id == int(tg_peer_id),
+        )
+        .order_by(AgentContact.created_at.asc())
+        .first()
+    )
+
+
 def thread_who(m) -> str:
     """Подпись автора реплики в текстовом блоке переписки (общая с MAX)."""
     if (m.direction or "inbound") != "outbound":

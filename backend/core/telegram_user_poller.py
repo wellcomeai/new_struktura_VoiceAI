@@ -161,6 +161,14 @@ def _match_contact_by_phone(db, agent_config_id, phone):
     ).order_by(AgentContact.created_at.desc()).first()
 
 
+def _match_contact(db, agent_config_id, peer_id, phone):
+    """Контакт для диалога: прежняя переписка с этим пользователем, затем номер."""
+    return (
+        tg_user.match_contact_by_peer(db, agent_config_id, peer_id)
+        or _match_contact_by_phone(db, agent_config_id, phone)
+    )
+
+
 def _handle_manager_messages(db, account, row, peer_id, outs, stamp) -> int:
     """
     Отобрать из исходящих диалога сообщения, написанные человеком (их id нет ни
@@ -263,7 +271,7 @@ async def _poll_account(db, account):
             # Маркер пока НЕ ставим в top_id — иначе при отложенной обработке
             # (см. deferred ниже) сообщения потеряются. Ставим 0, а продвинем
             # ниже по факту обработки/отсутствия входящих.
-            contact = _match_contact_by_phone(db, account.agent_config_id, d.get("phone"))
+            contact = _match_contact(db, account.agent_config_id, peer_id, d.get("phone"))
             row = AgentTelegramDialog(
                 account_id=account.id,
                 agent_contact_id=(contact.id if contact else None),
@@ -280,8 +288,8 @@ async def _poll_account(db, account):
                 row.tg_username = d["username"]
             if d.get("name"):
                 row.tg_name = d["name"]
-            if row.agent_contact_id is None and d.get("phone"):
-                contact = _match_contact_by_phone(db, account.agent_config_id, d.get("phone"))
+            if row.agent_contact_id is None:
+                contact = _match_contact(db, account.agent_config_id, peer_id, d.get("phone"))
                 if contact:
                     row.agent_contact_id = contact.id
 

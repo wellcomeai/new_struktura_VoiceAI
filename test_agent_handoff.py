@@ -125,6 +125,27 @@ async def main():
     assert since is not None and contact.handoff_until is None and contact.handoff_source is None
     assert contact.to_dict()["handoff_active"] is False
 
+    # --- переподключение: связь диалога с контактом по ID пользователя Telegram
+    from backend.api.agent_telegram_account import _store_baseline
+    assert tg_user.match_contact_by_peer(db, agent.id, 555).id == contact.id
+    assert tg_user.match_contact_by_peer(db, agent.id, 999) is None
+    db.delete(account); db.commit()                       # отключение: аккаунт и диалоги удалены
+    assert db.query(AgentTelegramMessage).filter(AgentTelegramMessage.tg_peer_id == 555).count() > 0
+    account2 = AgentTelegramAccount(agent_config_id=agent.id, user_id=user.id, status="connected",
+                                    session_encrypted="x", reply_scope="all")
+    db.add(account2); db.commit()
+    _store_baseline(account2.id, agent.id, [
+        {"peer_id": 555, "phone": None, "top_id": 20, "name": "Иван"},     # номер скрыт
+        {"peer_id": 777, "phone": None, "top_id": 5, "name": "Незнакомец"},
+    ])
+    rows = {r.tg_peer_id: r for r in db.query(AgentTelegramDialog).filter(
+        AgentTelegramDialog.account_id == account2.id).all()}
+    assert rows[555].agent_contact_id == contact.id, "диалог не привязан к прежнему контакту"
+    assert rows[777].agent_contact_id is None
+    # поллер: диалог без связи подхватывает контакт по ID
+    rows[555].agent_contact_id = None; db.commit()
+    assert poller._match_contact(db, agent.id, 555, None).id == contact.id
+
     db.close()
     print("ALL OK")
 
