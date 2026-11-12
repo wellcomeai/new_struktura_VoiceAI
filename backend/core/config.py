@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     WALLET_WELCOME_GRANT_RUB: int = int(os.getenv("WALLET_WELCOME_GRANT_RUB", "50"))
     # Тестовые номера телефонии: сколько минут номер из пула отдаётся пользователю
     TEST_NUMBER_LEASE_MINUTES: int = int(os.getenv("TEST_NUMBER_LEASE_MINUTES", "10"))
+    # Тестовые номера временно недоступны: включать нельзя, шаг онбординга «позвони на
+    # тестовый номер» можно пропустить. Откат — убрать переменную (или "false").
+    TEST_NUMBERS_UNAVAILABLE: bool = os.getenv("TEST_NUMBERS_UNAVAILABLE", "false").strip().lower() in ("1", "true", "yes", "on")
     WALLET_MIN_TOPUP_RUB: int = int(os.getenv("WALLET_MIN_TOPUP_RUB", "100"))
     WALLET_MAX_TOPUP_RUB: int = int(os.getenv("WALLET_MAX_TOPUP_RUB", "100000"))
     # Лимит одной сессии веб-виджета на серверном ключе
@@ -175,6 +178,9 @@ class Settings(BaseSettings):
     VERIFICATION_ADMIN_CHAT_ID: str = os.getenv("VERIFICATION_ADMIN_CHAT_ID", "")
     # Пример видео для анкеты: объект в том же бакете, ссылка выдаётся свежей при каждом открытии
     VERIFICATION_EXAMPLE_VIDEO_KEY: str = os.getenv("VERIFICATION_EXAMPLE_VIDEO_KEY", "IMG_0444.MOV")
+    # Верификация физлиц временно закрыта для новых заявок (уже поданные и одобренные
+    # работают как раньше). Откат — убрать переменную (или "false").
+    INDIVIDUAL_VERIFICATION_DISABLED: bool = os.getenv("INDIVIDUAL_VERIFICATION_DISABLED", "false").strip().lower() in ("1", "true", "yes", "on")
     # Номера физлиц покупаются на дочерний аккаунт этого пользователя (верифицирован как ИП)
     HOSTED_NUMBERS_OWNER_EMAIL: str = os.getenv("HOSTED_NUMBERS_OWNER_EMAIL", "shw00389@gmail.com")
     # Наценка к месячной цене Voximplant за номер физлица, ₽

@@ -80,6 +80,14 @@ def _client_ip(request: Request) -> Optional[str]:
 # ВЕРИФИКАЦИЯ — ПОЛЬЗОВАТЕЛЬ
 # =============================================================================
 
+def _new_individual_blocked(v: Optional[TelephonyVerification]) -> bool:
+    """
+    INDIVIDUAL_VERIFICATION_DISABLED закрывает только НОВЫЕ заявки физлиц: у кого
+    заявка уже есть (на проверке, на доработке, одобрена), всё работает как раньше.
+    """
+    return bool(settings.INDIVIDUAL_VERIFICATION_DISABLED) and v is None
+
+
 @router.get("/verification")
 def get_my_verification(
     db: Session = Depends(get_db),
@@ -88,6 +96,8 @@ def get_my_verification(
     v = verification.get_for_user(db, current_user.id)
     result = {
         "verification": v.to_public() if v else None,
+        # false — новые заявки физлиц временно не принимаются (флаг INDIVIDUAL_VERIFICATION_DISABLED)
+        "individual_enabled": not _new_individual_blocked(v),
         "consent_version": verification.CONSENT_VERSION,
         "storage_ready": verification.storage.is_configured(),
         "fields": verification.FIELDS,
@@ -142,6 +152,22 @@ async def submit_verification(
     video: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
+    user_id = current_user.id
+
+    def _blocked():
+        db = SessionLocal()
+        try:
+            return _new_individual_blocked(verification.get_for_user(db, user_id))
+        finally:
+            db.close()
+    if settings.INDIVIDUAL_VERIFICATION_DISABLED and await asyncio.to_thread(_blocked):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Верификация физических лиц временно недоступна. Подключите телефонию как ИП / ООО "
+                   "или напишите в поддержку.",
+            headers={"X-Error-Code": "individual_verification_disabled"},
+        )
+
     fields = {
         "last_name": last_name, "first_name": first_name, "middle_name": middle_name,
         "birth_date": birth_date, "birth_place": birth_place,
@@ -155,7 +181,6 @@ async def submit_verification(
         content = await upload.read(verification.max_bytes(kind) + 1)
         files[kind] = (content, upload.content_type or "")
     ip = _client_ip(request)
-    user_id = current_user.id
 
     def _store():
         db = SessionLocal()

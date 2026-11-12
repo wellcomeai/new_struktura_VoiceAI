@@ -1600,6 +1600,10 @@
     .tn-ob-banner p { margin: 0; color: #64748b; font-size: .9rem; line-height: 1.5; }
     .tn-ob-done { margin-top: .9rem; padding: .9rem 1rem; border-radius: var(--radius-md, 12px); background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; font-size: .9rem; line-height: 1.5; }
     .tn-ob-done .btn { margin-top: .6rem; }
+    /* Тестовые номера недоступны (TEST_NUMBERS_UNAVAILABLE / пустой пул) */
+    .tn-unavailable { padding: .9rem 1rem; border-radius: var(--radius-md, 12px); background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: .9rem; line-height: 1.5; }
+    .tn-unavailable strong { display: block; margin-bottom: .25rem; color: #78350f; }
+    .tn-unavailable .btn { margin-top: .75rem; }
     .tn-progress { height: 6px; border-radius: 999px; background: #e2e8f0; overflow: hidden; margin: .75rem 0; }
     .tn-progress > span { display: block; height: 100%; background: linear-gradient(90deg, #22c55e, #16a34a); transition: width 1s linear; }
     .tn-muted { color: var(--text-gray); font-size: .875rem; }
@@ -3673,7 +3677,8 @@
           tnStopTimers();
           return;
         }
-        if (!tnStatus || tnStatus.state === 'no_pool') {
+        // Пустой пул в онбординге — не прячем карточку, а даём пропустить шаг
+        if (!tnStatus || (tnStatus.state === 'no_pool' && !(tnOnboarding && tnStatus.can_skip_onboarding))) {
           card.classList.add('hidden');
           tnStopTimers();
           return;
@@ -3715,6 +3720,26 @@
             </ol>
             <p class="tn-hint">Работают только входящие звонки. Включить тестовый номер можно один раз, таймер идёт с момента включения. Минуты разговора оплачиваются как обычно: на вашем API-ключе — бесплатно, на ключе Voicyfy — с кошелька.</p>
           </div>`;
+
+        // Тестовых номеров нет (флаг TEST_NUMBERS_UNAVAILABLE или пустой пул):
+        // плашка, а в онбординге — кнопка «Пропустить» (POST /skip-onboarding)
+        if (st.state === 'unavailable' || st.state === 'no_pool') {
+          tnSetBadge('Временно недоступны', 'used');
+          const canSkip = tnOnboarding && st.can_skip_onboarding;
+          box.innerHTML = `
+            <div class="tn-unavailable">
+              <strong><i class="fas fa-circle-info"></i> Тестовые номера временно недоступны</strong>
+              ${canSkip
+                ? 'Этот шаг можно пропустить — позвонить ассистенту получится позже, в разделе «Телефония». Ваша бесплатная попытка сохранится.'
+                : 'Сейчас свободных тестовых номеров нет. Когда они появятся, здесь можно будет включить номер и позвонить ассистенту. Чтобы принимать звонки уже сейчас, подключите телефонию и купите свой номер.'}
+              ${canSkip ? '<br><button class="btn btn-primary" id="tn-skip-btn"><i class="fas fa-arrow-right"></i> Пропустить и перейти в кабинет</button>' : ''}
+            </div>`;
+          const skip = document.getElementById('tn-skip-btn');
+          if (skip) skip.addEventListener('click', skipTestNumberOnboarding);
+          const obText = document.getElementById('tn-ob-text');
+          if (obText && canSkip) obText.textContent = 'Тестовые номера сейчас недоступны, поэтому этот шаг можно пропустить. Ассистента всегда можно доработать на странице «Голосовые ассистенты».';
+          return;
+        }
 
         if (st.state === 'active') {
           const lease = st.lease;
@@ -3952,6 +3977,19 @@
         }
       }
 
+      async function skipTestNumberOnboarding() {
+        const btn = document.getElementById('tn-skip-btn');
+        if (btn) btn.disabled = true;
+        try {
+          await api.post(TN_API + '/skip-onboarding', {});
+          location.href = '/static/dashboard.html';
+        } catch (e) {
+          showNotification(e.message || 'Не удалось пропустить шаг', 'error');
+          if (btn) btn.disabled = false;
+          loadTestNumberStatus(true);
+        }
+      }
+
       async function releaseTestNumber() {
         const ok = await VF.confirm({
           title: 'Отключить тестовый номер?',
@@ -3984,7 +4022,7 @@
               <span class="tn-ob-step"><i class="fas fa-arrow-right" style="color:#94a3b8"></i></span>
               <span class="tn-ob-step cur"><span class="n">2</span> Позвоните ему на тестовый номер</span>
             </div>
-            <p>Включите тестовый номер и позвоните на него с любого телефона. После этого откроется весь кабинет. Ассистента всегда можно доработать на странице «Голосовые ассистенты».</p>
+            <p id="tn-ob-text">Включите тестовый номер и позвоните на него с любого телефона. После этого откроется весь кабинет. Ассистента всегда можно доработать на странице «Голосовые ассистенты».</p>
           </div>`);
       }
 

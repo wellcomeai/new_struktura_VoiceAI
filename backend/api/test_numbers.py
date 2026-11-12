@@ -10,6 +10,8 @@ API тестовых номеров телефонии.
   GET  /status            — состояние для ЛК (моя аренда, свободные номера, таймер)
   POST /start             — включить: {assistant_type, assistant_id}
   POST /release           — досрочно отключить (попытка считается использованной)
+  POST /skip-onboarding   — пропустить шаг онбординга «тестовый звонок», когда номеров
+                            нет (TEST_NUMBERS_UNAVAILABLE или пустой пул)
   POST /rebind            — сменить ассистента на активной аренде: {assistant_type, assistant_id}
                             (без траты попытки; после смены модели / удаления ассистента)
 
@@ -103,6 +105,23 @@ async def start_test_number(
         "success": True,
         "message": f"Тестовый номер включён на {max(1, lease.duration_seconds // 60)} минут",
         "lease": lease.to_dict(),
+        "status": TestNumberService.status(db, current_user),
+    }
+
+
+@router.post("/skip-onboarding")
+def skip_test_number_onboarding(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        TestNumberService.skip_onboarding(db, current_user)
+    except TestNumberError as e:
+        db.rollback()
+        raise _bad_request(e)
+    return {
+        "success": True,
+        "message": "Шаг пропущен — кабинет открыт",
         "status": TestNumberService.status(db, current_user),
     }
 

@@ -90,6 +90,14 @@
     if (!box || !btn) return;
     var v = verificationState && verificationState.verification;
     btn.classList.remove('hidden');
+    // Новые заявки физлиц временно закрыты (INDIVIDUAL_VERIFICATION_DISABLED на сервере)
+    if (!v && verificationState && verificationState.individual_enabled === false) {
+      box.innerHTML = '<div style="padding:.6rem .8rem;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:.875rem;line-height:1.5;">' +
+        '<b>Верификация физлиц временно недоступна.</b> Подключите телефонию как ИП / ООО или напишите в ' +
+        '<a href="https://t.me/voicyfy_support" target="_blank">поддержку</a>.</div>';
+      btn.classList.add('hidden');
+      return;
+    }
     if (!v) {
       box.innerHTML = '';
       btn.innerHTML = '<i class="fas fa-id-card"></i> Пройти верификацию физлица';
@@ -234,6 +242,10 @@
     var st = verificationState || await loadVerification();
     if (!st) { T().showNotification('Не удалось загрузить данные верификации', 'error'); return; }
     var v = st.verification;
+    if (!v && st.individual_enabled === false) {
+      T().showNotification('Верификация физлиц временно недоступна. Подключите телефонию как ИП / ООО.', 'warning');
+      return;
+    }
     if (v && v.status === 'approved') {
       try { await T().api.get('/telephony/hosted/status'); } catch (e) { /* ignore */ }
       T().loadTelephonyStatus();

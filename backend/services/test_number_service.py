@@ -203,6 +203,42 @@ class TestNumberService:
             return False
         return getattr(user, "onboarding_completed_at", None) is None
 
+    @staticmethod
+    def unavailable() -> bool:
+        """Тестовые номера выключены флагом TEST_NUMBERS_UNAVAILABLE (временно, без правки пула)."""
+        return bool(getattr(settings, "TEST_NUMBERS_UNAVAILABLE", False))
+
+    @classmethod
+    def can_skip_onboarding(cls, db: Session, user: User) -> bool:
+        """
+        Шаг онбординга «позвони на тестовый номер» можно пропустить, только если
+        позвонить не на что: флаг TEST_NUMBERS_UNAVAILABLE или пустой пул.
+        Когда номера есть, пропуск запрещён — онбординг идёт как раньше.
+        """
+        if not cls.needs_onboarding(user):
+            return False
+        if cls.active_lease_for_user(db, user.id):
+            return False
+        return cls.unavailable() or cls.pool_query(db).count() == 0
+
+    @classmethod
+    def skip_onboarding(cls, db: Session, user: User) -> None:
+        """Снять блокировку кабинета без тестового звонка (см. can_skip_onboarding).
+        Аренда не создаётся — бесплатная попытка остаётся на потом."""
+        if not cls.needs_onboarding(user):
+            return
+        if not cls.can_skip_onboarding(db, user):
+            raise TestNumberError(
+                "Тестовые номера доступны — позвоните ассистенту, чтобы завершить настройку",
+                "skip_not_allowed")
+        db_user = db.query(User).filter(User.id == user.id).first() or user
+        now = _now()
+        db_user.onboarding_completed_at = now
+        user.onboarding_completed_at = now
+        db.add(db_user)
+        db.commit()
+        logger.info(f"[TEST-NUMBER] onboarding skipped (no test numbers) by {user.email}")
+
     @classmethod
     def user_can_start(cls, db: Session, user: User) -> bool:
         """Базовая попытка + гранты админа. Админы — без ограничений."""
@@ -219,6 +255,10 @@ class TestNumberService:
           'available' — можно включить, есть свободный номер
           'busy'      — свободных номеров нет, next_free_in_seconds
           'no_pool'   — пул пуст (фича не настроена) — карточку не показывать
+          'unavailable' — тестовые номера выключены флагом TEST_NUMBERS_UNAVAILABLE
+
+        can_skip_onboarding — новичку нечем позвонить (флаг или пустой пул),
+        шаг онбординга можно пропустить (POST /skip-onboarding).
         """
         pool = cls.pool_query(db).all()
         leases = cls.active_leases(db)
@@ -239,6 +279,8 @@ class TestNumberService:
 
         if my:
             state = "active"
+        elif cls.unavailable():
+            state = "unavailable"
         elif not pool:
             state = "no_pool"
         elif not can_start:
@@ -262,6 +304,8 @@ class TestNumberService:
             # Онбординг не пройден: следующее включение — первый звонок,
             # попытку не тратит и снимает блокировку кабинета.
             "onboarding": cls.needs_onboarding(user),
+            "can_skip_onboarding": (cls.needs_onboarding(user) and not my
+                                    and (cls.unavailable() or not pool)),
             "allowed_assistant_types": list(ALLOWED_ASSISTANT_TYPES),
             "lease": cls._lease_dict(db, my) if my else None,
             "last_lease": last.to_dict() if (last and not my) else None,
@@ -362,6 +406,8 @@ class TestNumberService:
 
         if cls.active_lease_for_user(db, user.id):
             raise TestNumberError("Тестовый номер уже включён", "already_active")
+        if cls.unavailable():
+            raise TestNumberError("Тестовые номера временно недоступны", "unavailable")
         onboarding = cls.needs_onboarding(user)
         att = cls.attempts(db, user)
         if onboarding:
