@@ -56,8 +56,11 @@ MODELS = [
     # берётся из ответа. kind — как модели сообщается «запрос» / «документ».
     {"model": "mongodb/voyage-4-lite", "dims": [0, 1024, 512], "kind": ("query", "document"), "note": "новая, $0.02"},
     {"model": "mongodb/voyage-4", "dims": [0, 1024, 512], "kind": ("query", "document"), "note": "новая, $0.06"},
+    {"model": "mongodb/voyage-4-large", "dims": [0, 1024], "kind": ("query", "document"), "note": "новая, $0.12"},
     {"model": "cohere/embed-5-fast", "dims": [0, 1024, 512], "kind": ("search_query", "search_document"),
      "note": "новая, $0.08"},
+    {"model": "cohere/embed-5-pro", "dims": [0, 1024], "kind": ("search_query", "search_document"),
+     "note": "новая, $0.12"},
     {"model": "perplexity/pplx-embed-v1-4b", "dims": [0, 1024], "note": "новая, $0.03"},
     {"model": "google/gemini-embedding-2", "dims": [0, 1024], "note": "новая, $0.20"},
     {"model": "baai/bge-m3", "dims": [0], "note": "открытая, $0.01"},
@@ -121,14 +124,31 @@ def embed(model, texts, dimensions=None, provider=None, retries=2, input_type=No
     raise RuntimeError(last)
 
 
-def chat(prompt, max_tokens=120):
-    r = client.post(f"{API}/chat/completions", json={
+CHAT_ERRORS = []
+
+
+def chat(prompt, max_tokens=1500):
+    """Короткий ответ LLM. Модель рассуждающая: при малом max_tokens всё уходит в
+    рассуждения и content приходит пустым, поэтому запас большой, а рассуждения
+    просим покороче; если параметр reasoning не принят — повтор без него."""
+    body = {
         "model": QUESTION_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens, "temperature": 0.7,
-    })
-    r.raise_for_status()
-    return (r.json()["choices"][0]["message"]["content"] or "").strip()
+        "reasoning": {"effort": "low", "exclude": True},
+    }
+    for attempt in range(2):
+        r = client.post(f"{API}/chat/completions", json=body)
+        if r.status_code == 200:
+            msg = (r.json().get("choices") or [{}])[0].get("message") or {}
+            text = (msg.get("content") or "").strip()
+            if text:
+                return text
+            CHAT_ERRORS.append(f"пустой ответ: {r.text[:200]}")
+        else:
+            CHAT_ERRORS.append(f"HTTP {r.status_code}: {r.text[:200]}")
+        body.pop("reasoning", None)
+    raise RuntimeError(CHAT_ERRORS[-1])
 
 
 def as_query(cfg, text):
@@ -391,6 +411,8 @@ def make_questions(chunks, count, seed):
         prompt = (
             "Ниже фрагмент базы знаний компании. Напиши ОДИН короткий вопрос, который клиент "
             "мог бы задать по телефону и ответ на который есть именно в этом фрагменте. "
+            "Вопрос должен быть конкретным — таким, чтобы по нему можно было отличить этот "
+            "фрагмент от соседних частей того же документа. "
             "Разговорным языком, своими словами, не копируй формулировки из текста. "
             "Ответь только вопросом, без кавычек.\n\nФРАГМЕНТ:\n" + chunks[i][:1500]
         )
@@ -404,13 +426,16 @@ def make_questions(chunks, count, seed):
         made = [x for x in pool_exec.map(ask, picked) if x]
     if len(made) >= max(5, len(picked) // 2):
         return made, "вопросы придумала модель " + QUESTION_MODEL
-    # Запасной путь: предложение из середины фрагмента (слабее — слова совпадают дословно)
+    # Запасной путь: предложение из середины фрагмента. Оценке качества по таким
+    # вопросам верить нельзя: это обрывки текста, часто одинаковые в десятках фрагментов.
+    if CHAT_ERRORS:
+        print(f"  ⚠ LLM не ответила ({len(CHAT_ERRORS)} ошибок), первая: {CHAT_ERRORS[0]}")
     made = []
     for i in picked:
         sents = [s for s in re.split(r"(?<=[.!?])\s+", chunks[i]) if 40 <= len(s) <= 200]
         if sents:
             made.append((sents[len(sents) // 2], i))
-    return made, "ВНИМАНИЕ: LLM недоступна, вопросы — предложения из текста (оценка завышена)"
+    return made, "ВНИМАНИЕ: LLM недоступна, вопросы — обрывки текста, таблице качества НЕ ВЕРИТЬ"
 
 
 # ------------------------------------------------------------------------ 4. качество
@@ -473,7 +498,9 @@ def quality(alive, chunks, questions, own_questions):
     if not summary:
         print("\n  Ни одна модель не отработала.")
         return
-    print(f"\n  Вопросов: {len(questions)}. hit@1 — нужный фрагмент первый, hit@3 — в тройке "
+    print(f"\n  Вопросов: {len(questions)} (один вопрос = {100 / len(questions):.1f} п.п.; разница "
+          f"меньше ~{300 / len(questions):.0f} п.п. — шум).")
+    print(f"  hit@1 — нужный фрагмент первый, hit@3 — в тройке "
           f"(столько получает модель в звонке).")
     print(f"\n  {'модель @размерность':<40} {'hit@1':>6} {'hit@3':>6} {'MRR':>6} {'КБ/фрагм':>9} {'запрос, мс':>11}")
     for s in summary:
@@ -509,7 +536,7 @@ def main():
     ap.add_argument("--namespace", help="namespace базы для замера качества")
     ap.add_argument("--file", help="взять текст из файла вместо БД")
     ap.add_argument("--max-chars", type=int, default=300_000, help="потолок размера базы при автовыборе")
-    ap.add_argument("--questions", type=int, default=40, help="сколько вопросов придумать")
+    ap.add_argument("--questions", type=int, default=80, help="сколько вопросов придумать")
     ap.add_argument("-q", action="append", default=[], help="свой вопрос (можно несколько)")
     ap.add_argument("--models", help="свои id моделей через запятую вместо набора по умолчанию")
     ap.add_argument("--only", help="оставить из набора модели, в id которых есть одна из подстрок (через запятую)")
