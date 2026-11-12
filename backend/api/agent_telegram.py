@@ -9,6 +9,7 @@ send_telegram_notification из PostCall-оркестратора.
 Старые users.telegram_* (общесистемные уведомления о звонках) не трогаются.
 """
 
+import html
 from datetime import datetime
 from typing import Optional
 
@@ -53,6 +54,11 @@ class TelegramEnabledRequest(BaseModel):
     enabled: bool
 
 
+class TelegramOwnerAddRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=20, description="Telegram ID пользователя (число)")
+    label: Optional[str] = Field(None, max_length=60, description="Подпись, напр. «Иван»")
+
+
 class TelegramChatAddRequest(BaseModel):
     chat_id: str = Field(..., min_length=1, max_length=50)
     title: Optional[str] = None
@@ -95,6 +101,8 @@ def _settings_dict(agent: AgentConfig) -> dict:
         "bot_username": agent.telegram_bot_username,
         "bot_token_masked": token_masked,
         "chat_ids": agent.telegram_chat_ids or [],
+        # Владельцы бота (полный доступ). Пусто — все в разрешённых чатах владельцы.
+        "owner_ids": agent.telegram_owner_ids or [],
     }
 
 
@@ -292,6 +300,56 @@ def add_telegram_chat(
     return _settings_dict(agent)
 
 
+# ============================================================================
+# ENDPOINTS — OWNERS (чьи команды бот выполняет полностью)
+# ============================================================================
+
+@router.post("/owners")
+def add_telegram_owner(
+    body: TelegramOwnerAddRequest,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Добавить владельца бота по Telegram ID пользователя (узнать — командой /id боту)."""
+    agent = _get_agent(current_user, db, agent_id)
+    user_id = body.user_id.strip()
+    if not user_id.isdigit():
+        raise HTTPException(status_code=400, detail="invalid_user_id")
+    owners = list(agent.telegram_owner_ids or [])
+    if any(str(o.get("user_id")) == user_id for o in owners):
+        raise HTTPException(status_code=400, detail="already_exists")
+    owners.append({
+        "user_id": user_id,
+        "label": (body.label or "").strip() or None,
+        "added_at": datetime.utcnow().isoformat(),
+    })
+    agent.telegram_owner_ids = owners
+    flag_modified(agent, "telegram_owner_ids")
+    db.commit()
+    db.refresh(agent)
+    logger.info(f"[AGENT-TG] Added owner {user_id} for agent {agent.id}")
+    return _settings_dict(agent)
+
+
+@router.delete("/owners/{owner_user_id}")
+def delete_telegram_owner(
+    owner_user_id: str,
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Удалить владельца бота."""
+    agent = _get_agent(current_user, db, agent_id)
+    owners = [o for o in (agent.telegram_owner_ids or []) if str(o.get("user_id")) != owner_user_id]
+    agent.telegram_owner_ids = owners
+    flag_modified(agent, "telegram_owner_ids")
+    db.commit()
+    db.refresh(agent)
+    logger.info(f"[AGENT-TG] Removed owner {owner_user_id} for agent {agent.id}")
+    return _settings_dict(agent)
+
+
 @router.delete("/chats/{chat_id}")
 def delete_telegram_chat(
     chat_id: str,
@@ -351,6 +409,29 @@ async def test_telegram(
 # ENDPOINT — WEBHOOK (public, no auth)
 # ============================================================================
 
+def _id_command_reply(message: dict, bot_username: Optional[str]) -> Optional[str]:
+    """Ответ на /id (или /id@имя_бота) — Telegram ID отправителя и ID чата; иначе None."""
+    text = (message.get("text") or "").strip()
+    if not text.startswith("/"):
+        return None
+    cmd = text.split()[0].lower()
+    uname = (bot_username or "").lstrip("@").lower()
+    if cmd == "/id" and not is_group_chat(message):
+        pass
+    elif not (uname and cmd == f"/id@{uname}"):
+        return None
+    from_user = message.get("from") or {}
+    chat = message.get("chat") or {}
+    name = " ".join(x for x in (from_user.get("first_name"), from_user.get("last_name")) if x) or "—"
+    return (
+        f"Ваш Telegram ID: <code>{from_user.get('id', '—')}</code> ({html.escape(name)})\n"
+        f"ID этого чата: <code>{chat.get('id', '—')}</code>\n\n"
+        "Чтобы бот выполнял ваши команды (контакты, звонки, задачи), добавьте ваш ID в "
+        "настройках агента → Telegram-бот → «Владельцы бота». Чтобы бот работал в этом чате, "
+        "добавьте ID чата в список чатов."
+    )
+
+
 @router.post("/webhook/{secret}")
 async def telegram_webhook(
     secret: str,
@@ -390,9 +471,21 @@ async def telegram_webhook(
         if not message or not isinstance(message, dict):
             return {"ok": True}
 
-        # 5. chat_id в списке разрешённых?
         chat = message.get("chat", {})
         chat_id = str(chat.get("id", ""))
+
+        # 4a. /id — подсказка «ваш ID / ID чата» для настроек бота. Без модели и до
+        #     проверки списка чатов: владельцу нужно узнать ID, пока его чат не добавлен.
+        #     В группе — только /id@имя_бота, чтобы не отвечать на чужие команды.
+        id_reply = _id_command_reply(message, agent.telegram_bot_username)
+        if id_reply:
+            await AgentTelegramService.send_message(
+                token=agent.telegram_bot_token, chat_id=chat_id, text=id_reply,
+                extra=group_reply_extra(message),
+            )
+            return {"ok": True}
+
+        # 5. chat_id в списке разрешённых?
         if not chat_id or chat_id not in agent.get_telegram_chat_ids_list():
             logger.info(
                 f"[AGENT-TG] Webhook ignored: chat {chat_id} not in allow-list "
@@ -453,8 +546,9 @@ async def telegram_webhook(
                 )
                 return {"ok": True}
 
-        # 7. Отправитель
+        # 7. Отправитель: владелец (полный доступ) или гость (только разговор и справка)
         from_user = message.get("from", {}) or {}
+        is_owner = agent.is_telegram_owner(from_user.get("id"))
 
         # 8. Обработать
         logger.info(f"[AGENT-TG] Incoming message from chat {chat_id} (agent {agent.id}): {text[:80]!r}")
@@ -465,6 +559,7 @@ async def telegram_webhook(
             from_user=from_user,
             message=message,
             db=db,
+            is_owner=is_owner,
         )
 
     except Exception as e:

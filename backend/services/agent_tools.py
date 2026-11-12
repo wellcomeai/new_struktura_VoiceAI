@@ -395,6 +395,20 @@ def build_public_tools() -> list:
     )
 
 
+# Гость в Telegram-боте агента (пишет не владелец — нет в telegram_owner_ids):
+# только разговор и справка. Никаких контактов, звонков, задач, выгрузок,
+# рассылок, уведомлений и памяти — данные клиентов гостю недоступны.
+GUEST_TELEGRAM_TOOL_NAMES = {"search_knowledge_base", "read_google_sheet"}
+
+
+def build_guest_tools() -> list:
+    """Tools гостевого режима Telegram-бота (Chat Completions формат)."""
+    return to_chat_completions_tools(
+        [t for t in (SEARCH_KNOWLEDGE_BASE_TOOL, READ_GOOGLE_SHEET_TOOL)
+         if t.get("name") in GUEST_TELEGRAM_TOOL_NAMES]
+    )
+
+
 async def build_postcall_tools(agent_config, db: Session) -> list:
     """Tools для PostCall-анализа: AGENT_POSTCALL_TOOLS + коннекторы + личный Telegram + личный MAX + проверка ответа."""
     tools = await _augment_with_connectors(

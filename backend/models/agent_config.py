@@ -124,6 +124,9 @@ class AgentConfig(Base):
     telegram_bot_token = Column(String(100), nullable=True)
     telegram_bot_username = Column(String(50), nullable=True)
     telegram_chat_ids = Column(JSONB, default=list, nullable=False)
+    # Владельцы бота: [{"user_id": "123", "label": "Иван", "added_at": ...}]. Их команды
+    # выполняются полностью, остальным — гостевой режим. Пусто — все владельцы (как раньше).
+    telegram_owner_ids = Column(JSONB, default=list, nullable=False, server_default='[]')
     telegram_webhook_secret = Column(String(64), nullable=True, unique=True)
     telegram_enabled = Column(Boolean, default=False, nullable=False)
 
@@ -200,6 +203,17 @@ class AgentConfig(Base):
     # ── Telegram-интеграция агента (v2.2) ──
     def has_telegram_bot(self) -> bool:
         return bool(self.telegram_bot_token and self.telegram_webhook_secret)
+
+    def get_telegram_owner_ids_list(self) -> list:
+        """Голый список Telegram ID владельцев бота (строки)."""
+        return [str(o.get("user_id")) for o in (self.telegram_owner_ids or []) if o.get("user_id")]
+
+    def is_telegram_owner(self, tg_user_id) -> bool:
+        """Владелец ли бота. Пустой список — все владельцы (обратная совместимость)."""
+        owners = self.get_telegram_owner_ids_list()
+        if not owners:
+            return True
+        return str(tg_user_id or "") in owners
 
     def get_telegram_chat_ids_list(self) -> list:
         """Возвращает голый список chat_id из telegram_chat_ids."""

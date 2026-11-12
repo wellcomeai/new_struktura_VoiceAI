@@ -78,6 +78,21 @@ async function renderTelegramModal(){
       <td style="text-align:right"><span class="btn btn-secondary btn-sm" onclick="removeTelegramChat('${esc(c.chat_id)}')"><i class="fas fa-times"></i></span></td>
     </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">Чатов пока нет</td></tr>';
 
+  // Владельцы бота: их команды выполняются полностью, остальные — гости
+  const owners = s.owner_ids || [];
+  const ownerRows = owners.map(o => `
+    <tr>
+      <td style="font-family:monospace">${esc(o.user_id)}</td>
+      <td>${esc(o.label || '—')}</td>
+      <td style="color:var(--muted)">${o.added_at ? fmtDate(o.added_at) : '—'}</td>
+      <td style="text-align:right"><span class="btn btn-secondary btn-sm" onclick="removeTelegramOwner('${esc(o.user_id)}')"><i class="fas fa-times"></i></span></td>
+    </tr>`).join('');
+  const ownersWarn = owners.length ? '' : `
+    <div style="margin:6px 0 10px;padding:10px 12px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:13px;line-height:1.5">
+      <i class="fas fa-triangle-exclamation"></i> <b>Владельцы не указаны.</b> Сейчас любой участник чатов из списка ниже может управлять агентом:
+      спросить контакты, звонки, выгрузить базу. Добавьте свой Telegram ID — остальным бот будет отвечать только на общие вопросы.
+    </div>`;
+
   body.innerHTML = agentLabel + `
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <div style="font-size:14px;font-weight:600"><i class="fab fa-telegram" style="color:#229ED9"></i> @${esc(s.bot_username || '')}</div>
@@ -87,12 +102,27 @@ async function renderTelegramModal(){
       </div>
     </div>
 
-    <div style="margin:16px 0 8px;font-weight:600;font-size:13.5px">Чаты</div>
+    <div style="margin:16px 0 8px;font-weight:600;font-size:13.5px">Владельцы бота
+      <span class="hint" tabindex="0" data-hint="Команды владельцев бот выполняет полностью: контакты, звонки, задачи, выгрузки. Остальным участникам чатов он отвечает только на общие вопросы — по базе знаний, без данных клиентов."><i class="far fa-circle-question"></i></span>
+    </div>
+    ${ownersWarn}
+    ${owners.length ? `<table class="calls-table" style="width:100%">
+      <thead><tr><th>Telegram ID</th><th>Кто</th><th>Добавлен</th><th></th></tr></thead>
+      <tbody>${ownerRows}</tbody>
+    </table>` : ''}
+    <div class="form-hint" style="margin-top:6px">Узнать свой ID: напишите боту <b>/id</b> в личку (в группе — <b>/id@${esc(s.bot_username || 'имя_бота')}</b>).</div>
+    <div class="form-row" style="margin-top:10px">
+      <div class="form-group"><input class="form-input" id="tg-new-owner-id" inputmode="numeric" placeholder="Telegram ID (например: 123456789)"></div>
+      <div class="form-group"><input class="form-input" id="tg-new-owner-label" placeholder="Кто это (например: Иван)"></div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="addTelegramOwner()"><i class="fas fa-user-shield"></i> Добавить владельца</button>
+
+    <div style="margin:20px 0 8px;font-weight:600;font-size:13.5px">Чаты</div>
     <table class="calls-table" style="width:100%">
       <thead><tr><th>chat_id</th><th>Название</th><th>Тип</th><th>Добавлен</th><th></th></tr></thead>
       <tbody>${chatRows}</tbody>
     </table>
-    <div class="form-hint" style="margin-top:6px">Чтобы узнать chat_id, напишите боту <b>@userinfobot</b> или используйте <b>getUpdates</b>.</div>
+    <div class="form-hint" style="margin-top:6px">Чтобы узнать chat_id, напишите боту <b>/id</b> в нужном чате (в группе — <b>/id@${esc(s.bot_username || 'имя_бота')}</b>). Уведомления агента приходят во все чаты из списка.</div>
 
     <div class="form-row" style="margin-top:12px">
       <div class="form-group"><input class="form-input" id="tg-new-chat-id" placeholder="chat_id (например: -1001234567890)"></div>
@@ -180,6 +210,36 @@ async function addTelegramChat(){
   }catch(e){ showToast('Ошибка сети','error'); }
 }
 
+async function addTelegramOwner(){
+  const user_id = document.getElementById('tg-new-owner-id').value.trim();
+  const label = document.getElementById('tg-new-owner-label').value.trim();
+  if(!/^\d+$/.test(user_id)){ showToast('Telegram ID — это число. Узнайте его командой /id боту','error'); return; }
+  try{
+    const r = await apiFetch(TG_API + '/owners', { method:'POST', body:JSON.stringify({ user_id, label: label || null }) });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      showToast('Владелец добавлен', 'success');
+      renderTelegramModal();
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(tgErr(err.detail === 'already_exists' ? 'owner_already_exists' : err.detail), 'error');
+    }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
+async function removeTelegramOwner(userId){
+  const left = ((telegramState && telegramState.owner_ids) || []).length - 1;
+  if(left === 0 && !confirm('Это последний владелец. Без владельцев любой участник чатов сможет управлять агентом. Удалить?')) return;
+  try{
+    const r = await apiFetch(TG_API + '/owners/' + encodeURIComponent(userId), { method:'DELETE' });
+    if(r && r.status === 200){
+      telegramState = await r.json();
+      renderTelegramModal();
+      showToast('Владелец удалён', 'success');
+    } else { showToast('Ошибка','error'); }
+  }catch(e){ showToast('Ошибка сети','error'); }
+}
+
 async function removeTelegramChat(chatId){
   try{
     const r = await apiFetch(TG_API + '/chats/' + encodeURIComponent(chatId), { method:'DELETE' });
@@ -224,6 +284,8 @@ function tgErr(detail){
     telegram_bot_not_configured:'Бот не подключён.',
     no_chat_ids_configured:'Сначала добавьте хотя бы один чат.',
     already_exists:'Этот chat_id уже добавлен.',
+    owner_already_exists:'Этот владелец уже добавлен.',
+    invalid_user_id:'Telegram ID — это число. Узнайте его командой /id боту.',
     invalid_chat_type:'Неверный тип чата.',
     chat_id_required:'Укажите chat_id.',
     token_already_used:'Этот бот уже подключён к другому агенту. У каждого агента должен быть свой бот.',

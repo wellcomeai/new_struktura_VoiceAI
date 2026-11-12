@@ -1655,6 +1655,37 @@ def ensure_user_pd_consent_columns():
         logger.error(f"❌ ensure_user_pd_consent_columns error: {e}")
 
 
+def ensure_agent_telegram_owner_ids_column():
+    """
+    Идемпотентно добавляет agent_configs.telegram_owner_ids (JSONB): Telegram ID
+    владельцев бота агента — их команды выполняются полностью, остальным отвечает
+    гостевой режим. Дублирует миграцию add_agent_telegram_owner_ids.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        if not inspector.has_table('agent_configs'):
+            return
+        existing = {c['name'] for c in inspector.get_columns('agent_configs')}
+        if 'telegram_owner_ids' in existing:
+            return
+        with engine.connect() as conn:
+            trans = conn.begin()
+            try:
+                conn.execute(text(
+                    "ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "
+                    "telegram_owner_ids JSONB NOT NULL DEFAULT '[]'::jsonb"
+                ))
+                trans.commit()
+                logger.info("✅ Added column agent_configs.telegram_owner_ids")
+            except Exception as e:
+                trans.rollback()
+                logger.error(f"❌ Failed to add agent_configs.telegram_owner_ids: {e}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_telegram_owner_ids_column error: {e}")
+
+
 def ensure_agent_memory_column():
     """
     Идемпотентно добавляет колонку памяти агента (agent_configs.memory JSONB).
@@ -2501,6 +2532,9 @@ async def startup_event():
 
                 # 🆕 Шаг 18: Память агента (agent_configs.memory JSONB)
                 ensure_agent_memory_column()
+
+                # 🆕 Шаг 18в: Владельцы Telegram-бота агента (agent_configs.telegram_owner_ids)
+                ensure_agent_telegram_owner_ids_column()
 
                 # 🆕 Шаг 18б: Ссылка на запись звонка агента (agent_calls.record_url)
                 ensure_agent_call_record_url_column()

@@ -765,8 +765,13 @@ async def process_telegram_message(
     from_user: dict,
     message: dict,
     db: Session,
+    is_owner: bool = True,
 ) -> None:
     """
+    is_owner=False — гостевой режим: пишет не владелец бота (нет в
+    agent_configs.telegram_owner_ids). Только разговор и справка (база знаний,
+    Google-таблицы), без контактов/звонков/задач и без истории владельца.
+
     Обрабатывает входящее текстовое сообщение в чат-режиме:
     1. Находит/создаёт AgentTelegramChatHistory для чата.
     2. Обновляет метаданные отправителя.
@@ -835,7 +840,7 @@ async def process_telegram_message(
     #    с v3-агентами (uses_hardcoded_prompt). В группах/каналах и для legacy
     #    v2-агентов — обычный rich-ответ одним сообщением (с fallback).
     is_private = (history_row.chat_type or "") == "private"
-    use_stream = is_private and getattr(agent, "uses_hardcoded_prompt", False)
+    use_stream = is_owner and is_private and getattr(agent, "uses_hardcoded_prompt", False)
 
     if use_stream:
         await _stream_telegram_reply(
@@ -854,6 +859,7 @@ async def process_telegram_message(
         user=user,
         db=db,
         telegram_history_row=history_row,
+        guest=not is_owner,
     )
     # Ответ в Telegram — сырой Markdown модели через rich (fallback на HTML)
     await AgentTelegramService.send_rich_or_fallback(
