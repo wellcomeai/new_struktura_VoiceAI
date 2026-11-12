@@ -123,6 +123,8 @@ class AgentCall(Base):
                 return "max"
             if post.get("call_direction") == "reply_check":
                 return "reply_check"
+            if post.get("call_direction") == "handoff_return":
+                return "handoff_return"
         if self.transcript:
             t = self.transcript.strip()
             if t.startswith("Клиент прислал SMS"):

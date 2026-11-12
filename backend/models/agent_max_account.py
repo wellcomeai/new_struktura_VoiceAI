@@ -188,6 +188,9 @@ class AgentMaxMessage(Base):
     max_chat_id = Column(BigInteger, nullable=True)
     max_message_id = Column(BigInteger, nullable=True)
     direction = Column(String(10), default="inbound", nullable=False)
+    # Кто написал исходящее: NULL/"agent" — агент, "manager" — живой человек с
+    # того же аккаунта (ручной режим, backend/services/agent_handoff.py).
+    sender = Column(String(16), nullable=True)
     body = Column(Text, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -196,6 +199,7 @@ class AgentMaxMessage(Base):
         return {
             "id": str(self.id),
             "direction": self.direction or "inbound",
+            "sender": self.sender or ("agent" if self.direction == "outbound" else "client"),
             "body": self.body,
             "ts": self.created_at.isoformat() if self.created_at else None,
         }

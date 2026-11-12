@@ -58,6 +58,7 @@ _CHANNEL_LABELS = {
     "telegram": "Telegram",
     "max": "MAX",
     "reply_check": "Проверка ответа",
+    "handoff_return": "Возврат от менеджера",
 }
 
 _DIRECTION_LABELS = {

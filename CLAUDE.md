@@ -943,3 +943,41 @@ Namespace остаётся ключом базы (`Pinecone namespace: <ns>` в 
   в статусе — `max_chars` (лимит для фронта, `agent/knowledge-base.js`).
 - Тест: `python test_kb_store.py` (нарезка; с `DATABASE_URL` на Postgres с pgvector — запись и поиск, без сети).
 - Не сделано: фоновая загрузка с прогрессом, загрузка файлом, виджет Pinecone в админке (считает только Pinecone).
+
+## Ручной режим контакта: менеджер перехватывает диалог (ветка 1211-2026)
+
+Логика — `backend/services/agent_handoff.py`. Режим активен, пока `agent_contacts.handoff_until` (naive UTC) в
+будущем (`handoff_since`, `handoff_source` = telegram | max | manual; колонки — `ensure_agent_handoff_columns` в
+`app.py` / миграция `add_agent_handoff`). Пауза — `HANDOFF_MINUTES`=60 от последнего сообщения менеджера, на весь
+контакт (все каналы).
+- **Включение.** (1) Автоматически: менеджер написал клиенту с личного Telegram / MAX агента. Telegram —
+  `poll_dialogs` отдаёт `out_messages` (исходящие новее `last_processed_msg_id`), поллер
+  (`_handle_manager_messages`) считает сообщением менеджера то, чьего id нет в `agent_telegram_messages` и в
+  реестре только что отправленных агентом (`mark_agent_sent` / `was_agent_sent`, память процесса, 15 мин — файл с
+  длинным текстом уходит двумя сообщениями, в БД попадает один id). MAX — пуш своего сообщения
+  (`_on_own_message`, ждёт `OWN_MESSAGE_SETTLE_SECONDS`=4, чтобы эхо отправки агента успело попасть в реестр;
+  в лог пишется `[MAX-LIVE] own message push`). Только диалоги, привязанные к контакту. (2) Кнопка «Взять диалог» /
+  «Вернуть агенту» в карточке контакта → `POST /api/agent/contacts/{id}/handoff` `{action: take|release}`.
+- **Сообщения менеджера** сохраняются в тред как `direction="outbound"`, `sender="manager"` (новая колонка у
+  `agent_telegram_messages` / `agent_max_messages`; `to_dict` отдаёт `sender`: client | agent | manager). В хронологии
+  и блоках переписки для модели — «МЕНЕДЖЕР (живой человек)» (`_timeline_who`, `thread_who`), в карточке —
+  «Менеджер (вручную)». Сохраняются всегда — агент видит договорённости человека.
+- **Пока режим активен**: `handle_inbound_telegram` / `_max` / `_sms` сохраняют входящее и выходят без прогона;
+  `_agent_task_may_run_now` переносит любые задачи контакта на конец паузы (кроме `handoff_check`);
+  `execute_tool` в фоновых прогонах (`scope_contact_id`) отказывает `SCOPED_SEND_TOOLS` (`error=manager_handoff`) —
+  в чате с владельцем ограничения нет. Входящий звонок голос по-прежнему принимает.
+- **Защита от ответа «в два голоса»**: `telegram_user_service.send_message(guard_min_id, known_out_ids)` перед
+  отправкой смотрит хвост диалога; чужое исходящее → `manager_replied`, сообщение не уходит, включается режим.
+  Окно гонки остаётся (поллер раз в минуту): первый ответ агента может уйти, пока менеджер печатает.
+- **Возврат**: одна задача `Task(channel="handoff_check")` на конец паузы (при продлении сдвигается,
+  `release` ставит её на «сейчас»). `TaskScheduler.execute_agent_handoff_check`: пауза ещё идёт — перенос; иначе
+  `finish` + прогон `PostCallOrchestrator.run_for_handoff_return` (`call_direction="handoff_return"`, в
+  «транскрипте» — `pause_summary`: кто сколько писал и сами реплики): записать договорённости в память контакта,
+  ответить клиенту, только если его сообщение осталось без ответа. Не попытка дозвона (`is_proactive`). v2-агентам —
+  только снятие режима. В UI — бейджи «Возврат от менеджера» (`core.js`, `calls.js`).
+- **Уведомления** в бот агента: при включении (`started_text`) и после возврата (`returned_text`). Кнопок в боте
+  нет: вебхук бота зарегистрирован с `allowed_updates=["message"]`, callback-кнопки потребовали бы перерегистрации
+  всех ботов.
+- Тест: `DATABASE_URL=… python test_agent_handoff.py` (пустой тестовый Postgres, без сети).
+- Не сделано: настройка длительности паузы, инструмент паузы для чата с агентом, кнопки в боте, пауза входящих
+  звонков, проверка перед отправкой в MAX.

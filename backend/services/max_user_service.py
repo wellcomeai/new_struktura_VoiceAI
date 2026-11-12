@@ -44,6 +44,8 @@ from typing import Any, Dict, List, Optional
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
+from backend.services import agent_handoff
+from backend.services.telegram_user_service import thread_who
 
 logger = get_logger(__name__)
 
@@ -738,6 +740,78 @@ def _match_contact_by_phone(db, agent_config_id, phone):
     ).order_by(AgentContact.created_at.desc()).first()
 
 
+OWN_MESSAGE_SETTLE_SECONDS = 4
+
+
+async def _on_own_message(account_id: str, message, client, chat_id: int, text: str) -> None:
+    """
+    Исходящее сообщение аккаунта, пришедшее пушем. Если его отправил не агент
+    (id нет среди только что отправленных и в agent_max_messages) — это живой
+    менеджер: сохраняем реплику в тред (sender="manager") и включаем ручной
+    режим контакта (backend/services/agent_handoff.py).
+    """
+    from backend.db.session import SessionLocal
+    from backend.models.agent_config import AgentConfig
+    from backend.models.agent_contact import AgentContact
+    from backend.models.agent_max_account import AgentMaxAccount, AgentMaxDialog, AgentMaxMessage
+
+    msg_id = int(getattr(message, "id", 0) or 0)
+    if not msg_id:
+        return
+    logger.info(f"[MAX-LIVE] own message push: account={account_id} chat={chat_id} msg={msg_id}")
+    # Эхо может прийти раньше, чем send_message агента вернёт id и тулза
+    # сохранит сообщение, — даём им время.
+    await asyncio.sleep(OWN_MESSAGE_SETTLE_SECONDS)
+    if agent_handoff.was_agent_sent("max", chat_id, msg_id):
+        return
+
+    chat = next((c for c in (client.chats or []) if int(getattr(c, "id", 0) or 0) == chat_id), None)
+    if chat is not None and not _is_dialog(chat):
+        return
+
+    db = SessionLocal()
+    try:
+        account = db.query(AgentMaxAccount).filter(AgentMaxAccount.id == account_id).first()
+        if not account or account.status != "connected":
+            return
+        dialog = db.query(AgentMaxDialog).filter(
+            AgentMaxDialog.account_id == account.id,
+            AgentMaxDialog.max_chat_id == chat_id,
+        ).first()
+        if dialog is None or dialog.agent_contact_id is None:
+            return  # диалог не связан с контактом агента — не наше дело
+        already = db.query(AgentMaxMessage.id).filter(
+            AgentMaxMessage.account_id == account.id,
+            AgentMaxMessage.max_chat_id == chat_id,
+            AgentMaxMessage.max_message_id == msg_id,
+        ).first()
+        if already:
+            return  # отправил агент (или пуш повторился)
+
+        contact = db.query(AgentContact).filter(AgentContact.id == dialog.agent_contact_id).first()
+        if contact is None:
+            return
+        body = text or "[вложение]"
+        store_message(
+            db, account, "outbound", body,
+            agent_contact_id=contact.id,
+            max_chat_id=chat_id,
+            max_message_id=msg_id,
+            sender="manager",
+        )
+        agent = db.query(AgentConfig).filter(AgentConfig.id == account.agent_config_id).first()
+        logger.info(
+            f"[MAX-LIVE] ✋ manager message in chat {chat_id} (account {account.id}) "
+            f"→ handoff for contact {contact.id}"
+        )
+        agent_handoff.start_and_notify(db, contact, agent, "max")
+    except Exception as e:
+        logger.error(f"[MAX-LIVE] own message handling failed: {e}", exc_info=True)
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def _on_live_message(account_id: str, message, client) -> None:
     """
     Обработчик входящего пуша от живого клиента. Резолвит контакт, сохраняет
@@ -755,8 +829,13 @@ async def _on_live_message(account_id: str, message, client) -> None:
     text = (getattr(message, "text", None) or "").strip()
     m_time = int(getattr(message, "time", 0) or 0)
 
-    if not sender or not chat_id or sender == int(me_id):
-        return  # своё/системное сообщение
+    if sender and chat_id and sender == int(me_id):
+        # Своё сообщение: либо эхо отправки агента, либо владелец написал клиенту
+        # сам с телефона — тогда включаем ручной режим контакта.
+        await _on_own_message(account_id, message, client, chat_id, text)
+        return
+    if not sender or not chat_id:
+        return  # системное сообщение
     if not text:
         return  # вложения без текста в MVP не обрабатываем
 
@@ -1011,6 +1090,8 @@ async def send_message(
         msg = await client.send_message(
             chat_id=target_chat_id, text=text or None, attachments=attachments, notify=True,
         )
+        # Помечаем id как «отправил агент»: эхо этого сообщения не примем за менеджера.
+        agent_handoff.mark_agent_sent("max", target_chat_id, getattr(msg, "id", None))
 
         return {
             "ok": True,
@@ -1062,8 +1143,10 @@ def store_message(
     agent_contact_id=None,
     max_chat_id=None,
     max_message_id=None,
+    sender=None,
 ):
-    """Сохранить сообщение переписки (best-effort, без commit)."""
+    """Сохранить сообщение переписки (best-effort, без commit).
+    sender="manager" — исходящее написал живой человек, а не агент."""
     from backend.models.agent_max_account import AgentMaxMessage
     try:
         row = AgentMaxMessage(
@@ -1072,6 +1155,7 @@ def store_message(
             max_chat_id=max_chat_id,
             max_message_id=max_message_id,
             direction=direction,
+            sender=sender,
             body=body or "",
         )
         db.add(row)
@@ -1103,7 +1187,7 @@ def build_thread_text(db, agent_contact_id, limit: int = 20) -> str:
     lines = []
     for m in rows:
         ts_str = utc_to_msk(m.created_at).strftime("%d.%m %H:%M") if m.created_at else "?"
-        who = "Агент → клиенту" if (m.direction or "inbound") == "outbound" else "Клиент → агенту"
+        who = thread_who(m)
         text = (m.body or "").strip().replace("\n", " ")
         lines.append(f"[{ts_str}] {who}: {text}")
     return "\n".join(lines)

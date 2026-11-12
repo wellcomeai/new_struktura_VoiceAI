@@ -28,6 +28,7 @@ from backend.services import agent_memory
 from backend.services import agent_files
 from backend.services import contact_search
 from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL
+from backend.services import agent_handoff
 from backend.services import telegram_user_service
 from backend.services import max_user_service
 from backend.services.telegram_notification import TelegramNotificationService
@@ -623,6 +624,21 @@ async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: S
         if phone_resolves >= telegram_user_service.TG_PHONE_RESOLVE_HOURLY_LIMIT:
             return {"ok": False, "error": telegram_user_service.error_human("phone_resolve_limit_reached")}
 
+    # Защита от ответа «в два голоса»: если после последнего обработанного
+    # сообщения в диалоге уже есть ответ живого менеджера — не отправляем.
+    guard_min_id = None
+    known_out_ids = set()
+    if dialog is not None and peer_id:
+        guard_min_id = int(dialog.last_processed_msg_id or 0)
+        known_out_ids = {
+            int(r[0]) for r in db.query(AgentTelegramMessage.tg_message_id).filter(
+                AgentTelegramMessage.account_id == account.id,
+                AgentTelegramMessage.tg_peer_id == peer_id,
+                AgentTelegramMessage.direction == "outbound",
+                AgentTelegramMessage.tg_message_id > guard_min_id,
+            ).all() if r[0] is not None
+        }
+
     session_str = telegram_user_service.decrypt_session(account.session_encrypted)
     result = await telegram_user_service.send_message(
         session_str,
@@ -633,9 +649,14 @@ async def fn_telegram_send_message(args: dict, user_id: str, agent_config, db: S
         contact_name=(contact.name if contact else None),
         file_bytes=(bytes(attach.content) if attach else None),
         file_name=(attach.filename if attach else None),
+        guard_min_id=guard_min_id,
+        known_out_ids=known_out_ids,
     )
     if not result.get("ok"):
         err = result.get("error") or "telegram_error"
+        if err == "manager_replied" and contact is not None:
+            # Сами сообщения менеджера сохранит поллер на ближайшем тике.
+            agent_handoff.start_and_notify(db, contact, agent_config, "telegram")
         if err == "session_revoked":
             account.status = "error"
             account.last_error = "session_revoked"
@@ -4391,6 +4412,23 @@ async def execute_tool(tool_name: str, tool_args: dict, context: dict, db: Sessi
     tool_args, scope_error = _scope_tool_args(tool_name, tool_args, context, db)
     if scope_error:
         return json.dumps(scope_error, ensure_ascii=False)
+
+    # Ручной режим: пока диалог ведёт живой менеджер, фоновый прогон (разбор
+    # звонка, входящего SMS и т.п.) не пишет клиенту. В чате с владельцем
+    # ограничения нет — там отправку просит сам владелец.
+    if context.get("scope_contact_id") and tool_name in SCOPED_SEND_TOOLS and db is not None:
+        try:
+            scoped = db.query(AgentContact).filter(
+                AgentContact.id == context["scope_contact_id"]
+            ).first()
+            if scoped is not None and agent_handoff.is_active(scoped):
+                logger.info(f"[AGENT-TOOLS] {tool_name} refused: contact {scoped.id} is handled by a manager")
+                return json.dumps({
+                    "ok": False, "error": "manager_handoff", "hint": agent_handoff.BLOCKED_MESSAGE,
+                }, ensure_ascii=False)
+        except Exception as e:
+            logger.warning(f"[AGENT-TOOLS] handoff check failed: {e}")
+            safe_rollback(db)
 
     if tool_name in THREADED_TOOLS and db is not None:
         # Инструмент только с БД: выполняем в потоке со своей сессией, чтобы

@@ -178,7 +178,19 @@ function renderContactDetails(c){
       ${mem.tone_history && mem.tone_history.length ? `<div style="font-size:12px;color:var(--muted);margin-top:6px"><b>Тон последних разговоров:</b> ${mem.tone_history.slice(-5).map(esc).join(' → ')}</div>` : ''}
     </div>`;
 
-  const infoBlock = `
+  // Ручной режим: диалог ведёт живой менеджер, агент по этому контакту молчит.
+  const handoffBlock = c.handoff_active ? `
+    <div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:10px;padding:10px 12px;margin-bottom:14px;display:flex;align-items:center;gap:10px;font-size:12.5px;color:#92400E">
+      <i class="fas fa-hand"></i>
+      <div style="flex:1"><b>Диалог ведёт менеджер.</b> Агент не пишет и не звонит этому клиенту до ${fmtDate(c.handoff_until)}. Каждое ваше сообщение клиенту продлевает паузу на час.</div>
+      <button class="btn btn-sm" onclick="setContactHandoff('${c.id}','release')"><i class="fas fa-robot"></i> Вернуть агенту</button>
+    </div>` : `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:12px;color:var(--muted)">
+      <button class="btn btn-sm" onclick="setContactHandoff('${c.id}','take')"><i class="fas fa-hand"></i> Взять диалог</button>
+      <span>Агент перестанет писать и звонить этому клиенту на час. То же произойдёт само, если вы напишете клиенту из Telegram или MAX.</span>
+    </div>`;
+
+  const infoBlock = handoffBlock + `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:12.5px">
       <div><b>Телефон:</b> ${esc(c.phone)}</div>
       <div><b>Попыток:</b> ${c.attempts_count || 0}</div>
@@ -255,7 +267,7 @@ function renderContactDetails(c){
 // сервером по номеру (см. /api/agent/contacts/{id} → поле sms).
 function _cdSmsBubble(m){
   const out = (m.direction === 'outbound');
-  const who = out ? 'Агент' : 'Клиент';
+  const who = !out ? 'Клиент' : (m.sender === 'manager' ? 'Менеджер (вручную)' : 'Агент');
   const tm = m.ts ? fmtDate(m.ts) : '';
   return `<div class="cd-sms ${out ? 'cd-sms-out' : 'cd-sms-in'}">
     <div class="cd-sms-meta">${who}${tm ? ' · ' + tm : ''}</div>
@@ -447,6 +459,24 @@ async function deleteContactFromModal(contactId, label){
 }
 
 // ── Смена стадии контакта (PATCH /contacts/{id}/status) ──
+// Ручной режим контакта: take — взять диалог на себя, release — вернуть агенту.
+async function setContactHandoff(contactId, action){
+  try{
+    const r = await apiFetch(API + '/contacts/' + contactId + '/handoff', {
+      method: 'POST', body: JSON.stringify({ action }),
+    });
+    if(r && r.status === 200){
+      showToast(action === 'take'
+        ? 'Диалог за вами: агент на паузе по этому контакту на час'
+        : 'Диалог возвращён агенту — он прочитает переписку и продолжит', 'success');
+      openContactDetailsModal(contactId);
+    } else {
+      const err = await r?.json().catch(()=>({}));
+      showToast(errText(err.detail) || 'Не удалось изменить режим', 'error');
+    }
+  }catch(e){ showToast('Ошибка сети', 'error'); }
+}
+
 async function changeContactStage(contactId, stage){
   try{
     const r = await apiFetch(API + '/contacts/' + contactId + '/status', {

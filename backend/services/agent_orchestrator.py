@@ -41,6 +41,7 @@ from backend.services.agent_tools import (
     tool_names,
 )
 from backend.services.agent_reply_check import cancel_pending_reply_checks
+from backend.services import agent_handoff
 from backend.services.agent_prompts import build_orchestrator_prompt, build_time_block, build_agent_memory_block
 from backend.services.agent_contact_refs import build_recent_contacts_block, collect_contact_refs, refs_for_history
 from backend.services.openrouter_client import get_openrouter_client
@@ -141,6 +142,15 @@ def _timeline_sms_events(db, agent_contact, since, limit) -> list:
         return []
 
 
+def _timeline_who(m) -> str:
+    """Автор реплики мессенджера в хронологии: клиент, агент или живой менеджер."""
+    if (m.direction or "inbound") != "outbound":
+        return "клиент → агент"
+    if (getattr(m, "sender", None) or "") == "manager":
+        return "МЕНЕДЖЕР (живой человек, не ты) → клиент"
+    return "агент → клиент"
+
+
 def _timeline_telegram_events(db, agent_contact, since, limit) -> list:
     """События-Telegram (личный аккаунт, обе стороны) для таймлайна. Best-effort."""
     try:
@@ -153,8 +163,7 @@ def _timeline_telegram_events(db, agent_contact, since, limit) -> list:
                 continue
             if since is not None and _as_naive_utc(ts) < since:
                 continue
-            who = "агент → клиент" if (m.direction or "inbound") == "outbound" else "клиент → агент"
-            events.append((ts, "telegram", f"Telegram, {who}: {(m.body or '').strip()}"))
+            events.append((ts, "telegram", f"Telegram, {_timeline_who(m)}: {(m.body or '').strip()}"))
         return events
     except Exception as e:
         logger.warning(f"[AGENT] timeline telegram events failed: {e}")
@@ -173,8 +182,7 @@ def _timeline_max_events(db, agent_contact, since, limit) -> list:
                 continue
             if since is not None and _as_naive_utc(ts) < since:
                 continue
-            who = "агент → клиент" if (m.direction or "inbound") == "outbound" else "клиент → агент"
-            events.append((ts, "max", f"MAX, {who}: {(m.body or '').strip()}"))
+            events.append((ts, "max", f"MAX, {_timeline_who(m)}: {(m.body or '').strip()}"))
         return events
     except Exception as e:
         logger.warning(f"[AGENT] timeline max events failed: {e}")
@@ -1104,8 +1112,21 @@ class PostCallOrchestrator:
         is_max_out = (call_direction or "").lower() == "max_outbound"
         is_inbound = (call_direction or "outbound").lower() == "inbound"
         is_reply_check = (call_direction or "").lower() == "reply_check"
+        is_handoff_return = (call_direction or "").lower() == "handoff_return"
 
-        if is_reply_check:
+        if is_handoff_return:
+            direction_line = (
+                "СОБЫТИЕ: ВОЗВРАТ ДИАЛОГА ОТ МЕНЕДЖЕРА — живой менеджер (владелец или его "
+                "сотрудник) сам переписывался с этим клиентом с того же аккаунта, и на это "
+                "время ты был на паузе: не писал и не звонил. Пауза закончилась, диалог снова "
+                "твой. Реплики менеджера в хронологии помечены «МЕНЕДЖЕР». Это не звонок и не "
+                "новое сообщение клиента."
+            )
+            callback_rule = ""
+            transcript_label = "ЧТО ПРОИСХОДИЛО, ПОКА ДИАЛОГ ВЁЛ МЕНЕДЖЕР"
+            status_label = "СТАТУС"
+            analyze_line = ""
+        elif is_reply_check:
             direction_line = (
                 "СОБЫТИЕ: ПРОВЕРКА ОТВЕТА — наступило время проверки, которую ты "
                 "поставил раньше (schedule_reply_check). Система проверила все каналы: "
@@ -1219,7 +1240,25 @@ class PostCallOrchestrator:
                 "     промолчит — тебя разбудят решить, что делать."
             )
 
-        if is_reply_check:
+        if is_handoff_return:
+            action_block = """Разберись, о чём менеджер договорился с клиентом, и продолжи работу:
+1. ОБЯЗАТЕЛЬНО вызови update_contact_memory — запиши договорённости менеджера
+   (цены, сроки, обещания, кто что должен сделать) и текущее состояние диалога.
+   Слова менеджера важнее твоих прежних планов и общих правил: не противоречь им,
+   не переспрашивай уже решённое и не повторяй клиенту то, что менеджер уже сказал.
+2. Если по итогам переписки изменилась стадия — move_contact_stage (только при
+   реальном основании).
+3. Реши, нужно ли писать клиенту сейчас:
+   - последнее сообщение от клиента, и оно осталось без ответа → ответь по существу
+     (telegram_send_message / max_send_message), опираясь на сказанное менеджером;
+   - менеджер сам закрыл вопрос или пообещал что-то сделать лично → НЕ пиши клиенту;
+     если нужен контроль — поставь себе следующий шаг (schedule_reply_check,
+     schedule_telegram_message / schedule_max_message, create_agent_task);
+   - сомневаешься, уместно ли вмешиваться → не пиши, сообщи владельцу через
+     send_telegram_notification, что диалог ждёт его решения.
+4. Свои прежние запланированные шаги по этому клиенту сверь с договорённостями
+   менеджера: если они устарели — не дублируй их новыми."""
+        elif is_reply_check:
             action_block = """Клиент молчит. Реши сам, что делать дальше, — по своим инструкциям
 (системный промпт владельца и блок «ПАМЯТЬ АГЕНТА» обязательны), памяти о
 контакте и хронологии выше. Заметка к проверке — твой прошлый план, не приказ:
@@ -1443,6 +1482,26 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
             call_direction="reply_check",
         )
 
+    async def run_for_handoff_return(self, agent_call, agent_contact, agent_config, user, task, summary: str, db):
+        """
+        Возврат диалога от живого менеджера (Task.channel="handoff_check",
+        backend/services/agent_handoff.py): один прогон — зафиксировать
+        договорённости менеджера в памяти контакта и решить, что делать дальше.
+        Только v3 (OpenRouter).
+        """
+        await self._analyze_v3_openrouter(
+            agent_call=agent_call,
+            agent_contact=agent_contact,
+            agent_config=agent_config,
+            user=user,
+            task=task,
+            transcript=summary,
+            call_status="answered",
+            duration_seconds=0,
+            db=db,
+            call_direction="handoff_return",
+        )
+
     async def _analyze(
         self,
         agent_call: AgentCall,
@@ -1528,7 +1587,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         # блок стратегии не добавляем.
         if (call_direction or "").lower() not in (
             "sms_inbound", "telegram_inbound", "telegram_outbound",
-            "max_inbound", "max_outbound", "reply_check",
+            "max_inbound", "max_outbound", "reply_check", "handoff_return",
         ):
             post_call_input += f"""
 
@@ -1566,7 +1625,9 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         # Проверка ответа — тоже не попытка дозвона (как и запланированная
         # отправка): счётчик попыток и авто-маппинг стадии не применяем.
         is_reply_check = (call_direction or "").lower() == "reply_check"
-        is_proactive = is_tg_out or is_reply_check
+        # Возврат диалога от менеджера — тоже не попытка дозвона.
+        is_handoff_return = (call_direction or "").lower() == "handoff_return"
+        is_proactive = is_tg_out or is_reply_check or is_handoff_return
         # Клиент сам написал или позвонил — это не попытка дозвона агента.
         is_inbound = (call_direction or "").lower() in INBOUND_DIRECTIONS
 
@@ -3147,6 +3208,12 @@ async def handle_inbound_sms(sms_message_id: str):
             db.flush()
             logger.info(f"[AGENT-SMS] 🆕 Создан AgentContact {contact.id} для входящего SMS {sms.from_number}")
 
+        # Ручной режим: диалог ведёт живой менеджер — сообщение уже сохранено в
+        # тред, агент не отвечает (см. backend/services/agent_handoff.py).
+        if agent_handoff.is_active(contact):
+            logger.info(f"[AGENT-HANDOFF] inbound for contact {contact.id} skipped: manager is handling the dialog")
+            return
+
         # AgentCall(direction="inbound") — на нём держится PostCall-машинерия.
         inbound_call = AgentCall(
             agent_contact_id=contact.id,
@@ -3227,6 +3294,12 @@ async def handle_inbound_telegram(account_id: str, agent_contact_id: str, messag
             AgentContact.agent_config_id == agent.id,
         ).first()
         if not contact:
+            return
+
+        # Ручной режим: диалог ведёт живой менеджер — сообщение уже сохранено в
+        # тред, агент не отвечает (см. backend/services/agent_handoff.py).
+        if agent_handoff.is_active(contact):
+            logger.info(f"[AGENT-HANDOFF] inbound for contact {contact.id} skipped: manager is handling the dialog")
             return
 
         inbound_call = AgentCall(
@@ -3310,6 +3383,12 @@ async def handle_inbound_max(account_id: str, agent_contact_id: str, message_bod
             AgentContact.agent_config_id == agent.id,
         ).first()
         if not contact:
+            return
+
+        # Ручной режим: диалог ведёт живой менеджер — сообщение уже сохранено в
+        # тред, агент не отвечает (см. backend/services/agent_handoff.py).
+        if agent_handoff.is_active(contact):
+            logger.info(f"[AGENT-HANDOFF] inbound for contact {contact.id} skipped: manager is handling the dialog")
             return
 
         inbound_call = AgentCall(

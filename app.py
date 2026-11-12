@@ -2332,6 +2332,39 @@ def ensure_agent_connectors_table():
         logger.error(f"❌ ensure_agent_connectors_table error: {e}")
 
 
+def ensure_agent_handoff_columns():
+    """
+    Идемпотентно добавляет колонки ручного режима контакта
+    (agent_contacts.handoff_*) и автора исходящего сообщения
+    (agent_telegram_messages.sender, agent_max_messages.sender).
+    Дублирует миграцию add_agent_handoff.
+    """
+    try:
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(engine)
+        wanted = {
+            "agent_contacts": [
+                ("handoff_until", "TIMESTAMP"), ("handoff_since", "TIMESTAMP"),
+                ("handoff_source", "VARCHAR(20)"),
+            ],
+            "agent_telegram_messages": [("sender", "VARCHAR(16)")],
+            "agent_max_messages": [("sender", "VARCHAR(16)")],
+        }
+        for table, columns in wanted.items():
+            if not inspector.has_table(table):
+                continue
+            existing = {c['name'] for c in inspector.get_columns(table)}
+            for name, sql_type in columns:
+                if name in existing:
+                    continue
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {sql_type}"))
+                logger.info(f"✅ Added column {table}.{name}")
+    except Exception as e:
+        logger.error(f"❌ ensure_agent_handoff_columns error: {e}")
+
+
 def ensure_agent_files_table():
     """Идемпотентно создаёт таблицу agent_files (файлы, созданные агентом)."""
     try:
@@ -2569,6 +2602,9 @@ async def startup_event():
 
                 # 🆕 Шаг 23: Таблица файлов агента (PDF / xlsx)
                 ensure_agent_files_table()
+
+                # 🆕 Шаг 23.2: Ручной режим контакта (перехват диалога менеджером)
+                ensure_agent_handoff_columns()
 
                 # 🆕 Шаг 23.1: База знаний в собственном Postgres (pgvector, kb_chunks).
                 # Таблица создаётся всегда — перенос баз идёт до включения KB_BACKEND.

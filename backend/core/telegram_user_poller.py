@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_
 
 from backend.core.logging import get_logger
-from backend.db.session import SessionLocal
+from backend.db.session import SessionLocal, safe_rollback
 from backend.services import telegram_user_service as tg_user
 
 logger = get_logger(__name__)
@@ -161,6 +161,62 @@ def _match_contact_by_phone(db, agent_config_id, phone):
     ).order_by(AgentContact.created_at.desc()).first()
 
 
+def _handle_manager_messages(db, account, row, peer_id, outs, stamp) -> int:
+    """
+    Отобрать из исходящих диалога сообщения, написанные человеком (их id нет ни
+    в agent_telegram_messages, ни среди только что отправленных агентом),
+    сохранить в тред с sender="manager" и включить / продлить ручной режим
+    контакта. Возвращает число сообщений менеджера.
+    """
+    from backend.models.agent_contact import AgentContact
+    from backend.models.agent_config import AgentConfig
+    from backend.models.agent_telegram_account import AgentTelegramMessage
+    from backend.services import agent_handoff
+
+    try:
+        ids = [int(m["id"]) for m in outs if m.get("id")]
+        if not ids:
+            return 0
+        known = {
+            int(r[0]) for r in db.query(AgentTelegramMessage.tg_message_id).filter(
+                AgentTelegramMessage.account_id == account.id,
+                AgentTelegramMessage.tg_peer_id == peer_id,
+                AgentTelegramMessage.tg_message_id.in_(ids),
+            ).all() if r[0] is not None
+        }
+        manager = [
+            m for m in outs
+            if m.get("id") and int(m["id"]) not in known
+            and not agent_handoff.was_agent_sent("telegram", peer_id, m["id"])
+        ]
+        if not manager:
+            return 0
+
+        contact = db.query(AgentContact).filter(AgentContact.id == row.agent_contact_id).first()
+        if contact is None:
+            return 0
+        for m in manager:
+            tg_user.store_message(
+                db, account, "outbound", m["text"],
+                agent_contact_id=contact.id,
+                tg_peer_id=peer_id,
+                tg_message_id=m["id"],
+                sender="manager",
+                created_at=stamp.get(int(m["id"])),
+            )
+        agent = db.query(AgentConfig).filter(AgentConfig.id == account.agent_config_id).first()
+        logger.info(
+            f"[TG-POLLER] ✋ {len(manager)} manager message(s) to peer {peer_id} "
+            f"(account {account.id}) → handoff for contact {contact.id}"
+        )
+        agent_handoff.start_and_notify(db, contact, agent, "telegram")
+        return len(manager)
+    except Exception as e:
+        logger.error(f"[TG-POLLER] manager messages handling failed for peer {peer_id}: {e}", exc_info=True)
+        safe_rollback(db)
+        return 0
+
+
 async def _poll_account(db, account):
     from backend.models.agent_contact import AgentContact
     from backend.models.agent_telegram_account import AgentTelegramDialog
@@ -229,6 +285,19 @@ async def _poll_account(db, account):
                 if contact:
                     row.agent_contact_id = contact.id
 
+        # Порядок реплик в треде = порядок id сообщений (входящие и ответы
+        # менеджера одного тика сохраняются с возрастающим created_at).
+        outs = d.get("out_messages") or []
+        tick_base = datetime.utcnow()
+        order = sorted({int(m["id"]) for m in list(msgs) + list(outs) if m.get("id")})
+        stamp = {mid: tick_base + timedelta(milliseconds=i) for i, mid in enumerate(order)}
+
+        # Исходящие, которых агент не отправлял, написал живой менеджер с этого
+        # же аккаунта: сохраняем в тред и включаем ручной режим контакта —
+        # агент замолкает (backend/services/agent_handoff.py).
+        if outs and row.agent_contact_id is not None:
+            _handle_manager_messages(db, account, row, peer_id, outs, stamp)
+
         # Нет новых входящих (или только исходящие владельца) — просто двигаем
         # маркер к top_id, чтобы не пере-сканировать этот диалог.
         if not msgs:
@@ -272,6 +341,7 @@ async def _poll_account(db, account):
                 agent_contact_id=contact_id,
                 tg_peer_id=peer_id,
                 tg_message_id=m["id"],
+                created_at=stamp.get(int(m["id"] or 0)),
             )
             max_msg_id = max(max_msg_id, int(m["id"] or 0))
         # Двигаем к top_id (он >= max входящего; включает возможные исходящие).

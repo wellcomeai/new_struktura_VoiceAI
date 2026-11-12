@@ -64,7 +64,8 @@ function renderCallExpanded(call, uid){
   const isTg = call.channel === 'telegram';
   const isMax = call.channel === 'max';
   const isReplyCheck = call.channel === 'reply_check'; // проверка ответа: клиент промолчал
-  const isMsg = isSms || isTg || isMax || isReplyCheck; // не звонок
+  const isHandoff = call.channel === 'handoff_return'; // возврат диалога от живого менеджера
+  const isMsg = isSms || isTg || isMax || isReplyCheck || isHandoff; // не звонок
   // Запланированная отправка сообщения (schedule_telegram_message/schedule_max_message):
   // инициатива агента, «транскрипт» — инструкция, а не текст клиента.
   const _dir = (call.postcall_log || {}).call_direction;
@@ -94,6 +95,8 @@ function renderCallExpanded(call, uid){
     ? '<span class="status-badge" style="background:#F5F3FF;color:#6D28D9"><i class="fas fa-comment-dots"></i> MAX</span>'
     : isReplyCheck
     ? '<span class="status-badge" style="background:#FEF3C7;color:#B45309"><i class="fas fa-hourglass-half"></i> Проверка ответа</span>'
+    : isHandoff
+    ? '<span class="status-badge" style="background:#FEF3C7;color:#92400E"><i class="fas fa-hand"></i> Возврат от менеджера</span>'
     : directionBadge(call.direction);
 
   const pre = call.precall_log || {};
@@ -172,7 +175,7 @@ function renderCallExpanded(call, uid){
 
   const transcriptBlock = (call.transcript && call.transcript !== '(Транскрипт недоступен)') ? `
     <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:0.04em;margin:10px 0 4px">
-      <i class="fas ${isReplyCheck ? 'fa-hourglass-half' : isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : isMax ? 'fa-comment-dots' : 'fa-quote-left'}"></i> ${isReplyCheck ? 'Заметка к проверке ответа' : isSms ? 'Текст входящего SMS' : isTgOut ? 'Инструкция запланированного сообщения' : isTg ? 'Текст входящего сообщения Telegram' : isMax ? 'Текст входящего сообщения MAX' : 'Транскрипт звонка'}
+      <i class="fas ${isReplyCheck ? 'fa-hourglass-half' : isSms ? 'fa-comment-sms' : isTg ? 'fa-paper-plane' : isMax ? 'fa-comment-dots' : 'fa-quote-left'}"></i> ${isReplyCheck ? 'Заметка к проверке ответа' : isHandoff ? 'Что было, пока диалог вёл менеджер' : isSms ? 'Текст входящего SMS' : isTgOut ? 'Инструкция запланированного сообщения' : isTg ? 'Текст входящего сообщения Telegram' : isMax ? 'Текст входящего сообщения MAX' : 'Транскрипт звонка'}
     </div>
     <div style="background:var(--bg);padding:12px 14px;border-radius:8px;margin:0 0 10px;font-size:12px;color:var(--muted);white-space:pre-wrap;line-height:1.6;max-height:300px;overflow-y:auto">
       ${esc(call.transcript)}

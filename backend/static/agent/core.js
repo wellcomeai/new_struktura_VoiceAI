@@ -125,6 +125,8 @@ function taskChannelBadge(channel){
     return '<span class="status-badge" style="background:#F5F3FF;color:#6D28D9;font-size:10px;padding:2px 7px"><i class="fas fa-comment-dots"></i> MAX</span>';
   if(channel === 'reply_check')
     return '<span class="status-badge" style="background:#FEF3C7;color:#B45309;font-size:10px;padding:2px 7px"><i class="fas fa-hourglass-half"></i> Проверка ответа</span>';
+  if(channel === 'handoff_check')
+    return '<span class="status-badge" style="background:#FEF3C7;color:#92400E;font-size:10px;padding:2px 7px"><i class="fas fa-hand"></i> Возврат от менеджера</span>';
   return '';
 }
 // ── Цена моделей оркестратора ───────────────────────────────────────────────

@@ -2966,6 +2966,42 @@ def update_agent_contact_status(
     return contact.to_dict()
 
 
+class AgentContactHandoffRequest(BaseModel):
+    action: str = Field(..., description="take — взять диалог на себя, release — вернуть агенту")
+
+
+@router.post("/contacts/{contact_id}/handoff")
+async def set_agent_contact_handoff(
+    contact_id: str,
+    body: AgentContactHandoffRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Ручной режим контакта (backend/services/agent_handoff.py).
+    take — агент не пишет и не звонит этому клиенту HANDOFF_MINUTES минут;
+    release — пауза снимается, агент читает переписку и продолжает сам.
+    """
+    from backend.services import agent_handoff
+
+    if body.action not in ("take", "release"):
+        raise HTTPException(status_code=400, detail="invalid_action")
+    contact = db.query(AgentContact).filter(
+        AgentContact.id == contact_id,
+        AgentContact.user_id == current_user.id,
+    ).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    if body.action == "take":
+        agent = db.query(AgentConfig).filter(AgentConfig.id == contact.agent_config_id).first()
+        agent_handoff.start_and_notify(db, contact, agent, "manual")
+    else:
+        agent_handoff.release(db, contact)
+    db.refresh(contact)
+    return contact.to_dict()
+
+
 # ============================================================================
 # ENDPOINTS — CALLS
 # ============================================================================

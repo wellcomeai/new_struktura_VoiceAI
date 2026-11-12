@@ -48,6 +48,13 @@ class AgentContact(Base):
     attempts_count = Column(Integer, default=0, nullable=False)
     last_called_at = Column(DateTime, nullable=True)
 
+    # Ручной режим: диалог ведёт живой менеджер, агент по этому контакту молчит
+    # (backend/services/agent_handoff.py). handoff_until (naive UTC) — до какого
+    # момента; NULL или прошлое — агент работает как обычно.
+    handoff_until = Column(DateTime, nullable=True)
+    handoff_since = Column(DateTime, nullable=True)
+    handoff_source = Column(String(20), nullable=True)   # telegram | max | manual
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -80,6 +87,9 @@ class AgentContact(Base):
             "status": self.status,
             "memory": self.memory or {},
             "attempts_count": self.attempts_count or 0,
+            "handoff_active": bool(self.handoff_until and self.handoff_until > datetime.utcnow()),
+            "handoff_until": iso_utc(self.handoff_until),
+            "handoff_source": self.handoff_source,
             # ✅ Колонки naive (UTC по факту) — сериализуем с явным UTC-маркером,
             #    чтобы фронт корректно конвертировал в МСК.
             "last_called_at": iso_utc(self.last_called_at),

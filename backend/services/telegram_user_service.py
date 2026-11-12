@@ -33,6 +33,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from backend.core.logging import get_logger
 from backend.core.config import settings
+from backend.services import agent_handoff
 
 logger = get_logger(__name__)
 
@@ -443,10 +444,19 @@ async def send_message(
     contact_name: Optional[str] = None,
     file_bytes: Optional[bytes] = None,
     file_name: Optional[str] = None,
+    guard_min_id: Optional[int] = None,
+    known_out_ids: Optional[set] = None,
 ) -> Dict[str, Any]:
     """
     Отправить сообщение (и, если передан file_bytes, файл-вложение с текстом
-    в подписи). Резолв получателя (по мере предпочтительности):
+    в подписи).
+
+    guard_min_id — защита от ответа «в два голоса»: перед отправкой смотрим
+    сообщения диалога новее этого id; если среди них есть исходящее, которого
+    агент не отправлял (known_out_ids — id из БД, плюс свежие из памяти), значит
+    клиенту уже ответил живой менеджер — ничего не шлём, error="manager_replied".
+
+    Резолв получателя (по мере предпочтительности):
       1) username — самый надёжный и безопасный;
       2) peer_id — скан get_dialogs (работает, если диалог уже есть);
       3) phone — ImportContacts (рискованно, вызывающий обязан лимитировать).
@@ -503,6 +513,21 @@ async def send_message(
         if getattr(entity, "bot", False) or getattr(entity, "is_self", False):
             return {"ok": False, "error": "recipient_not_allowed"}
 
+        if guard_min_id is not None:
+            try:
+                recent = await client.get_messages(entity, min_id=int(guard_min_id), limit=10)
+                ent_id = getattr(entity, "id", None)
+                for m in (recent or []):
+                    if not getattr(m, "out", False):
+                        continue
+                    if m.id in (known_out_ids or set()) or agent_handoff.was_agent_sent("telegram", ent_id, m.id):
+                        continue
+                    logger.info(f"[TG-USER] send aborted: manager already replied to peer {ent_id} (msg {m.id})")
+                    return {"ok": False, "error": "manager_replied"}
+            except Exception as e:
+                # Проверка не должна ломать отправку.
+                logger.warning(f"[TG-USER] manager-reply guard failed: {type(e).__name__}: {e}")
+
         if file_bytes:
             import io
             buf = io.BytesIO(file_bytes)
@@ -510,10 +535,13 @@ async def send_message(
             # Подпись к файлу ограничена ~1024 символами: длинный текст — отдельным сообщением.
             caption = text if len(text) <= 1000 else ""
             msg = await client.send_file(entity, buf, caption=caption or None, force_document=True)
+            agent_handoff.mark_agent_sent("telegram", getattr(entity, "id", None), getattr(msg, "id", None))
             if text and not caption:
                 msg = await client.send_message(entity, text)
         else:
             msg = await client.send_message(entity, text)
+        # Помечаем id как «отправил агент»: поллер не примет его за сообщение менеджера.
+        agent_handoff.mark_agent_sent("telegram", getattr(entity, "id", None), getattr(msg, "id", None))
 
         # Импортированный контакт убираем из адресной книги владельца —
         # доступ к диалогу уже установлен, мусорить в контактах не нужно.
@@ -556,7 +584,10 @@ async def poll_dialogs(
     больше POLL_MAX_MESSAGES_PER_DIALOG).
 
     Возвращает {ok, dialogs: [{peer_id, username, name, phone, top_id, is_known,
-    new_messages: [{id, text}] (старые → новые)}]} или {ok: False, error}.
+    new_messages: [{id, text}] (старые → новые),
+    out_messages: [{id, text}] — исходящие новее last_processed (только для
+    известных диалогов): и сообщения агента, и написанные человеком с этого
+    аккаунта; кто автор, решает поллер по id}]} или {ok: False, error}.
     Только личные диалоги: не боты, не группы/каналы, не Saved Messages и не
     служебные аккаунты Telegram (SERVICE_PEER_IDS — коды входа).
     """
@@ -577,6 +608,7 @@ async def poll_dialogs(
             is_known = peer_id in known_last_ids
 
             new_messages: List[Dict[str, Any]] = []
+            out_messages: List[Dict[str, Any]] = []
             if is_known:
                 last_id = int(known_last_ids.get(peer_id) or 0)
                 if top_id > last_id:
@@ -584,9 +616,15 @@ async def poll_dialogs(
                         ent, min_id=last_id, limit=POLL_MAX_MESSAGES_PER_DIALOG
                     )
                     for m in reversed(list(msgs or [])):
-                        if getattr(m, "out", False):
-                            continue
                         body = (getattr(m, "message", None) or "").strip()
+                        if getattr(m, "out", False):
+                            if getattr(m, "action", None) is not None:
+                                continue  # служебное (звонок, закреп и т.п.)
+                            if not body:
+                                body = "[вложение]" if getattr(m, "media", None) is not None else ""
+                            if body:
+                                out_messages.append({"id": m.id, "text": body})
+                            continue
                         if body:
                             new_messages.append({"id": m.id, "text": body})
             else:
@@ -610,6 +648,7 @@ async def poll_dialogs(
                 "top_id": top_id,
                 "is_known": is_known,
                 "new_messages": new_messages,
+                "out_messages": out_messages,
             })
         return {"ok": True, "dialogs": out}
     except Exception as e:
@@ -655,8 +694,11 @@ def store_message(
     agent_contact_id=None,
     tg_peer_id=None,
     tg_message_id=None,
+    sender=None,
+    created_at=None,
 ):
-    """Сохранить сообщение переписки (best-effort, без commit)."""
+    """Сохранить сообщение переписки (best-effort, без commit).
+    sender="manager" — исходящее написал живой человек, а не агент."""
     from backend.models.agent_telegram_account import AgentTelegramMessage
     try:
         row = AgentTelegramMessage(
@@ -665,13 +707,25 @@ def store_message(
             tg_peer_id=tg_peer_id,
             tg_message_id=tg_message_id,
             direction=direction,
+            sender=sender,
             body=body or "",
         )
+        if created_at is not None:
+            row.created_at = created_at
         db.add(row)
         return row
     except Exception as e:
         logger.error(f"[TG-USER] store_message failed: {e}")
         return None
+
+
+def thread_who(m) -> str:
+    """Подпись автора реплики в текстовом блоке переписки (общая с MAX)."""
+    if (m.direction or "inbound") != "outbound":
+        return "Клиент → агенту"
+    if (getattr(m, "sender", None) or "") == "manager":
+        return "МЕНЕДЖЕР (живой человек) → клиенту"
+    return "Агент → клиенту"
 
 
 def get_thread(db, agent_contact_id, limit: int = 30) -> list:
@@ -696,7 +750,7 @@ def build_thread_text(db, agent_contact_id, limit: int = 20) -> str:
     lines = []
     for m in rows:
         ts_str = utc_to_msk(m.created_at).strftime("%d.%m %H:%M") if m.created_at else "?"
-        who = "Агент → клиенту" if (m.direction or "inbound") == "outbound" else "Клиент → агенту"
+        who = thread_who(m)
         text = (m.body or "").strip().replace("\n", " ")
         lines.append(f"[{ts_str}] {who}: {text}")
     return "\n".join(lines)
@@ -721,6 +775,9 @@ def error_human(code: str) -> str:
         "recipient_not_resolved": "Не удалось найти получателя (нет диалога, username и телефона)",
         "recipient_not_allowed": "Этому получателю писать нельзя (бот или собственный аккаунт)",
         "empty_text": "Пустой текст сообщения",
+        "manager_replied": (
+            "Клиенту уже ответил живой менеджер — сообщение не отправлено. " + agent_handoff.BLOCKED_MESSAGE
+        ),
         "send_limit_reached": "Достигнут почасовой лимит исходящих сообщений (защита от бана)",
         "phone_resolve_limit_reached": "Достигнут почасовой лимит новых диалогов по номеру телефона (защита от бана)",
         "not_connected": "Личный Telegram не подключён к агенту",

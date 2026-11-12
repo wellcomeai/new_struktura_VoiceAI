@@ -39,6 +39,8 @@ from backend.models.agent_call import AgentCall
 from backend.services.voximplant_partner import get_voximplant_partner_service
 from backend.services.agent_orchestrator import PreCallOrchestrator, PostCallOrchestrator
 from backend.services.agent_reply_check import REPLY_CHECK_CHANNEL, client_reply_since
+from backend.services import agent_handoff
+from backend.services.agent_handoff import HANDOFF_CHANNEL
 from backend.core.timezone_utils import (
     MSK, adjust_to_working_hours, defer_out_of_hours, in_working_hours,
 )
@@ -474,6 +476,18 @@ class TaskScheduler:
             logger.info(f"[TASK-SCHEDULER] 🚫 Agent task {task.id} cancelled: contact is do_not_call")
             return False
 
+        # Ручной режим: диалог ведёт живой менеджер — всё запланированное по
+        # контакту (звонок, сообщение, проверка ответа) ждёт конца паузы. Сама
+        # задача возврата (handoff_check) проходит: она и снимает режим.
+        if (task.channel or "call") != HANDOFF_CHANNEL and agent_handoff.is_active(agent_contact):
+            until = agent_contact.handoff_until.replace(tzinfo=timezone.utc) + timedelta(minutes=2)
+            new_time, _ = adjust_to_working_hours(
+                until, agent_config.working_hours_start, agent_config.working_hours_end
+            )
+            self._requeue(task, new_time, db)
+            logger.info(f"[TASK-SCHEDULER] ✋ Agent task {task.id} moved to {new_time}: manager handles the dialog")
+            return False
+
         memory = agent_contact.memory if isinstance(agent_contact.memory, dict) else {}
         snooze_until = _parse_utc(memory.get("snooze_until"))
         if snooze_until and snooze_until > now:
@@ -689,6 +703,11 @@ class TaskScheduler:
                 await self.execute_agent_messenger_task(task.channel, task, agent_contact, agent_config, user, db)
                 return
 
+            # Возврат диалога от живого менеджера (ручной режим): не звонок.
+            if (task.channel or "call") == HANDOFF_CHANNEL:
+                await self.execute_agent_handoff_check(task, agent_contact, agent_config, user, db)
+                return
+
             # Проверка ответа клиента (schedule_reply_check): не звонок.
             if (task.channel or "call") == REPLY_CHECK_CHANNEL:
                 await self.execute_agent_reply_check(task, agent_contact, agent_config, user, db)
@@ -811,6 +830,70 @@ class TaskScheduler:
                 db.commit()
             except Exception:
                 pass
+
+    async def execute_agent_handoff_check(self, task: Task, agent_contact, agent_config, user, db: Session):
+        """
+        Возврат диалога от живого менеджера (channel="handoff_check",
+        backend/services/agent_handoff.py). Пауза ещё идёт (менеджер продолжал
+        писать) → задача переносится на её конец. Иначе режим снимается и
+        запускается один прогон оркестратора: зафиксировать договорённости
+        менеджера и решить, что делать дальше. v2-агентам — только снятие режима.
+        """
+        agent_call = None
+        try:
+            if agent_handoff.is_active(agent_contact):
+                self._requeue(task, agent_contact.handoff_until.replace(tzinfo=timezone.utc), db)
+                logger.info(f"[TASK-SCHEDULER] ✋ Handoff check {task.id}: manager still active, moved")
+                return
+
+            since = agent_handoff.finish(db, agent_contact)
+            summary = agent_handoff.pause_summary(db, agent_contact, since)
+
+            if not getattr(agent_config, "uses_hardcoded_prompt", False):
+                task.status = TaskStatus.COMPLETED
+                task.call_result = json.dumps({"handoff_returned": True, "run": False}, ensure_ascii=False)
+                task.call_completed_at = datetime.utcnow()
+                db.commit()
+                return
+
+            agent_call = AgentCall(
+                agent_contact_id=agent_contact.id,
+                agent_config_id=agent_config.id,
+                user_id=user.id,
+                source_task_id=task.id,
+                status="calling",
+                direction="outbound",
+                scheduled_at=task.scheduled_time,
+                started_at=datetime.utcnow(),
+            )
+            db.add(agent_call)
+            db.flush()
+            task.agent_call_id = agent_call.id
+            db.commit()
+
+            await PostCallOrchestrator().run_for_handoff_return(
+                agent_call, agent_contact, agent_config, user, task, summary, db
+            )
+            task.call_completed_at = datetime.utcnow()
+            db.commit()
+            logger.info(f"[TASK-SCHEDULER] ✋ Handoff check {task.id}: dialog returned to agent")
+            await agent_handoff.notify_owner(agent_config, agent_handoff.returned_text(agent_contact))
+
+        except Exception as e:
+            logger.error(f"[TASK-SCHEDULER] Error in handoff check {task.id}: {e}", exc_info=True)
+            safe_rollback(db)
+            try:
+                # Режим в любом случае снимаем: иначе контакт навсегда останется без агента.
+                agent_handoff.finish(db, agent_contact)
+                task.status = TaskStatus.FAILED
+                task.call_result = json.dumps({"error": str(e)[:300]}, ensure_ascii=False)
+                task.call_completed_at = datetime.utcnow()
+                if agent_call is not None and agent_call.status == "calling":
+                    agent_call.status = "no_answer"
+                    agent_call.completed_at = datetime.utcnow()
+                db.commit()
+            except Exception:
+                safe_rollback(db)
 
     async def execute_agent_reply_check(self, task: Task, agent_contact, agent_config, user, db: Session):
         """
