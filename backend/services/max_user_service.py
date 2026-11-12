@@ -39,6 +39,7 @@ MAX_PHONE_RESOLVE_HOURLY_LIMIT) проверяются в agent_tools по да�
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -114,31 +115,64 @@ def _ensure_ws_compat() -> None:
         websockets.asyncio = asyncio_mod
 
 
-def _modern_user_agent(extra_config):
-    """
-    User-agent с актуальной версией приложения MAX.
+# Версия Android-клиента MAX, которой представляется PyMax. Сервер MAX отклоняет
+# устаревшие версии (`client.unsupported-version`, «Приложение устарело»): в
+# PyMax 2.4.0 самая новая — 26.25.0, и с ноября 2026 вход на ней не проходит.
+# Берём версию по умолчанию из PyMax 2.5.0 (VersionCatalog.RECOMMENDED_APP_VERSION).
+# Env MAX_CLIENT_APP_VERSION="26.37.1:6900" — сменить без деплоя (версия должна
+# быть в каталоге отпечатков, см. ниже).
+MAX_DEFAULT_APP_VERSION = ("26.37.1", 6900)
 
-    PyMax 2.4.0 на каждое подключение выбирает случайную версию Android-клиента и
-    в ~10% случаев берёт «старую» (build < MIN_PREFERRED_BUILD). Сервер MAX такие
-    версии больше не принимает: `client.unsupported-version` («Приложение устарело»),
-    и вход/переподключение падают. Берём только версии из PREFERRED_VERSION.
-    Env MAX_CLIENT_APP_VERSION="26.25.0:6790" — задать версию явно, если MAX
-    поднимет минимальную планку раньше, чем выйдет обновлённая библиотека.
-    """
-    import os
-    from random import choice
-    from pymax import config as pymax_config
+# Отпечатки APK новых версий (подпись, dex, .so) — без них PyMax не может
+# подтвердить версию при входе. Взяты из maxapi-python 2.5.0 (MIT), только
+# версии, которых нет в 2.4.0. Обновлять из свежего релиза PyMax:
+# pymax/_data/apk_fingerprints.json.
+_FINGERPRINTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "max_apk_fingerprints.json")
 
-    ua = extra_config.generate_user_agent()
+
+def _extra_fingerprints() -> Dict[str, Any]:
+    try:
+        with open(_FINGERPRINTS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"[MAX-USER] cannot load {_FINGERPRINTS_FILE}: {e}")
+        return {}
+
+
+def _patch_fingerprints() -> None:
+    """Дописать в каталог отпечатков PyMax версии из max_apk_fingerprints.json."""
+    from pymax.fingerprint import fingerprint as fp_module
+
+    gen = fp_module.FingerprintGenerator
+    if getattr(gen, "_voicyfy_patched", False):
+        return
+    original = gen.load_fingerprints
+    extra = _extra_fingerprints()
+
+    def load_fingerprints(self):  # noqa: ANN001
+        data = original(self)
+        for version, item in extra.items():
+            data.setdefault(version, item)
+        return data
+
+    gen.load_fingerprints = load_fingerprints
+    gen._voicyfy_patched = True
+    logger.info(f"[MAX-USER] APK fingerprints added: {len(extra)} versions")
+
+
+def _client_app_version():
     forced = (os.getenv("MAX_CLIENT_APP_VERSION") or "").strip()
     if forced and ":" in forced:
         version, build = forced.split(":", 1)
-        return ua.model_copy(update={"app_version": version.strip(), "build_number": int(build)})
-    preferred = list(getattr(pymax_config, "PREFERRED_VERSION", []) or [])
-    if preferred and int(getattr(ua, "build_number", 0) or 0) < int(pymax_config.MIN_PREFERRED_BUILD):
-        version, build = choice(preferred)
-        ua = ua.model_copy(update={"app_version": version, "build_number": build})
-    return ua
+        return version.strip(), int(build)
+    return MAX_DEFAULT_APP_VERSION
+
+
+def _modern_user_agent(extra_config):
+    """User-agent PyMax с актуальной версией клиента MAX (см. MAX_DEFAULT_APP_VERSION)."""
+    version, build = _client_app_version()
+    ua = extra_config.generate_user_agent()
+    return ua.model_copy(update={"app_version": version, "build_number": build})
 
 
 def _extra_config(pymax, **kwargs):
@@ -162,6 +196,10 @@ def _import_pymax():
     _ensure_ws_compat()
     try:
         import pymax
+        try:
+            _patch_fingerprints()
+        except Exception as e:
+            logger.warning(f"[MAX-USER] fingerprint patch failed: {e}")
         _pymax_module = pymax
         return pymax
     except Exception as e:

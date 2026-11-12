@@ -634,11 +634,15 @@ Gemini (−20…−35 против −13…−18 dBFS; самые тихие sag
   Теперь опрос аккаунта ограничен `POLL_ACCOUNT_TIMEOUT_SECONDS`=120, `disconnect` — 10 с (`_safe_disconnect`),
   раз в 30 тиков в лог пишется `[TG-POLLER] alive`. Служебные чаты (`SERVICE_PEER_IDS` = 777000, 42777, флаг `support`)
   поллер пропускает — код входа не уходит в модель.
-- **MAX: версия клиента.** PyMax 2.4.0 на каждое подключение выбирает случайную версию Android-клиента и в ~10%
-  берёт старую (build < `MIN_PREFERRED_BUILD`); сервер MAX её отклоняет: `client.unsupported-version` («Приложение
-  устарело»), падал и вход, и переподключение живого клиента. `_extra_config` / `_modern_user_agent` в
-  `max_user_service.py` подставляют только версии из `PREFERRED_VERSION`; env `MAX_CLIENT_APP_VERSION="26.25.0:6790"`
-  задаёт версию явно. Обновление до PyMax 2.5.0 не делали: там новые зависимости (`websockets>=16`, `zstandard`, `aiofiles`).
+- **MAX: версия клиента.** Сервер MAX отклоняет устаревшие версии Android-клиента: `client.unsupported-version`
+  («Приложение устарело»), падают и вход, и переподключение живого клиента. В PyMax 2.4.0 самая новая версия —
+  26.25.0 (и её уже не принимают), поэтому `max_user_service.py` представляется `MAX_DEFAULT_APP_VERSION` = 26.37.1
+  (build 6900, версия по умолчанию в PyMax 2.5.0) через `_extra_config` / `_modern_user_agent`. При входе PyMax шлёт
+  отпечаток APK этой версии — его нет в 2.4.0, поэтому `_patch_fingerprints` дописывает в каталог библиотеки версии
+  из `backend/services/max_apk_fingerprints.json` (взяты из maxapi-python 2.5.0, MIT). Env
+  `MAX_CLIENT_APP_VERSION="26.37.1:6900"` меняет версию без деплоя (только версии из каталога отпечатков). Снова
+  «устарело» → взять свежий `pymax/_data/apk_fingerprints.json` из нового релиза PyMax. Переход на 2.5.0 не делали:
+  новые зависимости (`websockets>=16`, `zstandard`, `aiofiles`).
 - **Удаление агента** (`DELETE /api/agent`) разлогинивает его Telegram-сессию и закрывает окно QR
   (`_release_telegram_account`); раньше сессия оставалась в Telegram → Устройства.
 
