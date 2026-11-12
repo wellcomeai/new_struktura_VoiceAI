@@ -52,7 +52,19 @@ MODELS = [
     {"model": "openai/text-embedding-3-small", "dims": [1536], "instruct": False, "note": "сейчас в проде"},
     {"model": "qwen/qwen3-embedding-8b", "dims": [4096, 1024, 512], "instruct": True, "note": "кандидат"},
     {"model": "qwen/qwen3-embedding-4b", "dims": [2560, 1024], "instruct": True, "note": "запасной"},
+    # Новые модели из каталога (ноябрь 2026). Родная размерность неизвестна (0) —
+    # берётся из ответа. kind — как модели сообщается «запрос» / «документ».
+    {"model": "mongodb/voyage-4-lite", "dims": [0, 1024, 512], "kind": ("query", "document"), "note": "новая, $0.02"},
+    {"model": "mongodb/voyage-4", "dims": [0, 1024, 512], "kind": ("query", "document"), "note": "новая, $0.06"},
+    {"model": "cohere/embed-5-fast", "dims": [0, 1024, 512], "kind": ("search_query", "search_document"),
+     "note": "новая, $0.08"},
+    {"model": "perplexity/pplx-embed-v1-4b", "dims": [0, 1024], "note": "новая, $0.03"},
+    {"model": "google/gemini-embedding-2", "dims": [0, 1024], "note": "новая, $0.20"},
+    {"model": "baai/bge-m3", "dims": [0], "note": "открытая, $0.01"},
 ]
+for _cfg in MODELS:
+    _cfg.setdefault("instruct", False)
+    _cfg.setdefault("kind", None)
 
 QUESTION_MODEL = "deepseek/deepseek-v4.1-flash"
 OFF_TOPIC = [
@@ -78,9 +90,11 @@ def line(title=""):
 
 # --------------------------------------------------------------------------- API
 
-def embed(model, texts, dimensions=None, provider=None, retries=2):
+def embed(model, texts, dimensions=None, provider=None, retries=2, input_type=None):
     """→ (np.array [n, dim] без нормализации, секунды, ответ JSON)."""
     body = {"model": model, "input": texts, "encoding_format": "float"}
+    if input_type:
+        body["input_type"] = input_type
     if dimensions:
         body["dimensions"] = dimensions
     if provider:
@@ -119,6 +133,13 @@ def chat(prompt, max_tokens=120):
 
 def as_query(cfg, text):
     return f"Instruct: {QWEN_TASK}\nQuery: {text}" if cfg["instruct"] else text
+
+
+def kind(cfg, is_query):
+    """input_type для моделей, различающих запрос и документ (None — не передавать)."""
+    if not cfg.get("kind"):
+        return None
+    return cfg["kind"][0 if is_query else 1]
 
 
 def cut(vectors, dim):
@@ -190,17 +211,24 @@ def check_dimensions(cfg):
     model, native = cfg["model"], cfg["dims"][0]
     sample = ["Доставка по Москве занимает один день и стоит 300 рублей."]
     try:
-        full, _, _ = embed(model, sample)
+        full, _, _ = embed(model, sample, retries=0)
     except Exception as e:  # noqa: BLE001
         print(f"  {model}: ✗ не отвечает — {e}")
         return False
+    if cfg.get("kind"):
+        try:
+            embed(model, sample, retries=0, input_type=kind(cfg, True))
+            print(f"  {model}: input_type принят — запрос и документ кодируются по-разному")
+        except Exception as e:  # noqa: BLE001
+            print(f"  {model}: input_type отклонён, работаем без него ({str(e)[:100]})")
+            cfg["kind"] = None
     got = full.shape[1]
-    flag = "" if got == native else f" (ожидали {native} — поправьте MODELS)"
+    flag = "" if native in (0, got) else f" (ожидали {native} — поправьте MODELS)"
     print(f"  {model}: родная размерность {got}{flag}")
     cfg["dims"] = [got] + [d for d in cfg["dims"][1:] if d < got]
     for dim in cfg["dims"][1:]:
         try:
-            small, _, _ = embed(model, sample, dimensions=dim)
+            small, _, _ = embed(model, sample, dimensions=dim, retries=0)
             if small.shape[1] != dim:
                 print(f"    dimensions={dim}: параметр проигнорирован (вернулось {small.shape[1]}) "
                       f"→ режем у себя")
@@ -215,13 +243,13 @@ def check_dimensions(cfg):
 
 # ------------------------------------------------------------------------ 3. скорость
 
-def latency(cfg, provider=None, runs=12):
+def latency(cfg, provider=None, runs=8):
     """Один короткий запрос — столько ждёт абонент в звонке перед поиском."""
     q = as_query(cfg, "Сколько стоит доставка и когда привезёте?")
     times, served = [], set()
     for _ in range(runs):
         try:
-            _, dt, data = embed(cfg["model"], [q], provider=provider, retries=0)
+            _, dt, data = embed(cfg["model"], [q], provider=provider, retries=0, input_type=kind(cfg, True))
             times.append(dt * 1000)
             if data.get("provider"):
                 served.add(str(data["provider"]))
@@ -245,13 +273,12 @@ def show_latency(alive):
             continue
         print(f"  {cfg['model']:<46} {res['first']:>7.0f} {res['median']:>8.0f} {res['p90']:>6.0f} "
               f"{res['max']:>6.0f}  {res['served']}")
-        if not cfg["instruct"]:
-            continue
+        cfg["median_ms"] = res["median"]
         providers = list_providers(cfg["model"])
-        if not providers:
-            print("      (список провайдеров недоступен — замер по отдельности пропущен)")
+        if len(providers) < 2:
+            continue
         for slug, name, quant in providers:
-            res, err = latency(cfg, provider={"only": [slug], "allow_fallbacks": False}, runs=8)
+            res, err = latency(cfg, provider={"only": [slug], "allow_fallbacks": False}, runs=5)
             label = f"    └ {slug} [{quant}]"
             if err:
                 print(f"  {label:<46} ✗ {err}")
@@ -388,10 +415,10 @@ def make_questions(chunks, count, seed):
 
 # ------------------------------------------------------------------------ 4. качество
 
-def embed_all(cfg, texts, label):
+def embed_all(cfg, texts, label, is_query=False):
     out, spent, tokens = [], 0.0, 0
     for start in range(0, len(texts), BATCH):
-        vec, dt, data = embed(cfg["model"], texts[start:start + BATCH])
+        vec, dt, data = embed(cfg["model"], texts[start:start + BATCH], input_type=kind(cfg, is_query))
         out.append(vec)
         spent += dt
         tokens += int((data.get("usage") or {}).get("prompt_tokens") or 0)
@@ -412,7 +439,7 @@ def quality(alive, chunks, questions, own_questions):
         try:
             docs, spent, tokens = embed_all(cfg, chunks, "фрагменты")
             extra = OFF_TOPIC + own_questions
-            qv, _, _ = embed_all(cfg, [as_query(cfg, q) for q in q_texts + extra], "вопросы")
+            qv, _, _ = embed_all(cfg, [as_query(cfg, q) for q in q_texts + extra], "вопросы", is_query=True)
         except Exception as e:  # noqa: BLE001
             print(f"    ✗ {e}")
             continue
@@ -434,7 +461,7 @@ def quality(alive, chunks, questions, own_questions):
                 "mrr": float((1.0 / (rank + 1)).mean()),
                 "right_p10": float(np.percentile(right, 10)), "right_med": float(np.median(right)),
                 "off_max": float(off.max()), "off_med": float(np.median(off)),
-                "kb": dim * 4 / 1024,
+                "kb": dim * 4 / 1024, "ms": cfg.get("median_ms"),
             })
             if own_questions and dim == cfg["dims"][min(1, len(cfg["dims"]) - 1)]:
                 own = sims[len(q_texts) + len(OFF_TOPIC):]
@@ -448,9 +475,10 @@ def quality(alive, chunks, questions, own_questions):
         return
     print(f"\n  Вопросов: {len(questions)}. hit@1 — нужный фрагмент первый, hit@3 — в тройке "
           f"(столько получает модель в звонке).")
-    print(f"\n  {'модель @размерность':<40} {'hit@1':>6} {'hit@3':>6} {'MRR':>6} {'КБ/фрагм':>9}")
+    print(f"\n  {'модель @размерность':<40} {'hit@1':>6} {'hit@3':>6} {'MRR':>6} {'КБ/фрагм':>9} {'запрос, мс':>11}")
     for s in summary:
-        print(f"  {s['name']:<40} {s['hit1']:>6.0%} {s['hit3']:>6.0%} {s['mrr']:>6.2f} {s['kb']:>9.1f}")
+        ms = f"{s['ms']:.0f}" if s.get("ms") else "?"
+        print(f"  {s['name']:<40} {s['hit1']:>6.0%} {s['hit3']:>6.0%} {s['mrr']:>6.2f} {s['kb']:>9.1f} {ms:>11}")
 
     print("\n  ПОРОГ РЕЛЕВАНТНОСТИ (сейчас MIN_SCORE = 0.25 под text-embedding-3-small)")
     print(f"  {'модель @размерность':<40} {'верный p10':>10} {'верный мед':>10} "
@@ -484,6 +512,7 @@ def main():
     ap.add_argument("--questions", type=int, default=40, help="сколько вопросов придумать")
     ap.add_argument("-q", action="append", default=[], help="свой вопрос (можно несколько)")
     ap.add_argument("--models", help="свои id моделей через запятую вместо набора по умолчанию")
+    ap.add_argument("--only", help="оставить из набора модели, в id которых есть одна из подстрок (через запятую)")
     ap.add_argument("--skip-quality", action="store_true", help="только каталог и скорость")
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
@@ -494,9 +523,13 @@ def main():
     if not KEY:
         sys.exit("OPENROUTER_API_KEY не задан.")
     if args.models:
-        MODELS[:] = [{"model": m.strip(), "dims": [0, 1024], "instruct": "qwen" in m, "note": "задана вручную"}
+        MODELS[:] = [{"model": m.strip(), "dims": [0, 1024], "instruct": "qwen" in m, "kind": None,
+                      "note": "задана вручную"}
                      for m in args.models.split(",") if m.strip()]
 
+    if args.only:
+        keep = [x.strip().lower() for x in args.only.split(",") if x.strip()]
+        MODELS[:] = [c for c in MODELS if any(k in c["model"].lower() for k in keep)]
     show_catalog()
 
     line("2. РАЗМЕРНОСТЬ И ПАРАМЕТР dimensions")
