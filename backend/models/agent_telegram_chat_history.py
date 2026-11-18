@@ -6,6 +6,8 @@ v2.2 Telegram bot integration
 """
 import uuid
 from datetime import datetime
+
+from backend.core.timezone_utils import iso_utc
 from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -48,6 +50,6 @@ class AgentTelegramChatHistory(Base):
             "chat_title": self.chat_title,
             "chat_type": self.chat_type,
             "last_sender_username": self.last_sender_username,
-            "last_message_at": self.last_message_at.isoformat() if self.last_message_at else None,
+            "last_message_at": iso_utc(self.last_message_at),
             "history_length": len(self.history or []),
         }

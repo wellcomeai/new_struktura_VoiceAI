@@ -12,6 +12,8 @@ AGENT_FILE_MAX_BYTES в services/agent_files.py), а диск Render эфеме�
 import uuid
 from datetime import datetime
 
+from backend.core.timezone_utils import iso_utc
+
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Index, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -54,5 +56,5 @@ class AgentFile(Base):
             "title": self.title,
             "size_bytes": self.size_bytes,
             "agent_contact_id": str(self.agent_contact_id) if self.agent_contact_id else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": iso_utc(self.created_at),
         }

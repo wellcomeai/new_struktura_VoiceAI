@@ -27,6 +27,8 @@ Telethon, у PyMax auth-flow живёт внутри client.start(), поэто�
 
 import uuid
 from datetime import datetime
+
+from backend.core.timezone_utils import iso_utc
 from sqlalchemy import (
     Column, String, Boolean, DateTime, Text, ForeignKey, BigInteger,
     UniqueConstraint, Index,
@@ -201,5 +203,5 @@ class AgentMaxMessage(Base):
             "direction": self.direction or "inbound",
             "sender": self.sender or ("agent" if self.direction == "outbound" else "client"),
             "body": self.body,
-            "ts": self.created_at.isoformat() if self.created_at else None,
+            "ts": iso_utc(self.created_at),
         }

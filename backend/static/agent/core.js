@@ -173,23 +173,32 @@ function directionBadge(dir){
   const color = inbound ? '#0891B2' : '#7C3AED';
   return `<span class="status-badge" style="background:${color}22;color:${color}"><i class="fas ${icon}"></i> ${directionRu(dir)}</span>`;
 }
-// Все даты с бэка приходят в UTC (ISO с маркером). Отображаем в МСК (Europe/Moscow).
+// Все даты с бэка — в UTC. Отображаем в МСК (Europe/Moscow).
+// ISO без пояса ('2026-11-18T11:10:00') — тоже UTC: иначе браузер прочтёт его
+// как местное время компьютера и у пользователя не из МСК время уедет на разницу поясов.
+function parseApiDate(s){
+  if(s instanceof Date) return s;
+  if(typeof s === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s.trim())){
+    return new Date(s.trim().replace(' ', 'T') + 'Z');
+  }
+  return new Date(s);
+}
 function fmtDate(s){
   if(!s) return '—';
-  const d = new Date(s);
+  const d = parseApiDate(s);
   if(isNaN(d.getTime())) return '—';
   const str = new Intl.DateTimeFormat('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(d);
   return str + ' МСК';
 }
 // Разбор даты на части в МСК (для плиток задач)
 function mskParts(s){
-  const d = new Date(s);
+  const d = parseApiDate(s);
   if(isNaN(d.getTime())) return null;
   const p = new Intl.DateTimeFormat('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}).formatToParts(d);
   const get = t => (p.find(x=>x.type===t)||{}).value || '';
   return { day: get('day'), mon: get('month').replace('.','').toUpperCase(), time: get('hour')+':'+get('minute') };
 }
-function relTime(s){ if(!s) return {text:'',soon:false}; const d=new Date(s), now=new Date(), diff=d-now; if(diff<=0) return {text:'сейчас',soon:true}; const min=Math.floor(diff/60000), h=Math.floor(min/60), days=Math.floor(h/24); if(min<60) return {text:`Через ${min} мин`,soon:true}; if(h<24) return {text:`Через ${h} ч ${min%60} мин`,soon:h<2}; return {text:`Через ${days} ${days===1?'день':days<5?'дня':'дней'}`,soon:false}; }
+function relTime(s){ if(!s) return {text:'',soon:false}; const d=parseApiDate(s), now=new Date(), diff=d-now; if(diff<=0) return {text:'сейчас',soon:true}; const min=Math.floor(diff/60000), h=Math.floor(min/60), days=Math.floor(h/24); if(min<60) return {text:`Через ${min} мин`,soon:true}; if(h<24) return {text:`Через ${h} ч ${min%60} мин`,soon:h<2}; return {text:`Через ${days} ${days===1?'день':days<5?'дня':'дней'}`,soon:false}; }
 function esc(s){ if(s===null||s===undefined) return ''; const d=document.createElement('div'); d.textContent=String(s); return d.innerHTML; }
 
 // МСК (UTC+3, без перехода на летнее время) для ввода/вывода datetime-local.
@@ -208,7 +217,7 @@ function mskInputToUtc(v){
 // UTC ISO-строка → value для datetime-local в МСК ('YYYY-MM-DDTHH:mm')
 function utcToMskInput(s){
   if(!s) return '';
-  const d = new Date(s);
+  const d = parseApiDate(s);
   if(isNaN(d.getTime())) return '';
   const m = new Date(d.getTime() + MSK_OFFSET_MS);
   const p = n => String(n).padStart(2,'0');

@@ -7,6 +7,8 @@ AgentCall — запись о каждом звонке агента.
 
 import uuid
 from datetime import datetime
+
+from backend.core.timezone_utils import iso_utc
 from sqlalchemy import Column, String, Integer, DateTime, Text, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -156,10 +158,10 @@ class AgentCall(Base):
             "direction": self.direction or "outbound",
             "post_call_decision": self.post_call_decision,
             "call_result": self.call_result,
-            "scheduled_at": self.scheduled_at.isoformat() if self.scheduled_at else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "scheduled_at": iso_utc(self.scheduled_at),
+            "started_at": iso_utc(self.started_at),
+            "completed_at": iso_utc(self.completed_at),
+            "created_at": iso_utc(self.created_at),
             # ✅ v2.1: Логи оркестратора
             "precall_log": self.precall_log or {},
             "postcall_log": self.postcall_log or {},

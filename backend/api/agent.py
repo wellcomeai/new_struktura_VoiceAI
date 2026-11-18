@@ -751,8 +751,8 @@ def _agent_to_dict(agent: AgentConfig) -> dict:
         "kb_char_count": agent.kb_char_count or 0,
         "kb_name": agent.kb_name,
         "memory_notes_count": len(agent_memory.normalize(agent.memory)["notes"]),
-        "created_at": agent.created_at.isoformat() if agent.created_at else None,
-        "updated_at": agent.updated_at.isoformat() if agent.updated_at else None,
+        "created_at": iso_utc(agent.created_at),
+        "updated_at": iso_utc(agent.updated_at),
     }
 
 
@@ -1285,7 +1285,7 @@ def _kb_status_dict(agent: AgentConfig, with_content: bool = False) -> dict:
         "char_count": agent.kb_char_count or 0,
         "name": agent.kb_name,
         "max_chars": _kb_max_chars(),
-        "updated_at": agent.kb_updated_at.isoformat() if agent.kb_updated_at else None,
+        "updated_at": iso_utc(agent.kb_updated_at),
     }
     if with_content:
         data["content"] = agent.kb_content or ""
