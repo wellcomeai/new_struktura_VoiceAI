@@ -996,3 +996,14 @@ Namespace остаётся ключом базы (`Pinecone namespace: <ns>` в 
 - Тест: `DATABASE_URL=… python test_agent_handoff.py` (пустой тестовый Postgres, без сети).
 - Не сделано: настройка длительности паузы, инструмент паузы для чата с агентом, кнопки в боте, пауза входящих
   звонков, проверка перед отправкой в MAX.
+
+## Публичный вход агента не выбирает пул БД (ветка 1211-2026)
+
+`POST /api/agent/public/{agent_id}/message` держал соединение из пула весь ответ оркестратора (десятки секунд),
+а синхронные запросы в `async def` при пустом пуле на 10 с останавливали event loop — пачка запросов внешней
+CRM/формы давала `QueuePool limit of size 5 overflow 25 reached` по всему серверу. Теперь: тело читается до БД
+(`ClientDisconnect` → 499 без запросов к базе), агент/ключ/владелец грузятся в `asyncio.to_thread`
+(`_load_public_agent`) и соединение сразу возвращается (`release_db_connection`); в `run_public` precheck и
+списание — в потоке, перед каждым вызовом модели `release_db_connection_if_clean`. Лимит одновременных запросов
+(счётчик в памяти процесса): `AGENT_PUBLIC_MAX_CONCURRENT` (10 всего) и `AGENT_PUBLIC_MAX_CONCURRENT_PER_AGENT`
+(3 на агента), сверх — 429 + `Retry-After: 10`.

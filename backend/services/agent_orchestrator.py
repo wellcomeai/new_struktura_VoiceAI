@@ -2661,8 +2661,10 @@ class ChatOrchestrator:
         if not getattr(agent_config, "uses_hardcoded_prompt", False):
             raise ValueError("public_channel_requires_v3_agent")
 
-        # Подписка/кредиты владельца (он же платит за обработку)
-        CreditService.precheck(db, user)
+        # Подписка/кредиты владельца (он же платит за обработку). В потоке:
+        # ожидание соединения из пула не должно останавливать event loop.
+        await asyncio.to_thread(CreditService.precheck, db, user)
+        release_db_connection(db)
         total_prompt = 0
         total_completion = 0
 
@@ -2688,6 +2690,7 @@ class ChatOrchestrator:
 
         while iteration < max_iterations:
             iteration += 1
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.chat_completion(
                 model=agent_config.orchestrator_model,
                 messages=messages,
@@ -2736,7 +2739,8 @@ class ChatOrchestrator:
         # Списываем кредиты за весь цикл обработки
         if total_prompt or total_completion:
             try:
-                CreditService.charge(
+                await asyncio.to_thread(
+                    CreditService.charge,
                     db=db, user_id=user.id,
                     model_slug=agent_config.orchestrator_model,
                     prompt_tokens=total_prompt, completion_tokens=total_completion,
@@ -2746,6 +2750,7 @@ class ChatOrchestrator:
             except Exception as ce:
                 logger.error(f"[AGENT-PUBLIC] Charge failed: {ce}", exc_info=True)
                 safe_rollback(db)
+        release_db_connection_if_clean(db)
 
         return {"reply": final_text}
 
