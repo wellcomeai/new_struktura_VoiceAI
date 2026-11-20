@@ -1598,7 +1598,7 @@ async def agent_chat_stream(
     # Subscription/credit precheck BEFORE the stream starts, so 402 returns as
     # an HTTP status (after 200 starts we could only emit an in-stream error).
     try:
-        CreditService.precheck(db, current_user)
+        await asyncio.to_thread(CreditService.precheck, db, current_user)
     except SubscriptionExpiredError:
         raise HTTPException(status_code=402, detail="subscription_expired")
     except SubscriptionRequiredError:
@@ -1612,6 +1612,7 @@ async def agent_chat_stream(
 
     from backend.services.agent_orchestrator import ChatOrchestrator
     orchestrator = ChatOrchestrator()
+    release_db_connection(db)  # ответ стримится десятки секунд — соединение не держим
 
     async def event_gen():
         try:
