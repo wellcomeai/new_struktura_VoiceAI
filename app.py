@@ -11,6 +11,7 @@ This file configures all application components: routes, middleware, logging, et
 ✅ v2.7: Added Task Scheduler for automated calls (simplified startup)
 🆕 v3.0: Added xAI Grok Voice Agent API support
 """
+import contextlib
 import os
 import asyncio
 import fcntl
@@ -59,7 +60,7 @@ from backend.api import (
     seo,  # ✅ robots.txt, sitemap.xml, llms.txt
 )
 from backend.models.base import create_tables
-from backend.db.session import engine, check_database_connection
+from backend.db.session import engine, check_database_connection, startup_lock_timeout
 from backend.core.scheduler import start_subscription_checker
 from backend.core.http_optimizations import SelectiveGZipMiddleware, StaticCacheHeadersMiddleware, TrailingSlashRewriteMiddleware
 from backend.core.test_number_expirer import start_test_number_expirer  # 🆕 Освобождение тестовых номеров по сроку
@@ -2464,6 +2465,7 @@ async def startup_event():
         # Простая проверка блокировки для Render
         lock_file_path = "/tmp/wellcome_migrations.lock"
         migration_completed = False
+        schema_locks = contextlib.ExitStack()
         
         try:
             # Для Render используем более простую блокировку
@@ -2473,6 +2475,9 @@ async def startup_event():
                     lock_file.write(str(os.getpid()))
                 
                 logger.info("🔒 Running migrations and schema fixes...")
+                # Шаги схемы не ждут блокировку дольше DB_STARTUP_LOCK_TIMEOUT_MS
+                # (зависший старый инстанс не должен вешать старт нового).
+                schema_locks.enter_context(startup_lock_timeout())
                 
                 # Шаг 1: Запускаем миграции
                 run_migrations()
@@ -2635,6 +2640,7 @@ async def startup_event():
             if not settings.PRODUCTION:
                 raise
         finally:
+            schema_locks.close()  # снять lock_timeout и пересоздать пул
             # Удаляем файл блокировки
             if migration_completed:
                 try:

@@ -1007,3 +1007,13 @@ CRM/формы давала `QueuePool limit of size 5 overflow 25 reached` по
 списание — в потоке, перед каждым вызовом модели `release_db_connection_if_clean`. Лимит одновременных запросов
 (счётчик в памяти процесса): `AGENT_PUBLIC_MAX_CONCURRENT` (10 всего) и `AGENT_PUBLIC_MAX_CONCURRENT_PER_AGENT`
 (3 на агента), сверх — 429 + `Retry-After: 10`.
+
+## Старт не ждёт блокировки бесконечно (ветка 1211-2026)
+
+Во время деплоя Render держит старый инстанс, пока новый не откроет порт. Зависший старый инстанс с десятками
+`idle in transaction` держал блокировки, и `ALTER TABLE` на старте нового ждал вечно — `No open ports detected`.
+Теперь шаги схемы в `startup_event` идут под `startup_lock_timeout()` (`backend/db/session.py`): соединения потока
+старта получают `SET lock_timeout` = `DB_STARTUP_LOCK_TIMEOUT_MS` (3000), шаг без блокировки падает с ошибкой в логе,
+сервер стартует; фоновые потоки старта настройку не получают, после блока пул пересоздаётся (`engine.dispose()`).
+Alembic (`alembic/env.py`) — тот же `lock_timeout` и `connect_timeout`. В alembic давно несколько heads
+(`upgrade head` падает и проглатывается) — схему держат шаги `ensure_*`, `upgrade heads` на проде не запускать.
