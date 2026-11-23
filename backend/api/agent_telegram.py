@@ -9,6 +9,7 @@ send_telegram_notification из PostCall-оркестратора.
 Старые users.telegram_* (общесистемные уведомления о звонках) не трогаются.
 """
 
+import asyncio
 import html
 from datetime import datetime
 from typing import Optional
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from backend.core.logging import get_logger
-from backend.db.session import get_db
+from backend.db.session import get_db, SessionLocal, release_db_connection
 from backend.core.dependencies import get_current_user
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
@@ -501,69 +502,117 @@ async def telegram_webhook(
             message, agent.telegram_bot_username, bot_id_from_token(agent.telegram_bot_token),
         ):
             return {"ok": True}
-        reply_extra = group_reply_extra(message)
-
-        # 6. Текст или голосовое (voice → распознаём в текст через STT)
-        text = message.get("text") or (message.get("caption") if in_group else None)
-        if not text:
-            voice = message.get("voice")
-            if voice:
-                await AgentTelegramService._call(
-                    agent.telegram_bot_token, "sendChatAction",
-                    {"chat_id": chat_id, "action": "typing",
-                     **({"message_thread_id": reply_extra["message_thread_id"]}
-                        if reply_extra.get("message_thread_id") else {})},
-                )
-                text = await AgentTelegramService.transcribe_voice(
-                    agent.telegram_bot_token, voice,
-                )
-                if not text:
-                    await AgentTelegramService.send_message(
-                        token=agent.telegram_bot_token,
-                        chat_id=chat_id,
-                        text="Не удалось распознать голосовое. Попробуйте ещё раз или напишите текстом.",
-                        extra=reply_extra,
-                    )
-                    return {"ok": True}
-            else:
-                await AgentTelegramService.send_message(
-                    token=agent.telegram_bot_token,
-                    chat_id=chat_id,
-                    text="Я понимаю только текстовые и голосовые сообщения.",
-                    extra=reply_extra,
-                )
-                return {"ok": True}
-
-        # Упоминание бота модели не нужно: «@bot сколько звонков?» → «сколько звонков?»
-        if in_group:
-            text = strip_bot_mention(text, agent.telegram_bot_username)
-            if not text:
-                await AgentTelegramService.send_message(
-                    token=agent.telegram_bot_token,
-                    chat_id=chat_id,
-                    text="Слушаю! Напишите вопрос после упоминания или ответьте на моё сообщение.",
-                    extra=reply_extra,
-                )
-                return {"ok": True}
-
-        # 7. Отправитель: владелец (полный доступ) или гость (только разговор и справка)
-        from_user = message.get("from", {}) or {}
-        is_owner = agent.is_telegram_owner(from_user.get("id"))
-
-        # 8. Обработать
-        logger.info(f"[AGENT-TG] Incoming message from chat {chat_id} (agent {agent.id}): {text[:80]!r}")
-        await process_telegram_message(
-            agent=agent,
-            chat_id=chat_id,
-            text=text,
-            from_user=from_user,
-            message=message,
-            db=db,
-            is_owner=is_owner,
-        )
+        # 6-8. Распознавание голосового и ответ модели идут в фоне со своей сессией БД:
+        #      Telegram сразу получает 200 и не присылает сообщение повторно, а
+        #      соединение из пула не держится, пока модель думает.
+        release_db_connection(db)
+        _spawn_message_task(str(agent.id), chat_id, message, in_group)
 
     except Exception as e:
         logger.error(f"[AGENT-TG] Webhook error: {e}", exc_info=True)
 
     # 9. Всегда 200 OK
     return {"ok": True}
+
+
+# ============================================================================
+# Обработка сообщения в фоне
+# ============================================================================
+
+_BG_TASKS: set = set()               # держим ссылки, иначе задачу может собрать GC
+_CHAT_LOCKS: dict = {}               # (agent_id, chat_id) -> [Lock, счётчик]: ответы в чате по очереди
+
+
+def _spawn_message_task(agent_id: str, chat_id: str, message: dict, in_group: bool) -> None:
+    task = asyncio.create_task(_process_message_bg(agent_id, chat_id, message, in_group))
+    _BG_TASKS.add(task)
+    task.add_done_callback(_BG_TASKS.discard)
+
+
+async def _process_message_bg(agent_id: str, chat_id: str, message: dict, in_group: bool) -> None:
+    key = (agent_id, chat_id)
+    entry = _CHAT_LOCKS.setdefault(key, [asyncio.Lock(), 0])  # [замок, сколько задач его ждут/держат]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            db = SessionLocal()
+            try:
+                agent = await asyncio.to_thread(
+                    lambda: db.query(AgentConfig).filter(AgentConfig.id == agent_id).first()
+                )
+                if not agent:
+                    return
+                release_db_connection(db)  # дальше STT и модель — соединение не держим
+                await _handle_message(agent, chat_id, message, in_group, db)
+            except Exception as e:
+                logger.error(f"[AGENT-TG] Background processing error: {e}", exc_info=True)
+            finally:
+                db.close()
+    finally:
+        entry[1] -= 1
+        if entry[1] <= 0 and _CHAT_LOCKS.get(key) is entry:
+            _CHAT_LOCKS.pop(key, None)
+
+
+async def _handle_message(agent: AgentConfig, chat_id: str, message: dict, in_group: bool, db: Session) -> None:
+    """Шаги 6-8 вебхука: текст/голосовое → владелец или гость → ответ оркестратора."""
+    reply_extra = group_reply_extra(message)
+
+    # 6. Текст или голосовое (voice → распознаём в текст через STT)
+    text = message.get("text") or (message.get("caption") if in_group else None)
+    if not text:
+        voice = message.get("voice")
+        if voice:
+            await AgentTelegramService._call(
+                agent.telegram_bot_token, "sendChatAction",
+                {"chat_id": chat_id, "action": "typing",
+                 **({"message_thread_id": reply_extra["message_thread_id"]}
+                    if reply_extra.get("message_thread_id") else {})},
+            )
+            text = await AgentTelegramService.transcribe_voice(
+                agent.telegram_bot_token, voice,
+            )
+            if not text:
+                await AgentTelegramService.send_message(
+                    token=agent.telegram_bot_token,
+                    chat_id=chat_id,
+                    text="Не удалось распознать голосовое. Попробуйте ещё раз или напишите текстом.",
+                    extra=reply_extra,
+                )
+                return
+        else:
+            await AgentTelegramService.send_message(
+                token=agent.telegram_bot_token,
+                chat_id=chat_id,
+                text="Я понимаю только текстовые и голосовые сообщения.",
+                extra=reply_extra,
+            )
+            return
+
+    # Упоминание бота модели не нужно: «@bot сколько звонков?» → «сколько звонков?»
+    if in_group:
+        text = strip_bot_mention(text, agent.telegram_bot_username)
+        if not text:
+            await AgentTelegramService.send_message(
+                token=agent.telegram_bot_token,
+                chat_id=chat_id,
+                text="Слушаю! Напишите вопрос после упоминания или ответьте на моё сообщение.",
+                extra=reply_extra,
+            )
+            return
+
+    # 7. Отправитель: владелец (полный доступ) или гость (только разговор и справка)
+    from_user = message.get("from", {}) or {}
+    is_owner = agent.is_telegram_owner(from_user.get("id"))
+
+    # 8. Обработать
+    logger.info(f"[AGENT-TG] Incoming message from chat {chat_id} (agent {agent.id}): {text[:80]!r}")
+    await process_telegram_message(
+        agent=agent,
+        chat_id=chat_id,
+        text=text,
+        from_user=from_user,
+        message=message,
+        db=db,
+        is_owner=is_owner,
+    )

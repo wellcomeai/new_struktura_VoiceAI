@@ -1,9 +1,11 @@
 # backend/db/session.py
 
 import os
+import threading
+from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
@@ -134,6 +136,48 @@ def release_db_connection_if_clean(db: Session) -> None:
     if db.new or db.dirty or db.deleted:
         return
     release_db_connection(db)
+
+
+# ---------------------------------------------------------------------------
+# Ограничение ожидания блокировок на время старта (миграции и ensure_*)
+# ---------------------------------------------------------------------------
+
+# Во время деплоя Render держит старый инстанс живым, пока новый не откроет порт.
+# Если старый завис с открытыми транзакциями (idle in transaction), любой
+# ALTER TABLE нового инстанса ждал блокировку бесконечно — порт не открывался,
+# деплой не проходил, а запросы старого вставали в очередь за этим ALTER.
+STARTUP_LOCK_TIMEOUT_MS = int(os.getenv("DB_STARTUP_LOCK_TIMEOUT_MS", "3000"))
+
+
+@contextmanager
+def startup_lock_timeout(ms: int = STARTUP_LOCK_TIMEOUT_MS):
+    """
+    Пока блок выполняется, соединения, которые этот поток берёт из пула, получают
+    SET lock_timeout = ms: шаг схемы, не дождавшийся блокировки, падает с ошибкой
+    (шаги старта её логируют и идут дальше), а не вешает старт. Фоновые потоки,
+    запущенные из блока (CREATE INDEX CONCURRENTLY и т.п.), настройку не получают.
+    После блока пул пересоздаётся, чтобы соединения с этой настройкой не попали
+    в обычные запросы.
+    """
+    owner = threading.get_ident()
+    timeout = max(0, int(ms))
+
+    def _on_checkout(dbapi_conn, connection_record, connection_proxy):
+        if threading.get_ident() != owner:
+            return
+        cur = dbapi_conn.cursor()
+        try:
+            cur.execute(f"SET lock_timeout = {timeout}")
+        finally:
+            cur.close()
+        dbapi_conn.commit()  # иначе rollback при возврате в пул отменил бы SET
+
+    event.listen(engine, "checkout", _on_checkout)
+    try:
+        yield
+    finally:
+        event.remove(engine, "checkout", _on_checkout)
+        engine.dispose()
 
 
 # ---------------------------------------------------------------------------

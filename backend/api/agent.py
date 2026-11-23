@@ -3,6 +3,7 @@ Voicyfy Agent API v2.0 — CRUD, chat (with tools), contacts, calls, stats.
 """
 
 import asyncio
+import os
 import json
 import uuid
 import secrets
@@ -13,6 +14,7 @@ from fastapi import (
     APIRouter, Depends, HTTPException, Query, status,
     UploadFile, File, Form, BackgroundTasks, Request,
 )
+from starlette.requests import ClientDisconnect
 from fastapi.responses import Response, StreamingResponse, RedirectResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -20,7 +22,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import func, or_, false
 
 from backend.core.logging import get_logger
-from backend.db.session import get_db, SessionLocal
+from backend.db.session import get_db, SessionLocal, release_db_connection
 from backend.core.timezone_utils import adjust_to_working_hours, now_utc, iso_utc
 from backend.models.user import User
 from backend.models.agent_config import AgentConfig
@@ -1596,7 +1598,7 @@ async def agent_chat_stream(
     # Subscription/credit precheck BEFORE the stream starts, so 402 returns as
     # an HTTP status (after 200 starts we could only emit an in-stream error).
     try:
-        CreditService.precheck(db, current_user)
+        await asyncio.to_thread(CreditService.precheck, db, current_user)
     except SubscriptionExpiredError:
         raise HTTPException(status_code=402, detail="subscription_expired")
     except SubscriptionRequiredError:
@@ -1610,6 +1612,7 @@ async def agent_chat_stream(
 
     from backend.services.agent_orchestrator import ChatOrchestrator
     orchestrator = ChatOrchestrator()
+    release_db_connection(db)  # ответ стримится десятки секунд — соединение не держим
 
     async def event_gen():
         try:
@@ -2188,6 +2191,52 @@ async def disconnect_connector(
     return {"ok": True, "toolkit": toolkit, "status": "disconnected"}
 
 
+# Сколько публичных запросов обрабатывается одновременно. Каждый идёт десятки
+# секунд (модель + инструменты); без ограничения пачка запросов внешней CRM/формы
+# выбирала весь пул БД (5 + 25) и замораживала сервер. Сверх лимита — сразу 429.
+PUBLIC_MAX_CONCURRENT = int(os.getenv("AGENT_PUBLIC_MAX_CONCURRENT", "10"))
+PUBLIC_MAX_CONCURRENT_PER_AGENT = int(os.getenv("AGENT_PUBLIC_MAX_CONCURRENT_PER_AGENT", "3"))
+PUBLIC_RETRY_AFTER_SECONDS = 10
+_public_in_flight: dict = {}  # agent_id -> число запросов в работе (один процесс, один loop)
+
+
+def _public_slot_acquire(agent_key: str) -> bool:
+    total = sum(_public_in_flight.values())
+    if total >= PUBLIC_MAX_CONCURRENT:
+        return False
+    if _public_in_flight.get(agent_key, 0) >= PUBLIC_MAX_CONCURRENT_PER_AGENT:
+        return False
+    _public_in_flight[agent_key] = _public_in_flight.get(agent_key, 0) + 1
+    return True
+
+
+def _public_slot_release(agent_key: str) -> None:
+    left = _public_in_flight.get(agent_key, 0) - 1
+    if left > 0:
+        _public_in_flight[agent_key] = left
+    else:
+        _public_in_flight.pop(agent_key, None)
+
+
+def _load_public_agent(db: Session, agent_uuid, provided_key: Optional[str]):
+    """Агент + владелец + проверки (в потоке: ожидание пула не держит event loop).
+    Соединение сразу возвращается в пул, объекты остаются загруженными."""
+    try:
+        agent = db.query(AgentConfig).filter(AgentConfig.id == agent_uuid).first()
+        if not agent:
+            raise HTTPException(status_code=404, detail="agent_not_found")
+        if not agent.public_enabled or not agent.public_api_key:
+            raise HTTPException(status_code=403, detail="public_access_disabled")
+        if not provided_key or not secrets.compare_digest(provided_key, agent.public_api_key):
+            raise HTTPException(status_code=401, detail="invalid_api_key")
+        owner = db.query(User).filter(User.id == agent.user_id).first()
+        if not owner:
+            raise HTTPException(status_code=404, detail="owner_not_found")
+        return agent, owner
+    finally:
+        release_db_connection(db)
+
+
 @router.post("/public/{agent_id}/message")
 async def agent_public_message(
     agent_id: str,
@@ -2202,33 +2251,46 @@ async def agent_public_message(
 
     Тело — произвольный JSON или text/plain. Оркестратор (stateless) сам решает,
     что сделать с входящими данными. Ответ: {reply, timestamp}.
+
+    Одновременно — не больше AGENT_PUBLIC_MAX_CONCURRENT запросов (на агента —
+    AGENT_PUBLIC_MAX_CONCURRENT_PER_AGENT), остальным 429 с Retry-After.
+    Соединение с БД не держится, пока идёт ответ модели.
     """
-    # 1. Резолв агента по id (валидируем UUID)
+    # 1. Валидируем UUID (без БД)
     try:
         agent_uuid = uuid.UUID(str(agent_id))
     except (ValueError, AttributeError):
         raise HTTPException(status_code=404, detail="agent_not_found")
 
-    agent = db.query(AgentConfig).filter(AgentConfig.id == agent_uuid).first()
-    if not agent:
-        raise HTTPException(status_code=404, detail="agent_not_found")
+    agent_key = str(agent_uuid)
+    if not _public_slot_acquire(agent_key):
+        logger.warning(
+            f"[AGENT-PUBLIC] busy agent={agent_key} in_flight={dict(_public_in_flight)}"
+        )
+        raise HTTPException(
+            status_code=429, detail="too_many_requests",
+            headers={"Retry-After": str(PUBLIC_RETRY_AFTER_SECONDS)},
+        )
+    try:
+        return await _agent_public_message_inner(agent_uuid, request, db)
+    finally:
+        _public_slot_release(agent_key)
 
-    # 2. Канал включён?
-    if not agent.public_enabled or not agent.public_api_key:
-        raise HTTPException(status_code=403, detail="public_access_disabled")
 
-    # 3. Проверка ключа (constant-time)
-    provided = _extract_api_key(request)
-    if not provided or not secrets.compare_digest(provided, agent.public_api_key):
-        raise HTTPException(status_code=401, detail="invalid_api_key")
+async def _agent_public_message_inner(agent_uuid, request: Request, db: Session):
+    # 2. Тело читаем до БД: клиент, оборвавший запрос, не занимает соединение
+    try:
+        raw = await request.body()
+    except ClientDisconnect:
+        logger.info(f"[AGENT-PUBLIC] client disconnected before body agent={agent_uuid}")
+        return Response(status_code=499)
 
-    # 4. Владелец агента (он платит за обработку)
-    owner = db.query(User).filter(User.id == agent.user_id).first()
-    if not owner:
-        raise HTTPException(status_code=404, detail="owner_not_found")
+    # 3. Агент, ключ, владелец — в потоке, соединение сразу отдаём обратно
+    agent, owner = await asyncio.to_thread(
+        _load_public_agent, db, agent_uuid, _extract_api_key(request)
+    )
 
-    # 5. Тело запроса → текст
-    raw = await request.body()
+    # 4. Тело запроса → текст
     payload = None
     if raw:
         try:
@@ -2239,7 +2301,7 @@ async def agent_public_message(
     if not message:
         raise HTTPException(status_code=400, detail="empty_message")
 
-    # 6. Оркестратор (stateless)
+    # 5. Оркестратор (stateless)
     from backend.services.agent_orchestrator import ChatOrchestrator
     try:
         result = await ChatOrchestrator().run_public(

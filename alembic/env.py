@@ -51,6 +51,12 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # Старт на Render: не ждать блокировку и соединение бесконечно, если старый
+        # инстанс держит транзакции (см. startup_lock_timeout в backend/db/session.py)
+        connect_args={
+            "connect_timeout": int(os.getenv("DB_CONNECT_TIMEOUT", "5")),
+            "options": f"-c lock_timeout={int(os.getenv('DB_STARTUP_LOCK_TIMEOUT_MS', '3000'))}",
+        },
     )
 
     with connectable.connect() as connection:

@@ -440,7 +440,7 @@ class PreCallOrchestrator:
                     f"contact {agent_contact.name or agent_contact.phone}, model {agent_config.orchestrator_model}")
 
         # Pre-flight проверка подписки/кредитов (раздел 5.1)
-        CreditService.precheck(db, user)
+        await asyncio.to_thread(CreditService.precheck, db, user)  # не держать loop при пустом пуле
 
         # Статичный system + время в user-сообщении: префикс запроса
         # (tools + system) байт-в-байт одинаков между звонками → кэш провайдера.
@@ -454,6 +454,7 @@ class PreCallOrchestrator:
         output_text = ""
         try:
             client = get_openrouter_client()
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.chat_completion(
                 model=agent_config.orchestrator_model,
                 messages=[
@@ -566,6 +567,7 @@ class PreCallOrchestrator:
 }}"""
 
         try:
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.responses.create(
                 model="gpt-5-2025-08-07",
                 instructions=agent_config.orchestrator_prompt or "",
@@ -1551,7 +1553,7 @@ AGENT_CONTACT_ID: {str(agent_contact.id)}
         # закрываем с решением ERROR, а не бросаем исключение: иначе звонок навсегда
         # оставался в 'finalizing' и уборщик планировщика возвращал бы его по кругу.
         try:
-            CreditService.precheck(db, user)
+            await asyncio.to_thread(CreditService.precheck, db, user)  # не держать loop при пустом пуле
         except Exception as e:
             logger.warning(f"[AGENT-POSTCALL] (v3) Precheck failed for call {agent_call.id}: {e}")
             safe_rollback(db)
@@ -2150,7 +2152,7 @@ class ChatOrchestrator:
         без памяти агента и блока недавних контактов.
         """
         # Pre-flight проверка подписки/кредитов (раздел 5.1)
-        CreditService.precheck(db, user)
+        await asyncio.to_thread(CreditService.precheck, db, user)  # не держать loop при пустом пуле
         total_prompt = 0
         total_completion = 0
 
@@ -2191,6 +2193,7 @@ class ChatOrchestrator:
 
         while iteration < max_iterations:
             iteration += 1
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.chat_completion(
                 model=agent_config.orchestrator_model,
                 messages=messages,
@@ -2273,7 +2276,7 @@ class ChatOrchestrator:
         Каждое событие token несёт накопленный `buffer`, чтобы драйвер слал
         в draft уже собранный текст.
         """
-        CreditService.precheck(db, user)
+        await asyncio.to_thread(CreditService.precheck, db, user)  # не держать loop при пустом пуле
 
         total_prompt = 0
         total_completion = 0
@@ -2315,6 +2318,7 @@ class ChatOrchestrator:
                 p_tok = 0
                 c_tok = 0
 
+                release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
                 async for chunk in client.chat_completion_stream(
                     model=agent_config.orchestrator_model,
                     messages=messages,
@@ -2450,6 +2454,7 @@ class ChatOrchestrator:
             "agent_config": agent_config,
         }
 
+        release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
         response = await client.responses.create(
             model="gpt-5-2025-08-07",
             instructions=instructions,
@@ -2489,6 +2494,7 @@ class ChatOrchestrator:
             if not has_tool_calls:
                 break
 
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.responses.create(
                 model="gpt-5-2025-08-07",
                 input=tool_results,
@@ -2518,7 +2524,7 @@ class ChatOrchestrator:
     ) -> Dict[str, Any]:
         """Chat v3 — OpenRouter Chat Completions with AGENT_CHAT_TOOLS."""
         # Pre-flight проверка подписки/кредитов (раздел 5.1)
-        CreditService.precheck(db, user)
+        await asyncio.to_thread(CreditService.precheck, db, user)  # не держать loop при пустом пуле
         total_prompt = 0
         total_completion = 0
 
@@ -2563,6 +2569,7 @@ class ChatOrchestrator:
 
         while iteration < max_iterations:
             iteration += 1
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.chat_completion(
                 model=agent_config.orchestrator_model,
                 messages=messages,
@@ -2661,8 +2668,10 @@ class ChatOrchestrator:
         if not getattr(agent_config, "uses_hardcoded_prompt", False):
             raise ValueError("public_channel_requires_v3_agent")
 
-        # Подписка/кредиты владельца (он же платит за обработку)
-        CreditService.precheck(db, user)
+        # Подписка/кредиты владельца (он же платит за обработку). В потоке:
+        # ожидание соединения из пула не должно останавливать event loop.
+        await asyncio.to_thread(CreditService.precheck, db, user)
+        release_db_connection(db)
         total_prompt = 0
         total_completion = 0
 
@@ -2688,6 +2697,7 @@ class ChatOrchestrator:
 
         while iteration < max_iterations:
             iteration += 1
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.chat_completion(
                 model=agent_config.orchestrator_model,
                 messages=messages,
@@ -2736,7 +2746,8 @@ class ChatOrchestrator:
         # Списываем кредиты за весь цикл обработки
         if total_prompt or total_completion:
             try:
-                CreditService.charge(
+                await asyncio.to_thread(
+                    CreditService.charge,
                     db=db, user_id=user.id,
                     model_slug=agent_config.orchestrator_model,
                     prompt_tokens=total_prompt, completion_tokens=total_completion,
@@ -2746,6 +2757,7 @@ class ChatOrchestrator:
             except Exception as ce:
                 logger.error(f"[AGENT-PUBLIC] Charge failed: {ce}", exc_info=True)
                 safe_rollback(db)
+        release_db_connection_if_clean(db)
 
         return {"reply": final_text}
 
@@ -2770,7 +2782,7 @@ class ChatOrchestrator:
         # Pre-flight проверка подписки/кредитов (раздел 5.1) — ДО первого yield.
         # Если кинет Subscription*/InsufficientCredits — пробросится наружу,
         # эндпоинт превратит в 402 до старта StreamingResponse.
-        CreditService.precheck(db, user)
+        await asyncio.to_thread(CreditService.precheck, db, user)  # не держать loop при пустом пуле
 
         total_prompt = 0
         total_completion = 0
@@ -2826,6 +2838,7 @@ class ChatOrchestrator:
                 p_tok = 0
                 c_tok = 0
 
+                release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
                 async for chunk in client.chat_completion_stream(
                     model=agent_config.orchestrator_model,
                     messages=messages,
@@ -3008,6 +3021,7 @@ class ChatOrchestrator:
         })
 
         try:
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.responses.create(**kwargs)
         except Exception as e:
             if last_response_id and "previous_response_id" in str(e).lower():
@@ -3018,6 +3032,7 @@ class ChatOrchestrator:
                     "type": "gpt_thinking",
                     "data": "Retrying without previous_response_id (stale chain)",
                 })
+                release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
                 response = await client.responses.create(**kwargs)
             else:
                 raise
@@ -3080,6 +3095,7 @@ class ChatOrchestrator:
             if not has_tool_calls:
                 break
 
+            release_db_connection_if_clean(db)  # ответ LLM может идти десятки секунд
             response = await client.responses.create(
                 model="gpt-5-2025-08-07",
                 input=tool_results,

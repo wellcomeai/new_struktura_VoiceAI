@@ -815,7 +815,7 @@ async def process_telegram_message(
     #     в сутки на чат (маркер в history JSONB).
     if user is not None:
         try:
-            CreditService.precheck(db, user)
+            await asyncio.to_thread(CreditService.precheck, db, user)
         except (SubscriptionExpiredError, SubscriptionRequiredError, InsufficientCreditsError) as gate_err:
             if isinstance(gate_err, InsufficientCreditsError):
                 notice = "На балансе закончились кредиты. Пополните в личном кабинете Voicyfy."
@@ -833,6 +833,12 @@ async def process_telegram_message(
             else:
                 logger.info(f"[AGENT-TG] Subscription notice suppressed (anti-spam) for chat {chat_id}")
             return
+
+    from backend.db.session import release_db_connection
+
+    # Метаданные чата сохраняем сейчас и отдаём соединение: ответ модели идёт
+    # десятки секунд, а с несохранёнными правками оркестратор соединение не отпустит.
+    release_db_connection(db)  # commit без expire: объекты остаются загруженными
 
     orchestrator = ChatOrchestrator()
 
