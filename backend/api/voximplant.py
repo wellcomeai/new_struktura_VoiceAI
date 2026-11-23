@@ -1289,7 +1289,7 @@ def log_conversation_data(
                 # GPT-Live тарифицируется OpenAI за всё время сессии, включая гудки
                 # исходящего и прогрев до ответа, — столько же списываем с клиента.
                 # Недозвон тоже платный: сессия шла, пока звонил телефон.
-                if request_data.get("voice_model") == "gpt-live-1":
+                if str(request_data.get("voice_model") or "").startswith("gpt-live"):
                     try:
                         _live_seconds = int(float((data or {}).get("live_usage_seconds") or 0))
                     except (TypeError, ValueError):
@@ -1307,7 +1307,7 @@ def log_conversation_data(
                     )
                     # Звонки OpenAI на GPT-Live (inbound_openai / outbound_openai) — свой тариф
                     _tariff = assistant_type
-                    if assistant_type == "openai" and request_data.get("voice_model") == "gpt-live-1":
+                    if assistant_type == "openai" and str(request_data.get("voice_model") or "").startswith("gpt-live"):
                         from backend.websockets.live_client import LIVE_TARIFF_CODE
                         _tariff = LIVE_TARIFF_CODE
                     WalletService.charge(

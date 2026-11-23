@@ -34,7 +34,8 @@ from backend.schemas.assistant import OPENAI_VOICES
 logger = get_logger(__name__)
 
 LIVE_WS_URL = "wss://api.openai.com/v1/live/sessions"
-LIVE_MODEL = "gpt-live-1"
+# Модель голоса Live: env LIVE_MODEL (по умолчанию gpt-live-1.1, откат — gpt-live-1).
+LIVE_MODEL = getattr(settings, "LIVE_MODEL", None) or "gpt-live-1.1"
 # Тариф кошелька для GPT-Live (виджет и входящие звонки OpenAI)
 LIVE_TARIFF_CODE = "openai-live"
 

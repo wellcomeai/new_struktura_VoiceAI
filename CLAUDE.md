@@ -463,12 +463,14 @@ Postgres, до 5 МБ; создаётся `ensure_agent_files_table` в `app.py`
 (`OpenAI.createLiveAPIClient`), без нашего сервера на пути аудио. Настройки сессии отдаёт
 `/api/telephony/config` полями `live_session` (собирает `compose_live_session` в
 `backend/websockets/live_client.py` — общий с виджетом и серверным мостом) и
-`live_function_ids`; поле `model` осталось Realtime для старого сценария до раскатки.
+`live_function_ids`. Модель голоса — `live_session.model` = `LIVE_MODEL` (`backend/core/config.py`, env `LIVE_MODEL`,
+по умолчанию `gpt-live-1.1` с ветки 1211-2026, откат — `LIVE_MODEL=gpt-live-1`; сценарии модель не хардкодят,
+их `voice_model: "gpt-live-1"` в `/log` — только метка тарифа); поле `model` осталось Realtime для старого сценария до раскатки.
 Бэкенд-модель — `LIVE_DELEGATION_MODEL` (по умолчанию `gpt-5.6-luna`: terra в 10 раз дороже и съедает маржу тарифа). Голоса OpenAI-ассистента —
 все 22 встроенных голоса gpt-live-1 (`OPENAI_VOICES` в `backend/schemas/assistant.py`; дубли во
 фронте: `voice-assistants.html`, `agent/instructions-voice.js`); 12 из них (`OPENAI_LIVE_ONLY_VOICES`)
 Realtime не знает — на Live (звонки и виджет) работают все; при откате виджета на Realtime их не выбирать. Шлагбаум и списание —
-тариф `openai-live` (`/log` смотрит `voice_model == "gpt-live-1"`); секунды списания — `max(call_duration,
+тариф `openai-live` (`/log` смотрит `voice_model`, начинающийся с `gpt-live`); секунды списания — `max(call_duration,
 data.live_usage_seconds)`: OpenAI берёт деньги за всю сессию Live, включая гудки исходящего, прогрев и недозвоны. Исходящие — `voximplant_scenarios/outbound_openai.js` (v5.0) по той же схеме: `/api/telephony/outbound-config`
 тоже отдаёт `live_session`, а контекст CRM из `customData` (`contact_name`, `task_title`,
 `task_description`, `task`, `custom_greeting`) сценарий дописывает в instructions обоих слоёв. Агент и публичный API

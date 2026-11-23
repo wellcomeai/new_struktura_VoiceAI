@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     FISH_API_KEY: Optional[str] = os.getenv("FISH_API_KEY")
     CARTESIA_API_KEY: Optional[str] = os.getenv("CARTESIA_API_KEY")
 
-    # 🧪 GPT-Live (gpt-live-1), экспериментальный виджет /ws/live/{id}
+    # 🧪 GPT-Live: модель голоса во всех OpenAI-звонках и виджете (live_session.model). Откат — LIVE_MODEL=gpt-live-1
+    LIVE_MODEL: str = os.getenv("LIVE_MODEL", "gpt-live-1.1").strip() or "gpt-live-1.1"
     LIVE_DELEGATION_MODEL: str = os.getenv("LIVE_DELEGATION_MODEL", "gpt-5.6-luna")    # бэкенд-модель delegation.responses (terra в 10 раз дороже)
     # Веб-виджет OpenAI (/ws/{id}): "live" — GPT-Live (handler_live_widget), "realtime" — откат на Realtime
     WIDGET_OPENAI_TRANSPORT: str = os.getenv("WIDGET_OPENAI_TRANSPORT", "live").strip().lower()
