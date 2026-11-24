@@ -1,6 +1,28 @@
 /*
- * Voximplant OUTBOUND Script — Yandex Realtime API v1.1 (voicyfy)
+ * Voximplant OUTBOUND Script — Yandex Realtime API v2.0 (voicyfy)
  * ====================================================================
+ * ИЗМЕНЕНИЯ v2.0 (относительно v1.1) — как во входящем inbound_yandex v3.0:
+ *
+ *   🆕 1. Модель Speech Realtime Max TTS Live
+ *      (speech-realtime-max-tts-live/latest): имя приходит из CONFIG.model
+ *      (/api/telephony/outbound-config отдаёт YANDEX_LIVE_MODEL),
+ *      DEFAULT_MODEL — та же модель.
+ *   🆕 2. Голоса LiveTTS (sofia, vera, irina, sergey, vasily, denis) и
+ *      амплуа (CONFIG.voice_role). Обычный голос (marina, …) LiveTTS не
+ *      понимает → sofia / sergey по полу; амплуа не из списка голоса не
+ *      отправляется (голос говорит своим амплуа по умолчанию).
+ *   🔧 3. TOOLS В ПЕРВОМ sessionUpdate, а не вторым после приветствия.
+ *      Во входящем (v2.1–v2.3) подключение tools вторым sessionUpdate
+ *      приводило к тому, что модель печатала <function_call>{...} текстом
+ *      и функции не исполнялись; с v2.4 tools идут сразу — так и здесь.
+ *      Приветствие по-прежнему через responseCreate, микрофон абонента
+ *      по-прежнему открывается только после конца приветствия.
+ *   🆕 4. В промпт добавлены «ПРАВИЛА РАБОТЫ С ФУНКЦИЯМИ» (не заявлять об
+ *      успехе до результата функции) и «ПРАВИЛА РЕЧИ» (без эмодзи,
+ *      markdown и переносов строк — в тесте модель вставляла 😄).
+ *   Оплата: серверный ключ Voicyfy, тариф «yandex» по call_duration в
+ *   /api/voximplant/log — логика отчёта не менялась.
+ * ══════════════════════════════════════════════════════════════════
  * ИЗМЕНЕНИЯ v1.1 (относительно v1.0):
  *
  *   ❌ УБРАНО: ожидание CallEvents.FirstAudioPacketReceived перед greeting.
@@ -38,6 +60,7 @@
  *      tools + sendMediaBetween (полный дуплекс).
  *
  *   4. TOOLS ПОСЛЕ ПРИВЕТСТВИЯ.
+ *      (упразднено в v2.0: tools идут в sessionUpdate #1)
  *      sessionUpdate #1 без tools → нет утечки tool-токенов в TTS.
  *      sessionUpdate #2 (с tools) — в момент открытия дуплекса.
  *
@@ -111,8 +134,25 @@ const SESSION_WARNING_MS = 9 * 60 * 1000;   // предупреждение о �
 const SESSION_MAX_MS = 10 * 60 * 1000;      // максимум сессии (safety net)
 const HANGUP_SAFETY_MS = 8000;          // если WebSocketMediaEnded не пришёл после hangup_call
 
-const DEFAULT_MODEL = "speech-realtime-260528";
-const DEFAULT_VOICE = "marina";
+const DEFAULT_MODEL = "speech-realtime-max-tts-live/latest";
+const DEFAULT_VOICE = "sofia";
+
+// 🆕 v2.0: голоса LiveTTS и их амплуа (первое — умолчание Яндекса).
+// Должно совпадать с LIVE_TTS_VOICES в backend/models/yandex_assistant.py
+// и с тем же списком в inbound_yandex.
+const LIVE_TTS_VOICES = {
+    sofia:  ["support", "casual"],
+    vera:   ["support", "casual"],
+    irina:  ["neutral", "formal", "support", "narrator", "sales"],
+    sergey: ["support", "sales"],
+    vasily: ["support", "sales"],
+    denis:  ["neutral", "casual", "formal", "sales"]
+};
+const LEGACY_MALE_VOICES = ["alexander", "anton", "kirill", "filipp", "ermil", "zahar", "madi_ru"];
+
+function isLiveTtsModel(model) {
+    return String(model || "").indexOf("tts-live") !== -1;
+}
 const DEFAULT_VAD_THRESHOLD = 0.5;
 const DEFAULT_VAD_SILENCE_MS = 500;
 
@@ -160,7 +200,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     call_session_history_id = e.sessionId;
 
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    log("info", "🚀 APP STARTED (OUTBOUND Yandex v1.1)");
+    log("info", "🚀 APP STARTED (OUTBOUND Yandex v2.0)");
     log("info", "🔑 Session History ID: " + call_session_history_id);
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -239,7 +279,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     const caller_number = "OUTBOUND: " + PHONE_NUMBER;
     let call_id = "unknown"; // появится после callPSTN
 
-    log("info", "📞 OUTBOUND CALL PARAMETERS (Yandex v1.1)");
+    log("info", "📞 OUTBOUND CALL PARAMETERS (Yandex v2.0)");
     log("info", "   Target: " + PHONE_NUMBER + " | Caller ID: " + CALLER_ID);
     log("info", "   Assistant ID: " + ASSISTANT_ID + " | Chat ID: " + chat_id);
     log("info", "   🌍 Timezone: " + TIMEZONE + " | 📋 Call type: " + callType);
@@ -388,6 +428,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     let finalSystemPrompt = "";
     let YANDEX_MODEL = "";
     let YANDEX_VOICE = "";
+    let YANDEX_VOICE_ROLE = "";   // v2.0: амплуа LiveTTS ("" — по умолчанию голоса)
     let actualSessionModel = null;
 
     // ====================================================================
@@ -422,7 +463,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             } catch (err) {}
 
             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            log("info", "💰 BILLING (Yandex OUTBOUND v1.1):");
+            log("info", "💰 BILLING (Yandex OUTBOUND v2.0):");
             log("info", "   🔑 Session: " + (call_session_history_id || "NONE"));
             log("info", "   🤖 Model: " + YANDEX_MODEL + " | actual: " + (actualSessionModel || "n/a"));
             log("info", "   💰 Cost: " + call_cost + " | ⏱️ Duration: " + call_duration + "s");
@@ -658,7 +699,8 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
 
     // ====================================================================
     // СБОРКА sessionUpdate
-    // includeTools = false → приветствие; true → полная сессия
+    // v2.0: tools всегда в сессии (с первого sessionUpdate); аргумент
+    // оставлен для совместимости вызовов и ни на что не влияет.
     // ====================================================================
     function buildSessionUpdate(includeTools) {
         const sessionUpdate = {
@@ -687,13 +729,13 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             sessionUpdate.session.audio.input.languages = [lang];
         }
 
-        if (CONFIG.voice_role) {
-            sessionUpdate.session.audio.output.role = CONFIG.voice_role;
+        if (YANDEX_VOICE_ROLE) {
+            sessionUpdate.session.audio.output.role = YANDEX_VOICE_ROLE;
         }
 
-        if (includeTools && yandexTools.length > 0) {
+        // v2.0: tools сразу, без tool_choice (официальный паттерн, как inbound v2.4+)
+        if (yandexTools.length > 0) {
             sessionUpdate.session.tools = yandexTools;
-            sessionUpdate.session.tool_choice = "auto";
         }
 
         return sessionUpdate;
@@ -705,6 +747,10 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
     function attachToolsPostGreeting() {
         if (toolsAttached) return;
         toolsAttached = true;
+
+        // v2.0: tools уже в сессии с первого sessionUpdate — повторно не шлём
+        log("info", "🔧 Tools active since session start (" + yandexTools.length + ") — no-op");
+        return;
 
         if (yandexTools.length === 0) {
             log("info", "🔧 No tools to attach (config has none)");
@@ -1108,15 +1154,30 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         greetingMessage = determineGreeting(CONFIG.first_phrase);
         YANDEX_MODEL = CONFIG.model || DEFAULT_MODEL;
         YANDEX_VOICE = CONFIG.voice || DEFAULT_VOICE;
+        YANDEX_VOICE_ROLE = CONFIG.voice_role || "";
+
+        // 🆕 v2.0: LiveTTS понимает только свои голоса и их амплуа
+        if (isLiveTtsModel(YANDEX_MODEL)) {
+            if (!LIVE_TTS_VOICES[YANDEX_VOICE]) {
+                const mapped = LEGACY_MALE_VOICES.indexOf(YANDEX_VOICE) !== -1 ? "sergey" : "sofia";
+                log("info", "   ⚠️ Voice " + YANDEX_VOICE + " is not LiveTTS → " + mapped);
+                YANDEX_VOICE = mapped;
+                YANDEX_VOICE_ROLE = "";
+            }
+            if (YANDEX_VOICE_ROLE && LIVE_TTS_VOICES[YANDEX_VOICE].indexOf(YANDEX_VOICE_ROLE) === -1) {
+                log("info", "   ⚠️ Role " + YANDEX_VOICE_ROLE + " not available for " + YANDEX_VOICE + " → default");
+                YANDEX_VOICE_ROLE = "";
+            }
+        }
 
         log("info", "✅ CONFIG: " + (CONFIG.assistant_name || "unnamed") +
-            " | Voice: " + YANDEX_VOICE + (CONFIG.voice_role ? " (" + CONFIG.voice_role + ")" : "") +
+            " | Voice: " + YANDEX_VOICE + (YANDEX_VOICE_ROLE ? " (" + YANDEX_VOICE_ROLE + ")" : "") +
             " | Lang: " + (CONFIG.language || "ru"));
         log("info", "   Model: " + YANDEX_MODEL);
         log("info", "   Greeting (sanitized): " + greetingMessage.substring(0, 60));
 
         // ══════════════════════════════════════════════════════════════
-        // ФУНКЦИИ (собираем, но в сессию НЕ отправляем до конца приветствия)
+        // ФУНКЦИИ (v2.0: уходят в сессию первым sessionUpdate)
         // ══════════════════════════════════════════════════════════════
         let hasHangupFunction = false;
 
@@ -1162,12 +1223,12 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             log("info", "   + default hangup_call added");
         }
 
-        log("info", "   🔧 tools (" + yandexTools.length + ") will attach AFTER greeting");
+        log("info", "   🔧 tools (" + yandexTools.length + ") attach in sessionUpdate #1 (v2.0)");
 
         // ══════════════════════════════════════════════════════════════
         // SYSTEM PROMPT
         // ══════════════════════════════════════════════════════════════
-        log("info", "🧠 BUILDING SYSTEM PROMPT (Yandex OUTBOUND v1.1)");
+        log("info", "🧠 BUILDING SYSTEM PROMPT (Yandex OUTBOUND v2.0)");
         const baseSystemPrompt = CONFIG.system_prompt || "Ты голосовой ассистент. Помогай пользователю.";
         const contextBlock = buildContextBlock();
         finalSystemPrompt = contextBlock ? (contextBlock + baseSystemPrompt) : baseSystemPrompt;
@@ -1185,6 +1246,29 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
             "клиента по номеру — вызови её в начале разговора.";
 
         log("info", "   📞 Phone number added to system prompt: " + PHONE_NUMBER);
+
+        // 🆕 v2.0: правила работы с функциями (анти-галлюцинация, как inbound)
+        if (yandexTools.length > 0) {
+            finalSystemPrompt += "\n\n" +
+                "──────────────────────────────────────\n" +
+                "ПРАВИЛА РАБОТЫ С ФУНКЦИЯМИ\n" +
+                "──────────────────────────────────────\n" +
+                "Когда нужно выполнить действие (отправить SMS, завершить звонок и т.п.) — " +
+                "вызывай соответствующую функцию через механизм вызова инструментов.\n" +
+                "НИКОГДА не произноси вслух название функции, её параметры или JSON.\n" +
+                "НИКОГДА не говори, что действие выполнено (например, что SMS отправлено), " +
+                "пока не получишь результат выполнения функции. Если результата ещё нет — " +
+                "скажи, что выполняешь действие, и дождись результата.";
+        }
+
+        // 🆕 v2.0: ответ сразу озвучивается — без «текстовых» элементов
+        finalSystemPrompt += "\n\n" +
+            "──────────────────────────────────────\n" +
+            "ПРАВИЛА РЕЧИ\n" +
+            "──────────────────────────────────────\n" +
+            "Это телефонный разговор: всё, что ты пишешь, сразу произносится вслух.\n" +
+            "Не используй эмодзи, смайлики, markdown, списки, заголовки и переносы строк.\n" +
+            "Говори короткими фразами, как живой человек по телефону.";
 
         // Декларативный якорь первой фразы — БЕЗ кавычек, БЕЗ мета-формулировок
         if (greetingMessage) {
@@ -1229,13 +1313,13 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         setupYandexEventHandlers(realtimeAPIClient);
 
         // ────────────────────────────────────────────────
-        // SESSION UPDATE #1 — БЕЗ TOOLS (до звонка)
+        // SESSION UPDATE #1 — С TOOLS (до звонка, v2.0)
         // ────────────────────────────────────────────────
         const sessionUpdate = buildSessionUpdate(false);
 
-        log("info", "📤 sessionUpdate #1 (NO TOOLS) | instructions: " + finalSystemPrompt.length +
+        log("info", "📤 sessionUpdate #1 (WITH TOOLS) | instructions: " + finalSystemPrompt.length +
             " chars | voice: " + YANDEX_VOICE +
-            " | tools deferred: " + yandexTools.length);
+            " | tools: " + yandexTools.length);
         realtimeAPIClient.sessionUpdate(sessionUpdate);
 
         // ══════════════════════════════════════════════════════════════
@@ -1247,7 +1331,7 @@ VoxEngine.addEventListener(AppEvents.Started, async function(e) {
         // ГОТОВО
         // ══════════════════════════════════════════════════════════════
         log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        log("info", "🎉 READY (Yandex OUTBOUND v1.1) | Voice: " + YANDEX_VOICE);
+        log("info", "🎉 READY (Yandex OUTBOUND v2.0) | Voice: " + YANDEX_VOICE);
         log("info", "   🤖 Model: " + YANDEX_MODEL + " | actual: " + (actualSessionModel || "pending"));
         log("info", "   🛡️ PSTN after Yandex ready: ENABLED (0₽ if Yandex fails)");
         log("info", "   ⚡ Greeting: responseCreate at Connected +" + GREETING_START_DELAY_MS + "ms (NO FirstAudioPacket wait)");

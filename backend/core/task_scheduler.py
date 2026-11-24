@@ -83,16 +83,18 @@ _wallet_notified_at: Dict[str, datetime] = {}
 # Провайдеры со своим исходящим сценарием. Каскаду нужна цепочка
 # vox-turn-taking + outbound_cascade, Fish — прокси синтеза (/ws/fish/tts/…);
 # общий outbound_crm ни того, ни другого не умеет. OpenAI — outbound_openai
-# (GPT-Live, контекст CRM из customData).
+# (GPT-Live, контекст CRM из customData). Яндекс — outbound_yandex v2.0
+# (Speech Realtime Max TTS Live, голоса LiveTTS, контекст CRM из customData).
 OUTBOUND_RULE_BY_TYPE = {
     "cascade": "outbound_cascade",
     "fish": "outbound_fish",
     "openai": "outbound_openai",
+    "yandex": "outbound_yandex",
 }
 DEFAULT_OUTBOUND_RULE = "outbound_crm"
-# Тип, у которого outbound_crm остаётся запасным, пока своё правило не
-# заведено на дочернем аккаунте (раскатка /admin/setup-openai-scenarios-stream).
-OUTBOUND_RULE_FALLBACK_TO_DEFAULT = {"openai"}
+# Типы, у которых outbound_crm остаётся запасным, пока своё правило не
+# заведено на дочернем аккаунте (раскатка /admin/setup-*-scenarios-stream).
+OUTBOUND_RULE_FALLBACK_TO_DEFAULT = {"openai", "yandex"}
 
 
 def _parse_utc(value) -> Optional[datetime]:

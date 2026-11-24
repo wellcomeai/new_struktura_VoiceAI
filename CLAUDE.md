@@ -1034,14 +1034,21 @@ Alembic (`alembic/env.py`) — тот же `lock_timeout` и `connect_timeout`. 
 Не переведено: генерация промпта legacy-агента (`_generate_orchestrator_prompt` в `PUT /api/agent`, только v2 со своим
 ключом OpenAI, внутри транзакции с правками агента).
 
-## Яндекс: входящие на Speech Realtime Max TTS Live (ветка 1211-2026)
+## Яндекс: звонки на Speech Realtime Max TTS Live (ветка 1211-2026)
 
-- **Модель.** Входящие Яндекс-ассистентов и агентов с голосом Яндекса идут через сценарий
-  `voximplant_scenarios/inbound_yandex` v3.0 на `YANDEX_LIVE_MODEL` = `speech-realtime-max-tts-live/latest`
-  (`backend/models/yandex_assistant.py`). `/api/telephony/config` отдаёт эту модель независимо от
-  `assistant.model`; колонка `model` и старые голоса остаются для исходящих (`outbound_yandex` не менялся,
-  `/outbound-config` подставляет обычный голос через `legacy_voice_for`). Формат имени модели подтверждён
-  тестом `voximplant_scenarios/test_yandex_tts_live.js` (автономный, без бэкенда; ключ вписывается в кабинете).
+- **Модель.** Входящие (`voximplant_scenarios/inbound_yandex` v3.0) и исходящие (`outbound_yandex` v2.0)
+  Яндекс-ассистентов и агентов с голосом Яндекса идут на `YANDEX_LIVE_MODEL` =
+  `speech-realtime-max-tts-live/latest` (`backend/models/yandex_assistant.py`): `/api/telephony/config` и
+  `/outbound-config` отдают эту модель, голос LiveTTS и `voice_role` независимо от `assistant.model` (колонка
+  в звонках больше не используется, `legacy_voice_for` оставлен для отката). Бэкенд переключает модель сразу
+  после деплоя — старые сценарии берут модель и голос из конфига. Формат имени модели подтверждён тестом
+  `voximplant_scenarios/test_yandex_tts_live.js` (автономный, без бэкенда; ключ вписывается в кабинете).
+- **Исходящие** v2.0 — v1.1 (Yandex готов до набора, приветствие по `Connected` + 500 мс, микрофон абонента
+  открывается после приветствия, контекст CRM из `customData`) плюс: LiveTTS-голоса/амплуа, tools в первом
+  `sessionUpdate` (v1.1 подключал их вторым после приветствия — во входящем это давало `<function_call>` текстом),
+  правила работы с функциями и речи в промпте. Агент и публичный API звонят Яндексом по правилу `outbound_yandex`
+  (`OUTBOUND_RULE_BY_TYPE`, раньше — общий `outbound_crm`, он же запасной, пока правила нет на дочернем аккаунте);
+  ручной звонок из кабинета и раньше шёл по `outbound_yandex`.
 - **Голоса LiveTTS и амплуа.** `LIVE_TTS_VOICES`: sofia, vera, irina (жен.), sergey, vasily, denis (муж.), у каждого
   свой список амплуа (`voice_role`: support, sales, casual, formal, neutral, narrator; первое — умолчание Яндекса).
   С обычными голосами (marina, …) LiveTTS несовместима: `/config` меняет старый голос на LiveTTS того же пола
@@ -1055,7 +1062,8 @@ Alembic (`alembic/env.py`) — тот же `lock_timeout` и `connect_timeout`. 
   уже есть — цену меняют в админке, `/api/wallet/admin/tariffs`). Себестоимость по прайсу Яндекса: вход аудио
   0,0264 ₽/с, выход LiveTTS 0,05 ₽/с, токены 0,3 / 0,075 (кэш) / 0,5 ₽ за 1000 → ~4 ₽/мин на коротком промпте,
   ~5–6 ₽/мин на длинном промпте агента.
-- **Раскатка.** Код сценария кладётся на родительский аккаунт под именем `inbound_yandex`, затем
-  `POST /api/telephony/admin/setup-yandex-scenarios-stream` (SSE, только `inbound_yandex`, по аккаунту, идемпотентно).
+- **Раскатка.** Код сценариев кладётся на родительский аккаунт под именами `inbound_yandex` / `outbound_yandex`,
+  затем `POST /api/telephony/admin/setup-yandex-scenarios-stream?which=inbound|outbound|all` (SSE, по аккаунту,
+  идемпотентно; `outbound` создаёт правило `outbound_yandex`, если его нет).
   `/admin/setup-yandex-scenarios` раскатывает оба сценария одним ответом.
 - Промпт сценария дополнен «ПРАВИЛАМИ РЕЧИ» (без эмодзи, markdown и переносов строк): в тесте модель вставляла 😄.

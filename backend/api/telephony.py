@@ -3592,6 +3592,7 @@ def get_outbound_config(
         language = "ru"
         functions_config = None
         google_sheet_id = None
+        yandex_voice_role = None  # амплуа голоса LiveTTS (только Яндекс)
         enable_thinking = False
         thinking_budget = 0
         user_id = None
@@ -3628,10 +3629,11 @@ def get_outbound_config(
         elif assistant_type == "cascade":
             functions_config = assistant.functions
         elif assistant_type == "yandex":
-            # Исходящие (outbound_yandex) пока на старой модели: голос LiveTTS
-            # она не знает, поэтому подставляем обычный голос того же пола.
-            from backend.models.yandex_assistant import legacy_voice_for
-            voice = legacy_voice_for(assistant.voice)
+            # Исходящие (outbound_yandex v2.0) — Speech Realtime Max TTS Live,
+            # как входящие: голос LiveTTS (старый заменяется голосом того же пола) и амплуа.
+            from backend.models.yandex_assistant import live_voice_for, live_role_for
+            voice = live_voice_for(assistant.voice)
+            yandex_voice_role = live_role_for(voice, assistant.voice_role)
             language = assistant.language or "ru"
             google_sheet_id = assistant.google_sheet_id
         elif assistant_type == "fish":
@@ -3749,8 +3751,10 @@ def get_outbound_config(
                 "gpt-realtime-1.5" if assistant_type == "openai"
                 # Fish: мозг диалога не настраивается, поэтому отдаём константу,
                 # а не колонку — у старых агентов там лежит прежняя модель.
-                else (assistant.model if assistant_type in ("gemini", "yandex")
-                      else (DEFAULT_FISH_LLM_MODEL if assistant_type == "fish" else None))
+                else (assistant.model if assistant_type == "gemini"
+                      # Яндекс: исходящие тоже на Speech Realtime Max TTS Live
+                      else (YANDEX_LIVE_MODEL if assistant_type == "yandex"
+                            else (DEFAULT_FISH_LLM_MODEL if assistant_type == "fish" else None)))
             ),
             enable_thinking=enable_thinking if assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if assistant_type == "gemini" else None,
@@ -3768,7 +3772,8 @@ def get_outbound_config(
                 (assistant.silence_duration_ms or 300) if assistant_type == "cascade" else None
             ),
             folder_id=folder_id,
-            voice_role=None,  # амплуа голоса Яндекса больше не настраивается
+            # Амплуа голоса LiveTTS (Яндекс; None — амплуа голоса по умолчанию)
+            voice_role=yandex_voice_role if assistant_type == "yandex" else None,
             fish_voice_id=assistant.fish_voice_id if assistant_type == "fish" else None,
             fish_model=assistant.fish_model if assistant_type == "fish" else None,
             fish_latency=assistant.fish_latency if assistant_type == "fish" else None,
@@ -5389,26 +5394,36 @@ async def admin_setup_gemini_scenarios_sse(
 
 @router.post("/admin/setup-yandex-scenarios-stream")
 async def admin_setup_yandex_scenarios_sse(
+    which: str = Query("inbound", description="inbound | outbound | all — какие сценарии Яндекса раскатать"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    🔐 ADMIN: раскатать ТОЛЬКО inbound_yandex (v3.0, Speech Realtime Max TTS
-    Live) с родительского аккаунта на все дочерние, SSE-стримом — видно
-    аккаунт за аккаунтом, не упирается в таймаут прокси, прогресс коммитится
-    по каждому аккаунту, повторный запуск идемпотентен.
+    🔐 ADMIN: раскатать сценарии Яндекса (Speech Realtime Max TTS Live) с
+    родительского аккаунта на все дочерние, SSE-стримом — видно аккаунт за
+    аккаунтом, не упирается в таймаут прокси, прогресс коммитится по каждому
+    аккаунту, повторный запуск идемпотентен.
 
-    outbound_yandex не трогается (исходящие пока на старой модели); полную
-    раскатку обоих сценариев делает /admin/setup-yandex-scenarios.
+    ?which=inbound (по умолчанию) — только inbound_yandex v3.0;
+    ?which=outbound — только outbound_yandex v2.0 (+ правило outbound_yandex,
+    если его нет); ?which=all — оба.
     """
     if not current_user.is_admin and current_user.email != "well96well@gmail.com":
         raise HTTPException(status_code=403, detail="Admin access required")
 
     async def generate():
         try:
+            names = {
+                "inbound": ["inbound_yandex"],
+                "outbound": ["outbound_yandex"],
+                "all": ["inbound_yandex", "outbound_yandex"],
+            }.get(which)
+            if not names:
+                yield sse_event({"type": "error", "detail": "which: inbound | outbound | all"})
+                return
             async for event in _deploy_provider_scenarios_iter(
                 db=db,
-                scenario_names=["inbound_yandex"],
+                scenario_names=names,
                 outbound_scenario="outbound_yandex",
             ):
                 yield sse_event(event)

@@ -25,9 +25,10 @@ from backend.models.base import Base
 # через PUT /api/yandex-assistants/{id} (поле model) или в UI страницы агентов.
 DEFAULT_YANDEX_MODEL = "speech-realtime-260528"
 
-# Входящие звонки (сценарий inbound_yandex v3.0) идут на Speech Realtime Max
-# TTS Live независимо от assistant.model: /api/telephony/config отдаёт эту
-# модель. Колонка model остаётся для исходящих (outbound_yandex на старой модели).
+# Входящие (inbound_yandex v3.0) и исходящие (outbound_yandex v2.0) идут на
+# Speech Realtime Max TTS Live независимо от assistant.model: /config и
+# /outbound-config отдают эту модель. Колонка model больше не используется
+# в звонках (оставлена для отката).
 YANDEX_LIVE_MODEL = "speech-realtime-max-tts-live/latest"
 
 # Голоса LiveTTS (только ru-RU). С обычными голосами (marina, dasha, ...) модели
@@ -70,7 +71,7 @@ def live_role_for(voice, role):
 
 
 def legacy_voice_for(voice) -> str:
-    """Голос для старой модели (исходящие): голос LiveTTS заменяется обычным."""
+    """Голос для старой модели: голос LiveTTS заменяется обычным (для отката)."""
     return LIVE_TO_LEGACY_VOICE.get(voice, voice or "marina")
 
 # Дефолтные параметры генерации. Меняются здесь (для новых ассистентов)
