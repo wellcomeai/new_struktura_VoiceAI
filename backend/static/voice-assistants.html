@@ -344,7 +344,18 @@
     beacon: 'm', bossa: 'f', cinder: 'm', delta: 'f', gleam: 'n', meridian: 'm', quartz: 'f', ripple: 'm', stone: 'm', tempo: 'm', vesper: 'm', willow: 'f' };
   const GENDER_SHORT = { f: 'жен.', m: 'муж.', n: 'нейтр.' };
   const GEMINI_VOICES = [['Puck','M'],['Charon','M'],['Kore','F'],['Fenrir','M'],['Aoede','F'],['Achernar','F'],['Achird','M'],['Algenib','M'],['Algieba','M'],['Alnilam','M'],['Autonoe','F'],['Callirrhoe','F'],['Despina','F'],['Enceladus','M'],['Erinome','F'],['Gacrux','F'],['Iapetus','M'],['Laomedeia','F'],['Leda','F'],['Orus','M'],['Pulcherrima','F'],['Rasalgethi','M'],['Sadachbia','M'],['Sadaltager','M'],['Schedar','M'],['Sulafat','F'],['Umbriel','M'],['Vindemiatrix','F'],['Zephyr','F'],['Zubenelgenubi','M']];
-  const YANDEX_VOICES_FALLBACK = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
+  // Голоса LiveTTS (Speech Realtime Max TTS Live), справочник — /api/yandex-assistants/options
+  // (LIVE_TTS_VOICES в backend/models/yandex_assistant.py). Колонка model остаётся старой —
+  // она для исходящих; входящие бэкенд всегда шлёт на новую модель.
+  const YANDEX_LIVE_FALLBACK = [
+    { id: 'sofia', name: 'Софья', gender: 'female', roles: [{ id: 'support', name: 'Поддержка' }, { id: 'casual', name: 'Непринуждённо' }] },
+    { id: 'vera', name: 'Вера', gender: 'female', roles: [{ id: 'support', name: 'Поддержка' }, { id: 'casual', name: 'Непринуждённо' }] },
+    { id: 'irina', name: 'Ирина', gender: 'female', roles: [{ id: 'neutral', name: 'Нейтрально' }, { id: 'formal', name: 'Официально' }, { id: 'support', name: 'Поддержка' }, { id: 'narrator', name: 'Диктор' }, { id: 'sales', name: 'Продажи' }] },
+    { id: 'sergey', name: 'Сергей', gender: 'male', roles: [{ id: 'support', name: 'Поддержка' }, { id: 'sales', name: 'Продажи' }] },
+    { id: 'vasily', name: 'Василий', gender: 'male', roles: [{ id: 'support', name: 'Поддержка' }, { id: 'sales', name: 'Продажи' }] },
+    { id: 'denis', name: 'Денис', gender: 'male', roles: [{ id: 'neutral', name: 'Нейтрально' }, { id: 'casual', name: 'Непринуждённо' }, { id: 'formal', name: 'Официально' }, { id: 'sales', name: 'Продажи' }] },
+  ];
+  const YANDEX_LEGACY_MALE = ['alexander','anton','kirill','filipp','ermil','zahar','madi_ru'];
   const YANDEX_MODEL = 'speech-realtime-260528';
   const SILENCE_PRESETS = [[300, 'Быстрая', '300 мс'], [650, 'Сбалансированная', '650 мс'], [1000, 'Терпеливая', '1000 мс']];
   const DEFAULT_GREETING = 'Здравствуйте! Чем я могу вам помочь?';
@@ -544,7 +555,7 @@
       case 'openai': return { voice: d.voice || 'alloy' };
       case 'gemini': return { voice: d.voice || 'Aoede' };
       case 'fish': return { fish_voice_id: d.fish_voice_id || '', fish_model: d.fish_model || null, fish_latency: d.fish_latency || 'balanced', voice_speed: d.voice_speed != null ? d.voice_speed : 1.0, temperature: d.temperature != null ? d.temperature : 0.7 };
-      case 'yandex': return { voice: d.voice || 'marina', model: YANDEX_MODEL };
+      case 'yandex': return { voice: d.voice || 'sofia', voice_role: d.voice_role || null, model: YANDEX_MODEL };
       case 'cascade': return { tts_voice: d.tts_voice || 'Anna', silence_duration_ms: d.silence_duration_ms || 300 };
       default: return {};
     }
@@ -667,9 +678,22 @@
     if (type === 'yandex') {
       VF.skeleton(box, 2, 'skeleton-line');
       const o = (await loadOptions('yandex')) || {}; if (state.model !== 'yandex') return;
-      const voices = o.voices && o.voices.length ? o.voices : YANDEX_VOICES_FALLBACK;
-      voiceGrid(voices.map(id => [id, id]), v.voice, id => { state.voice.voice = id; renderVoiceSettings(); setDirty(true); });
-      box.insertAdjacentHTML('beforeend', `<div class="hint" style="margin-top:14px;">Модель распознавания и синтеза: ${YANDEX_MODEL}.</div>`);
+      const voices = o.live_voices && o.live_voices.length ? o.live_voices : YANDEX_LIVE_FALLBACK;
+      // Старый голос (marina, …) показываем как голос LiveTTS того же пола — так он и звучит во входящих
+      if (!voices.find(x => x.id === v.voice)) { v.voice = YANDEX_LEGACY_MALE.includes(v.voice) ? 'sergey' : 'sofia'; v.voice_role = null; }
+      const cur = voices.find(x => x.id === v.voice) || voices[0];
+      if (v.voice_role && !cur.roles.find(r => r.id === v.voice_role)) v.voice_role = null;
+      voiceGrid(voices.map(x => [x.id, x.name, GENDER_SHORT[x.gender === 'male' ? 'm' : 'f']]), v.voice,
+        id => { state.voice.voice = id; state.voice.voice_role = null; renderVoiceSettings(); setDirty(true); });
+      const role = v.voice_role || cur.roles[0].id;
+      box.insertAdjacentHTML('beforeend', `
+        <div class="field" style="margin-top:16px;"><label class="label">Амплуа</label>
+          <div class="presets">${cur.roles.map((r, i) => `<div class="preset${r.id === role ? ' selected' : ''}" data-role="${esc(r.id)}" tabindex="0">${esc(r.name)}${i === 0 ? '<small>по умолчанию</small>' : ''}</div>`).join('')}</div>
+          <div class="hint">Манера речи голоса. Модель сама расставляет интонацию и паузы по смыслу фразы.</div></div>`);
+      box.querySelectorAll('.preset[data-role]').forEach(el => {
+        const pick = () => { state.voice.voice_role = el.dataset.role === cur.roles[0].id ? null : el.dataset.role; box.querySelectorAll('.preset[data-role]').forEach(x => x.classList.toggle('selected', x === el)); setDirty(true); };
+        el.addEventListener('click', pick); el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+      });
       bindInputs(); return;
     }
     if (type === 'cascade') {
@@ -745,7 +769,7 @@
       case 'openai': return Object.assign(common, { voice: v.voice || 'alloy', language: 'ru' });
       case 'gemini': return Object.assign(common, { voice: v.voice || 'Aoede', language: 'ru' });
       case 'fish': return Object.assign(common, { fish_voice_id: v.fish_voice_id || null, fish_model: v.fish_model || undefined, fish_latency: v.fish_latency || 'balanced', voice_speed: v.voice_speed != null ? v.voice_speed : 1.0, temperature: v.temperature != null ? v.temperature : 0.7, language: 'ru' });
-      case 'yandex': return Object.assign(common, { model: YANDEX_MODEL, voice: v.voice || 'marina', language: 'ru' });
+      case 'yandex': return Object.assign(common, { model: YANDEX_MODEL, voice: v.voice || 'sofia', voice_role: v.voice_role || null, language: 'ru' });
       case 'cascade': return Object.assign(common, { tts_voice: v.tts_voice || 'Anna', silence_duration_ms: v.silence_duration_ms || 300, tts_lang: 'ru', asr_lang: 'ru', is_telephony_enabled: true });
     }
     return common;

@@ -79,12 +79,12 @@ VALID_ASSISTANT_TYPES = ("gemini", "openai", "cartesia", "yandex", "cascade", "f
 # Доступные голоса по провайдерам (должны совпадать со списками в agent.html).
 # OpenAI — общий список из схем ассистента (все голоса gpt-live-1).
 from backend.schemas.assistant import OPENAI_VOICES
-# Голоса Yandex SpeechKit (должны совпадать с YANDEX_VOICES в yandex_assistants.py).
-YANDEX_VOICES = [
-    "marina", "dasha", "alexander", "julia", "lera",
-    "masha", "anton", "kirill", "filipp", "ermil",
-    "jane", "omazh", "zahar", "madi_ru", "saule_ru",
-]
+# Голоса Yandex: LiveTTS (входящие на Speech Realtime Max TTS Live) — их
+# выбирают в UI (YANDEX_VOICES в agent/instructions-voice.js); старые голоса
+# (YANDEX_VOICES в yandex_assistants.py) остаются допустимыми у прежних агентов.
+from backend.models.yandex_assistant import LIVE_TTS_VOICES as _YANDEX_LIVE_VOICES
+from backend.api.yandex_assistants import YANDEX_VOICES as _YANDEX_LEGACY_VOICES
+YANDEX_VOICES = list(_YANDEX_LIVE_VOICES.keys()) + list(_YANDEX_LEGACY_VOICES)
 GEMINI_VOICES = [
     "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede",
     "Callirrhoe", "Autonoe", "Enceladus", "Iapetus", "Umbriel", "Algieba",
@@ -96,7 +96,7 @@ GEMINI_VOICES = [
 CASCADE_VOICES = CASCADE_VOICE_IDS
 DEFAULT_GEMINI_VOICE = "Kore"
 DEFAULT_OPENAI_VOICE = "alloy"
-DEFAULT_YANDEX_VOICE = "marina"
+DEFAULT_YANDEX_VOICE = "sofia"  # голос LiveTTS
 DEFAULT_CASCADE_VOICE = "Anna"
 
 

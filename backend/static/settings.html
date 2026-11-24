@@ -1343,7 +1343,7 @@
         // Ключи голосовых провайдеров: свой ключ → разговоры на модели не списываются с кошелька.
         // Хранение и выбор ключа уже есть на бэкенде (PUT /users/me, provider_keys.resolve);
         // здесь только интерфейс. Cartesia показывается, если её тариф включён.
-        // Fish Audio в списке нет: озвучка всегда на серверном ключе, свой указать нельзя.
+        // Fish Audio и Яндекса в списке нет: они работают только на ключах платформы, свой указать нельзя.
         var PROVIDERS = [
           { code: 'openai', name: 'OpenAI', fields: [{ key: 'openai_api_key', label: 'API-ключ', ph: 'sk-…' }],
             hint: 'Нужен для ассистентов OpenAI, а также как часть Cartesia: диалог там ведёт OpenAI Realtime. Fish Audio работает только на ключах платформы.',
@@ -1351,9 +1351,6 @@
           { code: 'gemini', name: 'Gemini', fields: [{ key: 'gemini_api_key', label: 'API-ключ', ph: 'AIza…' }],
             hint: 'Ключ Google AI Studio с доступом к Gemini Live.',
             link: 'https://aistudio.google.com/apikey' },
-          { code: 'yandex', name: 'Яндекс SpeechKit', fields: [{ key: 'yandex_api_key', label: 'API-ключ', ph: 'AQVN…' }, { key: 'yandex_folder_id', label: 'Folder ID', ph: 'b1g…', plain: true }],
-            hint: 'Ключ сервисного аккаунта и идентификатор каталога Yandex Cloud. Нужны оба, иначе используется ключ платформы.',
-            link: 'https://console.yandex.cloud/' },
           { code: 'cartesia', name: 'Cartesia', fields: [{ key: 'cartesia_api_key', label: 'API-ключ', ph: 'sk_car_…' }],
             hint: 'Cartesia озвучивает, диалог ведёт OpenAI. Нужен и ключ OpenAI.',
             link: 'https://play.cartesia.ai/', optional: true }

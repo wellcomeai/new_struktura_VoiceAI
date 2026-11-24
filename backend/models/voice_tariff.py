@@ -83,9 +83,11 @@ DEFAULT_TARIFFS = [
         "is_enabled": True,
     },
     {
+        # Speech Realtime Max TTS Live (входящие): себестоимость ~4–6 ₽/мин
+        # (аудио на вход 0,0264 ₽/с, LiveTTS на выход 0,05 ₽/с + токены).
         "code": "yandex", "name": "Яндекс", "badge": None,
-        "description": "Голоса Yandex SpeechKit",
-        "price_kopeks_per_min": 500, "channels": "telephony", "sort_order": 40,
+        "description": "Яндекс Realtime Max: живые голоса с интонацией",
+        "price_kopeks_per_min": 900, "channels": "telephony", "sort_order": 40,
         "is_enabled": True,
     },
     {

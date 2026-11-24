@@ -7,8 +7,10 @@ Handles CRUD operations for Yandex SpeechKit Realtime assistant configs.
 Бэкенд хранит конфигурацию и отдаёт её через /api/telephony/config
 и /api/telephony/outbound-config.
 
-Креды (api_key + folder_id) хранятся на пользователе — каждый клиент платит
-за свои токены со своего биллинга Yandex Cloud.
+Звонки идут на серверном ключе Voicyfy (YANDEX_API_KEY + YANDEX_FOLDER_ID) со
+списанием с кошелька по тарифу «yandex»; свой ключ пользователя не используется
+(provider_keys.resolve). Входящие — модель YANDEX_LIVE_MODEL с голосами LiveTTS
+и амплуа (voice_role), исходящие — колонка model со старыми голосами.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -26,6 +28,11 @@ from backend.models.yandex_assistant import (
     DEFAULT_YANDEX_MODEL,
     DEFAULT_YANDEX_TEMPERATURE,
     DEFAULT_YANDEX_MAX_TOKENS,
+    YANDEX_LIVE_MODEL,
+    LIVE_TTS_VOICES,
+    LIVE_TTS_ROLE_NAMES,
+    DEFAULT_LIVE_VOICE,
+    live_role_for,
 )
 from backend.core.dependencies import get_current_user, check_assistant_limit
 from backend.services.assistant_limit_service import exclude_agent_owned
@@ -68,6 +75,16 @@ YANDEX_VOICES = [
     "saule_ru",
 ]
 
+# Голоса LiveTTS (Speech Realtime Max TTS Live) — их выбирает клиент; старые
+# голоса остаются допустимыми для существующих ассистентов.
+LIVE_VOICE_IDS = list(LIVE_TTS_VOICES.keys())
+ALLOWED_VOICES = set(YANDEX_VOICES) | set(LIVE_VOICE_IDS)
+
+
+def _clean_voice_role(voice, role):
+    """Амплуа сохраняем, только если оно есть у выбранного голоса LiveTTS."""
+    return live_role_for(voice, role)
+
 
 class YandexAssistantCreate(BaseModel):
     """Schema for creating a new Yandex assistant"""
@@ -75,8 +92,8 @@ class YandexAssistantCreate(BaseModel):
     description: Optional[str] = Field(None, max_length=500, description="Assistant description")
     system_prompt: Optional[str] = Field(None, description="System instructions for assistant")
     model: str = Field(default=DEFAULT_YANDEX_MODEL, description="Yandex Realtime model")
-    voice: str = Field(default="marina", description="Yandex voice (marina, dasha, alexander, ...)")
-    # voice_role (амплуа) настройкой не является — из UI и API убрано.
+    voice: str = Field(default=DEFAULT_LIVE_VOICE, description="Голос LiveTTS (sofia, vera, irina, sergey, vasily, denis)")
+    voice_role: Optional[str] = Field(default=None, description="Амплуа голоса LiveTTS (support, sales, ...); пусто — по умолчанию")
     language: str = Field(default="ru", description="Language code")
     greeting_message: Optional[str] = Field(
         default="Здравствуйте! Чем я могу вам помочь?",
@@ -96,6 +113,7 @@ class YandexAssistantUpdate(BaseModel):
     system_prompt: Optional[str] = None
     model: Optional[str] = None
     voice: Optional[str] = None
+    voice_role: Optional[str] = None
     language: Optional[str] = None
     greeting_message: Optional[str] = Field(None, max_length=500)
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
@@ -162,8 +180,7 @@ def assistant_to_response(assistant: YandexAssistantConfig) -> "YandexAssistantR
         system_prompt=assistant.system_prompt,
         model=assistant.model,
         voice=assistant.voice,
-        # Амплуа снято с использования: в звонок не уходит, поэтому и в ответе пусто.
-        voice_role=None,
+        voice_role=live_role_for(assistant.voice, assistant.voice_role),
         language=assistant.language,
         greeting_message=assistant.greeting_message,
         temperature=assistant.temperature,
@@ -225,7 +242,21 @@ def get_yandex_options(
     return {
         "models": YANDEX_MODELS,
         "default_model": DEFAULT_YANDEX_MODEL,
-        "voices": YANDEX_VOICES,
+        # Модель входящих звонков (не настраивается)
+        "live_model": YANDEX_LIVE_MODEL,
+        "voices": LIVE_VOICE_IDS,
+        "default_voice": DEFAULT_LIVE_VOICE,
+        "live_voices": [
+            {
+                "id": vid,
+                "name": info["name"],
+                "gender": info["gender"],
+                "roles": [{"id": r, "name": LIVE_TTS_ROLE_NAMES.get(r, r)} for r in info["roles"]],
+                "default_role": info["roles"][0],
+            }
+            for vid, info in LIVE_TTS_VOICES.items()
+        ],
+        "legacy_voices": YANDEX_VOICES,
     }
 
 
@@ -377,7 +408,8 @@ def create_yandex_assistant(
             description=assistant_data.description,
             system_prompt=assistant_data.system_prompt,
             model=assistant_data.model or DEFAULT_YANDEX_MODEL,
-            voice=assistant_data.voice or "marina",
+            voice=(assistant_data.voice if assistant_data.voice in ALLOWED_VOICES else DEFAULT_LIVE_VOICE),
+            voice_role=_clean_voice_role(assistant_data.voice, assistant_data.voice_role),
             language=assistant_data.language or "ru",
             greeting_message=assistant_data.greeting_message,
             temperature=assistant_data.temperature,
@@ -436,8 +468,10 @@ def update_yandex_assistant(
         for key, value in update_data.items():
             setattr(assistant, key, value)
 
-        # Амплуа голоса больше не настраивается — чистим у старых записей.
-        assistant.voice_role = None
+        if assistant.voice not in ALLOWED_VOICES:
+            assistant.voice = DEFAULT_LIVE_VOICE
+        # Амплуа — только из списка выбранного голоса LiveTTS (у старых голосов его нет).
+        assistant.voice_role = _clean_voice_role(assistant.voice, assistant.voice_role)
 
         db.commit()
         db.refresh(assistant)

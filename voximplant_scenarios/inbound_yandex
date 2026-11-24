@@ -1,8 +1,24 @@
 /*
- * Voximplant INBOUND Script — Yandex Realtime API v2.4 (voicyfy)
+ * Voximplant INBOUND Script — Yandex Realtime API v3.0 (voicyfy)
  * ====================================================================
  * Структура портирована с Gemini INBOUND v7.9.
  *
+ * ══════════════════════════════════════════════════════════════════
+ * ИЗМЕНЕНИЯ v3.0 (относительно v2.4):
+ *   🆕 1. Модель Speech Realtime Max TTS Live
+ *      (speech-realtime-max-tts-live/latest). Имя приходит из
+ *      CONFIG.model (бэкенд отдаёт YANDEX_LIVE_MODEL), DEFAULT_MODEL — та же
+ *      модель. Короткое имя с "/latest" коннектор принял с первой попытки
+ *      (тест test_yandex_tts_live.js, 24.11).
+ *   🆕 2. Голоса LiveTTS (sofia, vera, irina, sergey, vasily, denis) и
+ *      амплуа (CONFIG.voice_role). Обычные голоса (marina, …) LiveTTS не
+ *      понимает: бэкенд их уже подменяет, а сценарий страхуется сам —
+ *      чужой голос → sofia / sergey по полу, амплуа не из списка голоса
+ *      не отправляется (голос говорит своим амплуа по умолчанию).
+ *   🆕 3. Правила речи в промпте: без эмодзи, markdown и списков — модель
+ *      в тесте вставляла 😄 и переносы строк в устные ответы.
+ *   Оплата: серверный ключ Voicyfy, минуты по тарифу «yandex» по отчёту
+ *   /api/voximplant/log (call_duration) — логика отчёта не менялась.
  * ══════════════════════════════════════════════════════════════════
  * ИЗМЕНЕНИЯ v2.4 (относительно v2.3):
  *   🔧 1. TOOLS РЕГИСТРИРУЮТСЯ В ПЕРВОМ sessionUpdate — ДО первого
@@ -100,8 +116,24 @@ const HANGUP_SAFETY_MS = 8000;          // если WebSocketMediaEnded не п�
 //         Включать, если tool-токены полезут в текст приветствия.
 const TOOL_CHOICE_GATING = false;
 
-const DEFAULT_MODEL = "speech-realtime-260528";
-const DEFAULT_VOICE = "marina";
+const DEFAULT_MODEL = "speech-realtime-max-tts-live/latest";
+const DEFAULT_VOICE = "sofia";
+
+// 🆕 v3.0: голоса LiveTTS и их амплуа (первое — умолчание Яндекса).
+// Должно совпадать с LIVE_TTS_VOICES в backend/models/yandex_assistant.py.
+const LIVE_TTS_VOICES = {
+    sofia:  ["support", "casual"],
+    vera:   ["support", "casual"],
+    irina:  ["neutral", "formal", "support", "narrator", "sales"],
+    sergey: ["support", "sales"],
+    vasily: ["support", "sales"],
+    denis:  ["neutral", "casual", "formal", "sales"]
+};
+const LEGACY_MALE_VOICES = ["alexander", "anton", "kirill", "filipp", "ermil", "zahar", "madi_ru"];
+
+function isLiveTtsModel(model) {
+    return String(model || "").indexOf("tts-live") !== -1;
+}
 const DEFAULT_VAD_THRESHOLD = 0.5;
 const DEFAULT_VAD_SILENCE_MS = 500;
 
@@ -147,7 +179,7 @@ let call_session_history_id = null;
 VoxEngine.addEventListener(AppEvents.Started, function(e) {
     call_session_history_id = e.sessionId;
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    log("info", "🚀 APP STARTED (INBOUND Yandex v2.4)");
+    log("info", "🚀 APP STARTED (INBOUND Yandex v3.0)");
     log("info", "🔑 Session History ID: " + call_session_history_id);
     log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 });
@@ -307,6 +339,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     let finalSystemPrompt = "";
     let YANDEX_MODEL = "";
     let YANDEX_VOICE = "";
+    let YANDEX_VOICE_ROLE = "";   // v3.0: амплуа LiveTTS ("" — по умолчанию голоса)
     let actualSessionModel = null;
 
     // v2.4: дедупликация текстовых вызовов (один и тот же маркап может
@@ -317,7 +350,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
     const FUNCTIONS_URL = "https://voicyfy.ru/api/voximplant/functions/execute";
     const LOG_URL = "https://voicyfy.ru/api/voximplant/log";
 
-    log("info", "📞 INBOUND CALL (Yandex v2.4)");
+    log("info", "📞 INBOUND CALL (Yandex v3.0)");
     log("info", "   From: " + caller_number + " → To: " + called_number);
     log("info", "   Call ID: " + call_id);
 
@@ -358,8 +391,8 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         }
 
         // Амплуа голоса (если задано)
-        if (CONFIG.voice_role) {
-            sessionUpdate.session.audio.output.role = CONFIG.voice_role;
+        if (YANDEX_VOICE_ROLE) {
+            sessionUpdate.session.audio.output.role = YANDEX_VOICE_ROLE;
         }
 
         // v2.4: tools всегда, tool_choice — только при гейтинге
@@ -433,7 +466,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             } catch (err) {}
 
             log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            log("info", "💰 BILLING (Yandex v2.4):");
+            log("info", "💰 BILLING (Yandex v3.0):");
             log("info", "   🔑 Session: " + (call_session_history_id || "NONE"));
             log("info", "   🛣️ Active Path: " + activePath);
             log("info", "   🤖 Model: " + YANDEX_MODEL + " | actual: " + (actualSessionModel || "n/a"));
@@ -1074,9 +1107,24 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         greetingMessage = determineGreeting(CONFIG.first_phrase);
         YANDEX_MODEL = CONFIG.model || DEFAULT_MODEL;
         YANDEX_VOICE = CONFIG.voice || DEFAULT_VOICE;
+        YANDEX_VOICE_ROLE = CONFIG.voice_role || "";
+
+        // 🆕 v3.0: LiveTTS понимает только свои голоса и их амплуа
+        if (isLiveTtsModel(YANDEX_MODEL)) {
+            if (!LIVE_TTS_VOICES[YANDEX_VOICE]) {
+                const mapped = LEGACY_MALE_VOICES.indexOf(YANDEX_VOICE) !== -1 ? "sergey" : "sofia";
+                log("info", "   ⚠️ Voice " + YANDEX_VOICE + " is not LiveTTS → " + mapped);
+                YANDEX_VOICE = mapped;
+                YANDEX_VOICE_ROLE = "";
+            }
+            if (YANDEX_VOICE_ROLE && LIVE_TTS_VOICES[YANDEX_VOICE].indexOf(YANDEX_VOICE_ROLE) === -1) {
+                log("info", "   ⚠️ Role " + YANDEX_VOICE_ROLE + " not available for " + YANDEX_VOICE + " → default");
+                YANDEX_VOICE_ROLE = "";
+            }
+        }
 
         log("info", "✅ CONFIG: " + (CONFIG.assistant_name || "unnamed") +
-            " | Voice: " + YANDEX_VOICE + (CONFIG.voice_role ? " (" + CONFIG.voice_role + ")" : "") +
+            " | Voice: " + YANDEX_VOICE + (YANDEX_VOICE_ROLE ? " (" + YANDEX_VOICE_ROLE + ")" : "") +
             " | Lang: " + (CONFIG.language || "ru"));
         log("info", "   Model: " + YANDEX_MODEL);
         log("info", "   Greeting (sanitized): " + greetingMessage.substring(0, 60));
@@ -1153,6 +1201,15 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
             "ID чата: " + chat_id + "\n" +
             "Используй номер звонящего при необходимости: для идентификации клиента, " +
             "поиска в CRM, персонализации общения.";
+
+        // 🆕 v3.0: ответ сразу озвучивается — без «текстовых» элементов
+        finalSystemPrompt += "\n\n" +
+            "──────────────────────────────────────\n" +
+            "ПРАВИЛА РЕЧИ\n" +
+            "──────────────────────────────────────\n" +
+            "Это телефонный разговор: всё, что ты пишешь, сразу произносится вслух.\n" +
+            "Не используй эмодзи, смайлики, markdown, списки, заголовки и переносы строк.\n" +
+            "Говори короткими фразами, как живой человек по телефону.";
 
         // 🔧 v2.4: правила работы с функциями (анти-галлюцинация)
         if (yandexTools.length > 0) {
@@ -1267,7 +1324,7 @@ VoxEngine.addEventListener(AppEvents.CallAlerting, async function(e) {
         // ГОТОВО
         // ══════════════════════════════════════════════════════════════
         log("info", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        log("info", "🎉 READY (Yandex v2.4) | Voice: " + YANDEX_VOICE);
+        log("info", "🎉 READY (Yandex v3.0) | Voice: " + YANDEX_VOICE);
         log("info", "   🤖 Model: " + YANDEX_MODEL + " | actual: " + (actualSessionModel || "pending"));
         log("info", "   🛡️ Connection: Retry " + MAX_RETRY_ATTEMPTS + "x" + (SETUP_TIMEOUT_MS / 1000) + "s → TTS fallback");
         log("info", "   🛡️ Greeting: responseCreate(instructions) after FirstAudioPacketReceived");

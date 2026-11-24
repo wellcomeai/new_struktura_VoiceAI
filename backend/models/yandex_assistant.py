@@ -25,6 +25,54 @@ from backend.models.base import Base
 # через PUT /api/yandex-assistants/{id} (поле model) или в UI страницы агентов.
 DEFAULT_YANDEX_MODEL = "speech-realtime-260528"
 
+# Входящие звонки (сценарий inbound_yandex v3.0) идут на Speech Realtime Max
+# TTS Live независимо от assistant.model: /api/telephony/config отдаёт эту
+# модель. Колонка model остаётся для исходящих (outbound_yandex на старой модели).
+YANDEX_LIVE_MODEL = "speech-realtime-max-tts-live/latest"
+
+# Голоса LiveTTS (только ru-RU). С обычными голосами (marina, dasha, ...) модели
+# LiveTTS несовместимы, и наоборот. Первое амплуа — умолчание Яндекса.
+LIVE_TTS_VOICES = {
+    "sofia":  {"name": "Софья",   "gender": "female", "roles": ["support", "casual"]},
+    "vera":   {"name": "Вера",    "gender": "female", "roles": ["support", "casual"]},
+    "irina":  {"name": "Ирина",   "gender": "female", "roles": ["neutral", "formal", "support", "narrator", "sales"]},
+    "sergey": {"name": "Сергей",  "gender": "male",   "roles": ["support", "sales"]},
+    "vasily": {"name": "Василий", "gender": "male",   "roles": ["support", "sales"]},
+    "denis":  {"name": "Денис",   "gender": "male",   "roles": ["neutral", "casual", "formal", "sales"]},
+}
+LIVE_TTS_ROLE_NAMES = {
+    "support": "Поддержка", "sales": "Продажи", "casual": "Непринуждённо",
+    "formal": "Официально", "neutral": "Нейтрально", "narrator": "Диктор",
+}
+DEFAULT_LIVE_VOICE = "sofia"
+DEFAULT_LIVE_MALE_VOICE = "sergey"
+
+# Старые мужские голоса — для подбора голоса LiveTTS того же пола.
+LEGACY_MALE_VOICES = {"alexander", "anton", "kirill", "filipp", "ermil", "zahar", "madi_ru"}
+# Голос LiveTTS → обычный голос для старой модели (исходящие outbound_yandex).
+LIVE_TO_LEGACY_VOICE = {
+    "sofia": "marina", "vera": "dasha", "irina": "jane",
+    "sergey": "anton", "vasily": "alexander", "denis": "kirill",
+}
+
+
+def live_voice_for(voice) -> str:
+    """Голос LiveTTS для входящего звонка: свой — как есть, старый — того же пола."""
+    if voice in LIVE_TTS_VOICES:
+        return voice
+    return DEFAULT_LIVE_MALE_VOICE if voice in LEGACY_MALE_VOICES else DEFAULT_LIVE_VOICE
+
+
+def live_role_for(voice, role):
+    """Амплуа, если оно есть у голоса LiveTTS; иначе None (амплуа голоса по умолчанию)."""
+    info = LIVE_TTS_VOICES.get(voice)
+    return role if (info and role in info["roles"]) else None
+
+
+def legacy_voice_for(voice) -> str:
+    """Голос для старой модели (исходящие): голос LiveTTS заменяется обычным."""
+    return LIVE_TO_LEGACY_VOICE.get(voice, voice or "marina")
+
 # Дефолтные параметры генерации. Меняются здесь (для новых ассистентов)
 # или через PUT /api/yandex-assistants/{id} (поля temperature / max_tokens).
 DEFAULT_YANDEX_TEMPERATURE = 0.7

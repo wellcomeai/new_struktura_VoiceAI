@@ -103,6 +103,7 @@ from backend.models.voximplant_child import (
 )
 from backend.models.sms_message import SmsMessage
 from backend.models.fish_assistant import DEFAULT_FISH_LLM_MODEL
+from backend.models.yandex_assistant import YANDEX_LIVE_MODEL
 from backend.api.grok_assistants import cascade_tts_provider
 from backend.services.voximplant_partner import (
     VoximplantPartnerService,
@@ -2156,7 +2157,8 @@ async def get_my_numbers(
                         YandexAssistantConfig.id == num.assistant_id
                     ).first()
                     assistant_name = assistant.name if assistant else None
-                    assistant_model = assistant.model if assistant else None
+                    # Входящие на номер идут на Speech Realtime Max TTS Live
+                    assistant_model = YANDEX_LIVE_MODEL if assistant else None
                 elif num.assistant_type == "fish":
                     from backend.models.fish_assistant import FishAssistantConfig
                     assistant = db.query(FishAssistantConfig).filter(
@@ -3626,7 +3628,10 @@ def get_outbound_config(
         elif assistant_type == "cascade":
             functions_config = assistant.functions
         elif assistant_type == "yandex":
-            voice = assistant.voice or "marina"
+            # Исходящие (outbound_yandex) пока на старой модели: голос LiveTTS
+            # она не знает, поэтому подставляем обычный голос того же пола.
+            from backend.models.yandex_assistant import legacy_voice_for
+            voice = legacy_voice_for(assistant.voice)
             language = assistant.language or "ru"
             google_sheet_id = assistant.google_sheet_id
         elif assistant_type == "fish":
@@ -5382,6 +5387,41 @@ async def admin_setup_gemini_scenarios_sse(
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+@router.post("/admin/setup-yandex-scenarios-stream")
+async def admin_setup_yandex_scenarios_sse(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    🔐 ADMIN: раскатать ТОЛЬКО inbound_yandex (v3.0, Speech Realtime Max TTS
+    Live) с родительского аккаунта на все дочерние, SSE-стримом — видно
+    аккаунт за аккаунтом, не упирается в таймаут прокси, прогресс коммитится
+    по каждому аккаунту, повторный запуск идемпотентен.
+
+    outbound_yandex не трогается (исходящие пока на старой модели); полную
+    раскатку обоих сценариев делает /admin/setup-yandex-scenarios.
+    """
+    if not current_user.is_admin and current_user.email != "well96well@gmail.com":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async def generate():
+        try:
+            async for event in _deploy_provider_scenarios_iter(
+                db=db,
+                scenario_names=["inbound_yandex"],
+                outbound_scenario="outbound_yandex",
+            ):
+                yield sse_event(event)
+                await asyncio.sleep(0)
+        except HTTPException as e:
+            yield sse_event({"type": "error", "detail": e.detail})
+        except Exception as e:
+            logger.error(f"[TELEPHONY-ADMIN] Yandex SSE setup error: {e}", exc_info=True)
+            yield sse_event({"type": "error", "detail": str(e)})
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
+
+
 @router.post("/admin/setup-yandex-scenarios")
 async def admin_setup_yandex_scenarios(
     db: Session = Depends(get_db),
@@ -6037,6 +6077,7 @@ def get_scenario_config(
         language = "ru"
         functions_config = None
         google_sheet_id = None
+        yandex_voice_role = None  # амплуа голоса LiveTTS (только Яндекс)
         enable_thinking = False
         thinking_budget = 0
         
@@ -6100,9 +6141,13 @@ def get_scenario_config(
             ).first()
 
             if assistant:
+                from backend.models.yandex_assistant import live_voice_for, live_role_for
                 assistant_name = assistant.name
                 system_prompt = assistant.system_prompt
-                voice = assistant.voice or "marina"
+                # Входящие — Speech Realtime Max TTS Live: только голоса LiveTTS.
+                # Старый голос (marina, …) заменяется голосом LiveTTS того же пола.
+                voice = live_voice_for(assistant.voice)
+                yandex_voice_role = live_role_for(voice, assistant.voice_role)
                 language = assistant.language or "ru"
                 functions_config = assistant.functions
                 google_sheet_id = assistant.google_sheet_id
@@ -6252,8 +6297,10 @@ def get_scenario_config(
             model=(
                 "gpt-realtime-1.5" if phone_record.assistant_type == "openai"
                 # Fish: см. выше — модель диалога фиксирована константой.
-                else (assistant.model if phone_record.assistant_type in ("gemini", "yandex")
-                      else (DEFAULT_FISH_LLM_MODEL if phone_record.assistant_type == "fish" else None))
+                else (assistant.model if phone_record.assistant_type == "gemini"
+                      # Яндекс: входящие всегда на Speech Realtime Max TTS Live (колонка model — для исходящих)
+                      else (YANDEX_LIVE_MODEL if phone_record.assistant_type == "yandex"
+                            else (DEFAULT_FISH_LLM_MODEL if phone_record.assistant_type == "fish" else None)))
             ),
             enable_thinking=enable_thinking if phone_record.assistant_type == "gemini" else None,
             thinking_budget=thinking_budget if phone_record.assistant_type == "gemini" else None,
@@ -6272,7 +6319,8 @@ def get_scenario_config(
                 if phone_record.assistant_type == "cascade" else None
             ),
             folder_id=folder_id,
-            voice_role=None,  # амплуа голоса Яндекса больше не настраивается
+            # Амплуа голоса LiveTTS (только входящие Яндекса; None — амплуа голоса по умолчанию)
+            voice_role=yandex_voice_role if phone_record.assistant_type == "yandex" else None,
             fish_voice_id=assistant.fish_voice_id if phone_record.assistant_type == "fish" else None,
             fish_model=assistant.fish_model if phone_record.assistant_type == "fish" else None,
             fish_latency=assistant.fish_latency if phone_record.assistant_type == "fish" else None,

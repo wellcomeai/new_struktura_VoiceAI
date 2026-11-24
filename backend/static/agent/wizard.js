@@ -63,7 +63,7 @@ function keyState(type){
   const own = {
     gemini: !!u.has_gemini_api_key,
     openai: !!u.has_api_key,
-    yandex: !!(u.has_yandex_api_key && u.yandex_folder_id),
+    yandex: false, // Яндекс только на ключе платформы — модель всегда по тарифу
     cascade: false,
     fish: false, // ключ Fish всегда серверный — модель всегда по тарифу
     cartesia: !!(u.has_api_key && u.has_cartesia_api_key),
@@ -76,7 +76,7 @@ const TYPE_DEFS = [
   { type:'gemini', name:'Gemini Voice', desc:'Быстрая и экономичная модель — рекомендуем для старта.' },
   { type:'cascade', name:'Cascade', desc:'Лучшее русское звучание. Бесплатно — платите только за связь.' },
   { type:'fish', name:'Fish Audio', desc:'Премиальный русский синтез: OpenAI ведёт диалог, Fish озвучивает.' },
-  { type:'yandex', name:'Yandex SpeechKit', desc:'Голоса Yandex SpeechKit, российская инфраструктура.' },
+  { type:'yandex', name:'Yandex SpeechKit', desc:'Яндекс Realtime Max: живые голоса с интонацией, российская инфраструктура.' },
   { type:'openai', name:'OpenAI GPT-Live', desc:'gpt-live-1 — живой диалог премиум-качества.' },
 ];
 

@@ -127,9 +127,13 @@ async function saveEdit(){
 const OPENAI_VOICES = ['alloy','echo','marin','cedar','shimmer','ash','ballad','coral','sage','verse',
   'beacon','bossa','cinder','delta','gleam','meridian','quartz','ripple','stone','tempo','vesper','willow'];
 const GEMINI_VOICES = ['Zephyr','Puck','Charon','Kore','Fenrir','Leda','Orus','Aoede','Callirrhoe','Autonoe','Enceladus','Iapetus','Umbriel','Algieba','Despina','Erinome','Algenib','Rasalgethi','Laomedeia','Achernar','Alnilam','Schedar','Gacrux','Pulcherrima','Achird','Zubenelgenubi','Vindemiatrix','Sadachbia','Sadaltager','Sulafat'];
-// Должен совпадать с YANDEX_VOICES в backend/api/agent.py.
-const YANDEX_VOICES = ['marina','dasha','alexander','julia','lera','masha','anton','kirill','filipp','ermil','jane','omazh','zahar','madi_ru','saule_ru'];
-const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy', yandex:'marina', cascade:'Anna' };
+// Голоса LiveTTS (Speech Realtime Max TTS Live) — LIVE_TTS_VOICES в backend/models/yandex_assistant.py.
+// Старые голоса (marina, …) бэкенд принимает, но в списке их нет: на входящих они
+// заменяются голосом LiveTTS того же пола.
+const YANDEX_VOICES = ['sofia','vera','irina','sergey','vasily','denis'];
+const YANDEX_LEGACY_MALE = ['alexander','anton','kirill','filipp','ermil','zahar','madi_ru'];
+const YANDEX_VOICE_NAMES = { sofia:'Софья', vera:'Вера', irina:'Ирина', sergey:'Сергей', vasily:'Василий', denis:'Денис' };
+const VOICE_DEFAULTS = { gemini:'Kore', openai:'alloy', yandex:'sofia', cascade:'Anna' };
 // Голоса каскада (должны совпадать с CASCADE_VOICES в backend/api/grok_assistants.py):
 // Анна и Сергей — VoxTTS, остальные — Inworld (провайдер клиенту не показываем).
 // [id, имя, пол, описание]
@@ -206,11 +210,9 @@ const VOICE_META = {
     stone:['m',LIVE_VOICE_DESC], tempo:['m',LIVE_VOICE_DESC], vesper:['m',LIVE_VOICE_DESC], willow:['f',LIVE_VOICE_DESC],
   },
   yandex: {
-    marina:['f','Тёплый, дружелюбный'], dasha:['f','Живой, современный'], alexander:['m','Уверенный, деловой'],
-    julia:['f','Ясный, приветливый'], lera:['f','Мягкий, спокойный'], masha:['f','Лёгкий, молодой'],
-    anton:['m','Энергичный, бодрый'], kirill:['m','Ровный, нейтральный'], filipp:['m','Классический, чёткий'],
-    ermil:['m','Спокойный, размеренный'], jane:['f','Выразительный, яркий'], omazh:['f','Зрелый, насыщенный'],
-    zahar:['m','Низкий, основательный'], madi_ru:['m','Дружелюбный, тёплый'], saule_ru:['f','Мягкий, деликатный'],
+    sofia:['f','Поддержка, непринуждённо'], vera:['f','Поддержка, непринуждённо'],
+    irina:['f','Нейтрально, официально, диктор, продажи'], sergey:['m','Поддержка, продажи'],
+    vasily:['m','Поддержка, продажи'], denis:['m','Нейтрально, непринуждённо, официально, продажи'],
   },
   cascade: Object.fromEntries(CASCADE_VOICE_LIST.map(v => [v[0], [v[2], v[3]]])),
 };
@@ -220,7 +222,7 @@ const GENDER_INFO = {
   n: { label:'Нейтральный', icon:'fa-circle-half-stroke', cls:'g-n' },
 };
 // Подпись голоса: у каскада — русское имя вместо id.
-function voiceLabel(type, id){ return (type==='cascade' && CASCADE_VOICE_NAMES[id]) || id; }
+function voiceLabel(type, id){ return (type==='cascade' && CASCADE_VOICE_NAMES[id]) || (type==='yandex' && YANDEX_VOICE_NAMES[id]) || id; }
 function voiceMeta(type, name){ const m=(VOICE_META[type]||{})[name]; return m ? {gender:m[0], desc:m[1]} : {gender:'n', desc:''}; }
 // Кнопка «Послушать» (js/voice-samples.js): примеры есть у OpenAI, Gemini и готовых голосов Fish
 function sampleButtonHtml(type, voice){
@@ -289,7 +291,9 @@ function voiceControlHtml(type, cur, ids){
       </div>`;
   }
   const voices = (type==='gemini') ? GEMINI_VOICES : (type==='yandex') ? YANDEX_VOICES : (type==='cascade') ? CASCADE_VOICES : OPENAI_VOICES;
-  const v = cur.voice || VOICE_DEFAULTS[type] || voices[0];
+  let v = cur.voice || VOICE_DEFAULTS[type] || voices[0];
+  // Старый голос Яндекса (marina, …): показываем голос LiveTTS того же пола, как и звучит во входящих
+  if(type==='yandex' && !voices.includes(v)) v = YANDEX_LEGACY_MALE.includes(v) ? 'sergey' : 'sofia';
   const opts = voices.map(x=>{
     const g = GENDER_INFO[voiceMeta(type,x).gender] || GENDER_INFO.n;
     return `<option value="${x}" ${x===v?'selected':''}>${esc(voiceLabel(type, x))} · ${g.label.toLowerCase()}</option>`;

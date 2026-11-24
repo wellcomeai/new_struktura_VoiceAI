@@ -395,7 +395,7 @@
         <ul>
           <li><b>Доступ к агенту:</b> тестовый период 3 дня (единожды, +1500 кредитов) или тариф profi (+10 000 кредитов). Без доступа — <code>402 subscription_required</code>.</li>
           <li><b>Кредиты</b> — валюта работы оркестратора: списываются за токены каждого вызова (PreCall, PostCall, чат, входящие) по ставкам выбранной модели. Баланс ниже 100 — оркестратор не запускается (<code>402 insufficient_credits</code>). Пакеты пополнения — на странице агента.</li>
-          <li><b>Голосовая часть оплачивается отдельно:</b> собственные API-ключи провайдеров (OpenAI / Gemini / Cartesia / Yandex) + телефония Voximplant (номера, минуты, SMS).</li>
+          <li><b>Голосовая часть оплачивается отдельно:</b> собственные API-ключи провайдеров (OpenAI / Gemini / Cartesia) или кошелёк Voicyfy (Fish и Яндекс — только кошелёк) + телефония Voximplant (номера, минуты, SMS).</li>
           <li><b>Telegram-бот агента:</b> уведомления владельцу + чат с оркестратором в Telegram.</li>
           <li><b>Личный Telegram-аккаунт:</b> агент пишет клиентам от имени владельца и отвечает на входящие; встроены анти-бан лимиты.</li>
           <li><b>Коннекторы</b> (Google Calendar, Gmail): OAuth-подключение на странице агента.</li>
@@ -535,10 +535,10 @@
         <ul>
           <li><b>openai:</b> <code>alloy</code>, <code>ash</code>, <code>ballad</code>, <code>coral</code>, <code>echo</code>, <code>sage</code>, <code>shimmer</code>, <code>verse</code>, <code>marin</code>, <code>cedar</code>; голоса GPT-Live: <code>beacon</code>, <code>bossa</code>, <code>cinder</code>, <code>delta</code>, <code>gleam</code>, <code>meridian</code>, <code>quartz</code>, <code>ripple</code>, <code>stone</code>, <code>tempo</code>, <code>vesper</code>, <code>willow</code></li>
           <li><b>gemini:</b> <code>Zephyr</code>, <code>Puck</code>, <code>Charon</code>, <code>Kore</code>, <code>Fenrir</code>, <code>Leda</code>, <code>Orus</code>, <code>Aoede</code>, <code>Callirrhoe</code>, <code>Autonoe</code>, <code>Enceladus</code>, <code>Iapetus</code>, <code>Umbriel</code>, <code>Algieba</code>, <code>Despina</code>, <code>Erinome</code>, <code>Algenib</code>, <code>Rasalgethi</code>, <code>Laomedeia</code>, <code>Achernar</code>, <code>Alnilam</code>, <code>Schedar</code>, <code>Gacrux</code>, <code>Pulcherrima</code>, <code>Achird</code>, <code>Zubenelgenubi</code>, <code>Vindemiatrix</code>, <code>Sadachbia</code>, <code>Sadaltager</code>, <code>Sulafat</code></li>
-          <li><b>yandex:</b> <code>marina</code>, <code>dasha</code>, <code>alexander</code>, <code>julia</code>, <code>lera</code>, <code>masha</code>, <code>anton</code>, <code>kirill</code>, <code>filipp</code>, <code>ermil</code>, <code>jane</code>, <code>omazh</code>, <code>zahar</code>, <code>madi_ru</code>, <code>saule_ru</code></li>
+          <li><b>yandex:</b> голоса LiveTTS (Яндекс Realtime Max): <code>sofia</code>, <code>vera</code>, <code>irina</code>, <code>sergey</code>, <code>vasily</code>, <code>denis</code>; прежние голоса (<code>marina</code> и др.) во входящих заменяются голосом LiveTTS того же пола</li>
           <li><b>cartesia:</b> голос задаётся через <code>cartesia_voice_id</code> + опционально <code>voice_speed</code></li>
         </ul>
-        <p>Дефолты: openai — <code>alloy</code>, gemini — <code>Kore</code>, yandex — <code>marina</code>. Невалидное имя голоса в update → <code>400 invalid_voice</code>.</p>
+        <p>Дефолты: openai — <code>alloy</code>, gemini — <code>Kore</code>, yandex — <code>sofia</code>. Невалидное имя голоса в update → <code>400 invalid_voice</code>.</p>
       </div>
     </div>
 

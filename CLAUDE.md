@@ -1033,3 +1033,29 @@ Alembic (`alembic/env.py`) — тот же `lock_timeout` и `connect_timeout`. 
 замок на `(agent_id, chat_id)`). Раньше Telegram при долгом ответе мог прислать сообщение повторно.
 Не переведено: генерация промпта legacy-агента (`_generate_orchestrator_prompt` в `PUT /api/agent`, только v2 со своим
 ключом OpenAI, внутри транзакции с правками агента).
+
+## Яндекс: входящие на Speech Realtime Max TTS Live (ветка 1211-2026)
+
+- **Модель.** Входящие Яндекс-ассистентов и агентов с голосом Яндекса идут через сценарий
+  `voximplant_scenarios/inbound_yandex` v3.0 на `YANDEX_LIVE_MODEL` = `speech-realtime-max-tts-live/latest`
+  (`backend/models/yandex_assistant.py`). `/api/telephony/config` отдаёт эту модель независимо от
+  `assistant.model`; колонка `model` и старые голоса остаются для исходящих (`outbound_yandex` не менялся,
+  `/outbound-config` подставляет обычный голос через `legacy_voice_for`). Формат имени модели подтверждён
+  тестом `voximplant_scenarios/test_yandex_tts_live.js` (автономный, без бэкенда; ключ вписывается в кабинете).
+- **Голоса LiveTTS и амплуа.** `LIVE_TTS_VOICES`: sofia, vera, irina (жен.), sergey, vasily, denis (муж.), у каждого
+  свой список амплуа (`voice_role`: support, sales, casual, formal, neutral, narrator; первое — умолчание Яндекса).
+  С обычными голосами (marina, …) LiveTTS несовместима: `/config` меняет старый голос на LiveTTS того же пола
+  (`live_voice_for`), амплуа не из списка голоса не отправляется (`live_role_for`); сценарий страхуется так же.
+  Справочник для UI — `GET /api/yandex-assistants/options` (`live_voices`); редактор `voice-assistants.html`
+  (плитки голосов + «Амплуа»), голос агента — `YANDEX_VOICES` в `agent/instructions-voice.js` (амплуа у агента
+  не выбирается — по умолчанию голоса). Списки дублируются в сценарии (`LIVE_TTS_VOICES`) — правьте вместе.
+- **Оплата.** Яндекс только на серверном ключе (`YANDEX_API_KEY` + `YANDEX_FOLDER_ID`, `provider_keys.resolve`
+  колонки `users.yandex_api_key` / `yandex_folder_id` не читает, карточка ключа убрана из настроек), минуты по
+  тарифу `yandex` из кошелька по `call_duration` в `/log`. Цена — 9 ₽/мин (сид `DEFAULT_TARIFFS`; на проде строка
+  уже есть — цену меняют в админке, `/api/wallet/admin/tariffs`). Себестоимость по прайсу Яндекса: вход аудио
+  0,0264 ₽/с, выход LiveTTS 0,05 ₽/с, токены 0,3 / 0,075 (кэш) / 0,5 ₽ за 1000 → ~4 ₽/мин на коротком промпте,
+  ~5–6 ₽/мин на длинном промпте агента.
+- **Раскатка.** Код сценария кладётся на родительский аккаунт под именем `inbound_yandex`, затем
+  `POST /api/telephony/admin/setup-yandex-scenarios-stream` (SSE, только `inbound_yandex`, по аккаунту, идемпотентно).
+  `/admin/setup-yandex-scenarios` раскатывает оба сценария одним ответом.
+- Промпт сценария дополнен «ПРАВИЛАМИ РЕЧИ» (без эмодзи, markdown и переносов строк): в тесте модель вставляла 😄.

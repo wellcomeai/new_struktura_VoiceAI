@@ -14,7 +14,8 @@ provider_keys — единая точка выбора ключа голосов
                всегда серверный (свой указать нельзя), поэтому модель всегда
                списывается по тарифу, даже при своём ключе OpenAI;
   * cartesia — диалог OpenAI Realtime, озвучивает Cartesia;
-  * yandex   — ключ + folder_id;
+  * yandex   — только серверный ключ + folder_id (свой ключ пользователя не
+               читается), модель всегда по тарифу;
   * cascade  — всегда серверный ключ OpenAI (модель бесплатна, платит только
                телефония).
 Составная модель считается «на своём ключе» только если ВСЕ её части
@@ -98,15 +99,14 @@ def resolve(user, provider: str) -> ResolvedKeys:
                             is_server=bool(parts), server_parts=parts)
 
     if provider == "yandex":
-        # Ключ и folder_id — пара: берём обе части от пользователя, иначе обе с сервера
-        u_key, u_folder = g("yandex_api_key"), g("yandex_folder_id")
-        if u_key and u_folder:
-            return ResolvedKeys(provider, api_key=u_key, folder_id=u_folder)
+        # Яндекс — только серверный ключ + folder_id платформы, минуты по тарифу
+        # «yandex» с кошелька. Свой ключ пользователя (users.yandex_api_key /
+        # yandex_folder_id) не читаем: колонки оставлены для отката.
         if settings.YANDEX_API_KEY and settings.YANDEX_FOLDER_ID:
             return ResolvedKeys(provider, api_key=settings.YANDEX_API_KEY,
                                 folder_id=settings.YANDEX_FOLDER_ID,
                                 is_server=True, server_parts=["yandex"])
-        return ResolvedKeys(provider, api_key=u_key, folder_id=u_folder)
+        return ResolvedKeys(provider)
 
     if provider == "cascade":
         # Каскад всегда на серверном ключе OpenAI; тариф 0 ₽ — платит телефония

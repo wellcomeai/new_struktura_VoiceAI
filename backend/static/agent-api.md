@@ -541,9 +541,10 @@ PostCall и чата — агент «помнит» клиента между �
   (`402 insufficient_credits`). Пакеты пополнения — в кабинете на странице
   агента.
 - **Голосовая часть** оплачивается отдельно от кредитов:
-  - Если в профиле указан **свой ключ** провайдера (OpenAI, Gemini, Yandex,
+  - Если в профиле указан **свой ключ** провайдера (OpenAI, Gemini,
     Cartesia) — минуты голоса пользователь оплачивает у провайдера сам,
-    Voicyfy за них не списывает.
+    Voicyfy за них не списывает. Fish и Яндекс работают только на ключах
+    Voicyfy (свой ключ указать нельзя), Яндекс — 9 ₽/мин.
   - Если своего ключа нет — работает **серверный ключ Voicyfy**, минуты
     списываются с **кошелька** (рубли, посекундно, минимум 10 секунд за
     сессию, тарифы по моделям). Кошелёк пополняется в кабинете; при нуле
@@ -751,12 +752,12 @@ bad_section`, `400 note_too_long …`, `400 empty_text`, `400 not_found`
 - **cascade:** `Anna`, `Sergey`, `Galina`, `Polina`, `Yulia`, `Alyona`, `Snezhana`, `Svetlana`, `Elena`, `Tamara`, `Oksana`, `Vadim`, `Stepan`, `Yegor`, `Ruslan`, `Arkady`, `Nikolai`, `Lev`, `Rodion`, `Dmitry`, `Grigory`, `Gleb`, `Timofey` (русская речь; темп голоса не настраивается)
 - **openai:** `alloy`, `ash`, `ballad`, `coral`, `echo`, `sage`, `shimmer`, `verse`, `marin`, `cedar`, а также голоса GPT-Live `beacon`, `bossa`, `cinder`, `delta`, `gleam`, `meridian`, `quartz`, `ripple`, `stone`, `tempo`, `vesper`, `willow` (голоса GPT-Live)
 - **gemini:** `Zephyr`, `Puck`, `Charon`, `Kore`, `Fenrir`, `Leda`, `Orus`, `Aoede`, `Callirrhoe`, `Autonoe`, `Enceladus`, `Iapetus`, `Umbriel`, `Algieba`, `Despina`, `Erinome`, `Algenib`, `Rasalgethi`, `Laomedeia`, `Achernar`, `Alnilam`, `Schedar`, `Gacrux`, `Pulcherrima`, `Achird`, `Zubenelgenubi`, `Vindemiatrix`, `Sadachbia`, `Sadaltager`, `Sulafat`
-- **yandex:** `marina`, `dasha`, `alexander`, `julia`, `lera`, `masha`, `anton`, `kirill`, `filipp`, `ermil`, `jane`, `omazh`, `zahar`, `madi_ru`, `saule_ru`
+- **yandex:** голоса LiveTTS модели Яндекс Realtime Max: `sofia` (Софья), `vera` (Вера), `irina` (Ирина), `sergey` (Сергей), `vasily` (Василий), `denis` (Денис). Прежние голоса (`marina`, `dasha`, `alexander`, …) ещё принимаются, но во входящих звонках заменяются голосом LiveTTS того же пола. Амплуа голоса (манера речи) у Яндекс-ассистента задаётся полем `voice_role` в `/api/yandex-assistants`: sofia, vera — `support`, `casual`; irina — `neutral`, `formal`, `support`, `narrator`, `sales`; sergey, vasily — `support`, `sales`; denis — `neutral`, `casual`, `formal`, `sales` (пусто — первое из списка)
 - **cartesia:** голос задаётся не именем, а `cartesia_voice_id` + опционально `voice_speed` (0.5–1.5)
 
 Невалидное имя голоса → `400 invalid_voice` (в update) или молча дефолт (в create).
 Дефолты: fish — Светлана, cascade — `Anna`, openai — `alloy`, gemini — `Kore`,
-yandex — `marina`.
+yandex — `sofia`.
 
 Звонки (входящие и исходящие) и веб-виджет OpenAI-ассистентов (и агентов, чей голосовой
 ассистент — OpenAI) обслуживает модель **GPT-Live** (`gpt-live-1`, full-duplex) с
@@ -922,8 +923,9 @@ curl -H "X-Api-Key: vfy_..." \
 **Какой голос выбрать.** Без своих ключей работают все типы (минуты — из
 кошелька). Fish — качественная русская речь, голоса Светлана и Сергей,
 тариф из кошелька. Каскад — без ключей и без списаний. Если у пользователя
-есть свой ключ OpenAI/Gemini/Yandex — с ним минуты голоса не списываются с
-кошелька.
+есть свой ключ OpenAI/Gemini — с ним минуты голоса не списываются с
+кошелька. Яндекс (модель Realtime Max, живые голоса с интонацией) — только на
+ключе Voicyfy, 9 ₽/мин из кошелька.
 
 **Создание каскад-ассистента (без агента):**
 1. `GET /api/grok-assistants/cascade` → посмотреть, что уже есть.
