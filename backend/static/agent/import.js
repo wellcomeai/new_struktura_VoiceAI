@@ -124,6 +124,23 @@ function renderImportCostLine(d){
   `;
 }
 
+// Откуда возьмётся время звонков: колонка «Когда звонить», дата без времени,
+// прошедшие даты и строки без даты (автоматически). Нераспознанная колонка
+// с датами — предупреждение: иначе задачи молча уезжают на «через час».
+function renderImportScheduleLines(sc){
+  if(!sc) return '';
+  const fmtN = n => (n||0).toLocaleString('ru');
+  const lines = [];
+  if(sc.from_file) lines.push(`<div><i class="far fa-calendar-check"></i> Время звонка из файла${sc.column ? ` (колонка «${esc(sc.column)}»)` : ''}: <b>${fmtN(sc.from_file)}</b></div>`);
+  if(sc.date_only) lines.push(`<div><i class="far fa-calendar"></i> Дата без времени — звонок в начале рабочих часов этого дня: <b>${fmtN(sc.date_only)}</b></div>`);
+  if(sc.past) lines.push(`<div style="color:var(--amber,#d97706)"><i class="fas fa-clock-rotate-left"></i> Дата уже прошла — время назначено автоматически: <b>${fmtN(sc.past)}</b></div>`);
+  if(sc.auto) lines.push(`<div style="color:var(--muted)"><i class="far fa-clock"></i> Без даты — автоматически, начиная примерно через час, по 5 контактов: <b>${fmtN(sc.auto)}</b></div>`);
+  (sc.unrecognized_date_columns || []).forEach(name => {
+    lines.push(`<div style="background:var(--amber-light);padding:8px 10px;border-radius:8px;margin:6px 0;line-height:1.5"><i class="fas fa-triangle-exclamation"></i> Колонка «${esc(name)}» похожа на даты, но не используется как время звонка. Назовите её «Когда звонить», если звонить нужно в эти даты.</div>`);
+  });
+  return lines.join('');
+}
+
 function renderImportPreview(d){
   const fmtN = n => (n||0).toLocaleString('ru');
   // Сервер отдаёт только начало списков ошибок/дублей и точные счётчики.
@@ -138,6 +155,7 @@ function renderImportPreview(d){
       ${errorsCount ? `<div style="color:var(--red,#dc2626)"><i class="fas fa-circle-exclamation"></i> Ошибок: <b>${fmtN(errorsCount)}</b></div>` : ''}
       ${duplicatesCount ? `<div style="color:var(--amber,#d97706)"><i class="fas fa-clone"></i> Дубликатов (будут пропущены): <b>${fmtN(duplicatesCount)}</b></div>` : ''}
       ${d.shifted_to_working_hours ? `<div style="color:var(--blue)"><i class="far fa-clock"></i> Задач сдвинуто на след. рабочий день: <b>${d.shifted_to_working_hours}</b> (рабочие часы по МСК)</div>` : ''}
+      ${renderImportScheduleLines(d.schedule)}
       <div id="import-cost-line"></div>
     </div>
   `;

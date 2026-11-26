@@ -21,7 +21,7 @@ import json
 import uuid
 import time
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 
 import phonenumbers
@@ -164,6 +164,9 @@ def _parse_datetime_msk(raw: Any) -> Tuple[Optional[datetime], Optional[str]]:
     if isinstance(raw, datetime):
         # openpyxl вернул datetime — трактуем как МСК (naive)
         return raw.replace(tzinfo=None), None
+    if isinstance(raw, date):
+        # Ячейка-дата без времени
+        return datetime(raw.year, raw.month, raw.day), None
 
     s = str(raw).strip()
     if not s:
@@ -193,7 +196,29 @@ def _parse_datetime_msk(raw: Any) -> Tuple[Optional[datetime], Optional[str]]:
 # ============================================================================
 
 def _norm_header(val: Any) -> str:
-    return re.sub(r"\s+", " ", str(val or "").strip().lower())
+    """Заголовок для сравнения: нижний регистр, ё → е, без пояснений в скобках
+    («Когда звонить (МСК)» → «когда звонить») и знаков препинания по краям."""
+    h = str(val or "").strip().lower().replace("ё", "е")
+    h = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", h)
+    h = re.sub(r"[^\w\s/]+", " ", h)
+    return re.sub(r"\s+", " ", h).strip()
+
+
+# Слова, по которым узнаём колонку времени звонка, если заголовок не совпал
+# с синонимами дословно («Дата звонка», «Время звонка мск», «Дата/время»).
+_SCHEDULE_HEADER_WORDS = ("когда", "дата", "время", "звонить", "перезвонить")
+
+
+# Даты, которые точно не время звонка («Дата рождения», «Дата создания»).
+_NOT_SCHEDULE_WORDS = ("рожд", "создан", "регистрац", "добавлен", "последн", "изменен",
+                       "обновлен", "покупк", "заказ", "оплат", "договор")
+
+
+def _looks_like_schedule_header(h: str) -> bool:
+    words = set(re.split(r"[\s/]+", h))
+    if not words & set(_SCHEDULE_HEADER_WORDS):
+        return False
+    return not any(stop in h for stop in _NOT_SCHEDULE_WORDS)
 
 
 def detect_headers(first_row: List[Any]) -> Optional[Dict[int, str]]:
@@ -202,13 +227,24 @@ def detect_headers(first_row: List[Any]) -> Optional[Dict[int, str]]:
     маппинг {col_index: field_name}. Иначе None (парсим по индексу).
     """
     mapping: Dict[int, str] = {}
+    unmatched: List[Tuple[int, str]] = []
     for idx, cell in enumerate(first_row):
         h = _norm_header(cell)
         if not h:
             continue
         for field, synonyms in HEADER_SYNONYMS.items():
             if h in synonyms:
-                mapping[idx] = field
+                if field not in mapping.values():
+                    mapping[idx] = field
+                break
+        else:
+            unmatched.append((idx, h))
+
+    # Колонка времени по ключевым словам — только если точного совпадения нет
+    if "scheduled_time" not in mapping.values():
+        for idx, h in unmatched:
+            if _looks_like_schedule_header(h):
+                mapping[idx] = "scheduled_time"
                 break
 
     if len(mapping) >= 2:
@@ -314,7 +350,8 @@ def parse_file(filename: str, content: bytes) -> Dict[str, Any]:
             errors.append({"row": row_num, "error": perr})
             continue
 
-        scheduled_dt, derr = _parse_datetime_msk(cell("scheduled_time"))
+        scheduled_raw = cell("scheduled_time")
+        scheduled_dt, derr = _parse_datetime_msk(scheduled_raw)
         if derr:
             errors.append({"row": row_num, "error": derr})
             continue
@@ -336,9 +373,67 @@ def parse_file(filename: str, content: bytes) -> Dict[str, Any]:
             "task_title": s("task_title"),
             "task_description": s("task_description"),
             "scheduled_dt": scheduled_dt,  # naive(МСК) | aware | None
+            # Дата без времени («10.06.2026» или ячейка-дата с 00:00) —
+            # звонок ставится на начало рабочих часов агента.
+            "date_only": _is_date_only(scheduled_raw, scheduled_dt),
         })
 
-    return {"rows": rows, "errors": errors, "total_rows": total}
+    return {
+        "rows": rows, "errors": errors, "total_rows": total,
+        "schedule_column": _schedule_column_name(raw_rows[0], header_map),
+        "unrecognized_date_columns": _unrecognized_date_columns(raw_rows[0], data_rows, header_map),
+    }
+
+
+def _is_date_only(raw: Any, dt: Optional[datetime]) -> bool:
+    if dt is None or dt.tzinfo is not None:
+        return False
+    if isinstance(raw, datetime):
+        return raw.time() == dtime(0, 0)
+    if isinstance(raw, date):
+        return True
+    s = str(raw).strip()
+    return dt.time() == dtime(0, 0) and not re.search(r"\d{1,2}:\d{2}", s)
+
+
+def _schedule_column_name(first_row: List[Any], header_map: Optional[Dict[int, str]]) -> Optional[str]:
+    """Заголовок колонки, из которой берётся время звонка (для превью)."""
+    if header_map is None:
+        return "H (8-я колонка)"
+    for idx, field in header_map.items():
+        if field == "scheduled_time":
+            return str(first_row[idx]).strip()
+    return None
+
+
+def _unrecognized_date_columns(first_row: List[Any], data_rows: List[List[Any]],
+                               header_map: Optional[Dict[int, str]]) -> List[str]:
+    """
+    Колонки с датами, которые импорт не взял временем звонка: заголовок не
+    распознан, а в значениях — даты. Показываем в превью, чтобы задачи не
+    уехали молча на автоматическое время.
+    """
+    if header_map is None:
+        return []
+    found = []
+    sample = data_rows[:50]
+    for idx, cell in enumerate(first_row):
+        if idx in header_map or not str(cell or "").strip():
+            continue
+        values = [r[idx] for r in sample if idx < len(r) and r[idx] not in (None, "")]
+        if not values:
+            continue
+        dates = 0
+        for v in values:
+            if isinstance(v, (datetime, date)):
+                dates += 1
+                continue
+            dt, err = _parse_datetime_msk(v)
+            if dt is not None and not err and not isinstance(v, (int, float)):
+                dates += 1
+        if dates * 2 >= len(values):
+            found.append(str(cell).strip())
+    return found
 
 
 # ============================================================================
@@ -357,53 +452,79 @@ def _default_scheduled_utc(group_index: int, base_utc: datetime) -> datetime:
     )
 
 
+def _date_only_target_utc(dt: datetime, wh_start: int, wh_end: int) -> datetime:
+    """Дата без времени → начало рабочих часов агента в этот день (МСК).
+    Круглосуточный агент (start == end) — 9:00."""
+    hour = wh_start if wh_start != wh_end else 9
+    return msk_to_utc(dt.replace(hour=hour % 24, minute=0, second=0, microsecond=0))
+
+
 def assign_schedule(
     rows: List[Dict[str, Any]],
     wh_start: int,
     wh_end: int,
     base_utc: Optional[datetime] = None,
-) -> int:
+) -> Dict[str, int]:
     """
-    Проставляет каждому row 'scheduled_time_utc' (ISO-строка) и 'shifted' (bool).
+    Проставляет каждому row 'scheduled_time_utc' (ISO-строка), 'shifted' (bool)
+    и 'time_source': file | date_only | past | auto.
 
-    - Если в строке указано время — конвертируем МСК → UTC.
-    - Иначе — дефолтное распределение по группам.
-    - Затем приводим к рабочим часам агента (МСК), считаем перенесённые.
+    - Время из файла — МСК → UTC (дата без времени — начало рабочих часов).
+    - Время из файла в прошлом или не задано — автоматическое распределение:
+      группы по PARALLEL_GROUP_SIZE, первая через FIRST_GROUP_DELAY_MINUTES,
+      шаг GROUP_INTERVAL_SECONDS (прошедшая дата не превращается в пачку
+      звонков «прямо сейчас»).
+    - Затем приводим к рабочим часам агента (МСК).
 
-    Возвращает количество строк, сдвинутых из-за рабочих часов.
+    Возвращает счётчики: shifted, from_file, date_only, past, auto.
     """
     if base_utc is None:
         base_utc = now_utc()
 
-    shifted_count = 0
-    # Сдвиг дефолтного расписания: если группу перенесло на утро, следующие
+    stats = {"shifted": 0, "from_file": 0, "date_only": 0, "past": 0, "auto": 0}
+    # Сдвиг автоматического расписания: если группу перенесло на утро, следующие
     # группы едут вместе с ней — иначе весь ночной хвост импорта собрался бы
     # в одну минуту начала рабочего дня.
     default_delta = timedelta(0)
+    auto_index = 0
 
-    for idx, row in enumerate(rows):
+    for row in rows:
         dt = row.get("scheduled_dt")
+        target_utc = None
+        source = "auto"
         if dt is not None:
-            # Явно указанное время: naive → МСК; aware → как есть в UTC
-            if dt.tzinfo is None:
-                target_utc = msk_to_utc(dt)
-            else:
+            if dt.tzinfo is not None:
                 target_utc = dt.astimezone(timezone.utc)
+                source = "file"
+            elif row.get("date_only"):
+                target_utc = _date_only_target_utc(dt, wh_start, wh_end)
+                source = "date_only"
+            else:
+                target_utc = msk_to_utc(dt)
+                source = "file"
+            if target_utc <= base_utc:
+                target_utc = None
+                source = "past"
+
+        if target_utc is not None:
             adjusted_utc, shifted = adjust_to_working_hours(target_utc, wh_start, wh_end)
         else:
-            group_index = idx // PARALLEL_GROUP_SIZE
+            group_index = auto_index // PARALLEL_GROUP_SIZE
+            auto_index += 1
             target_utc = _default_scheduled_utc(group_index, base_utc) + default_delta
             adjusted_utc, shifted = adjust_to_working_hours(target_utc, wh_start, wh_end)
             if shifted:
                 default_delta += adjusted_utc - target_utc
 
         if shifted:
-            shifted_count += 1
+            stats["shifted"] += 1
+        stats["from_file" if source == "file" else source] += 1
 
         row["scheduled_time_utc"] = adjusted_utc.isoformat()
         row["shifted"] = shifted
+        row["time_source"] = source
 
-    return shifted_count
+    return stats
 
 
 # ============================================================================

@@ -3214,13 +3214,14 @@ async def import_contacts_preview(
         unique_rows.append(r)
 
     # Распределение времени + проверка рабочих часов
-    shifted = await asyncio.to_thread(
+    schedule_stats = await asyncio.to_thread(
         assign_schedule,
         unique_rows,
         agent.working_hours_start,
         agent.working_hours_end,
         base_utc=now_utc(),
     )
+    shifted = schedule_stats["shifted"]
 
     valid_rows = len(unique_rows)
     # Оценка для режима «авто-задачи через оркестратора» (create_tasks=True):
@@ -3267,6 +3268,16 @@ async def import_contacts_preview(
         "duplicates": duplicates[:PREVIEW_LIST_LIMIT],
         "duplicates_count": len(duplicates),
         "shifted_to_working_hours": shifted,
+        # Откуда взято время звонка: из файла / дата без времени (начало рабочих
+        # часов) / дата в прошлом и пустые — автоматически (через 60 мин, группами).
+        "schedule": {
+            "column": parsed.get("schedule_column"),
+            "from_file": schedule_stats["from_file"],
+            "date_only": schedule_stats["date_only"],
+            "past": schedule_stats["past"],
+            "auto": schedule_stats["auto"],
+            "unrecognized_date_columns": parsed.get("unrecognized_date_columns") or [],
+        },
         "credits_required_estimate": credits_required,
         "credits_available": credits_available,
         "can_proceed": can_proceed,
