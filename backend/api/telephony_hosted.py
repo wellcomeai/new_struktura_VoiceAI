@@ -26,6 +26,8 @@ Voximplant больше не верифицирует физлиц: физлиц
   GET    /admin/verifications/by-user/{user_id}     — то же по пользователю
   POST   /admin/verifications/{id}/decision         — {action: approve|revision|reject, comment}
   GET    /admin/hosted-numbers                      — номера физлиц и запас
+  GET    /admin/hosted-numbers/finance               — для admin.html: балансы, продления, списания Voximplant за месяц
+  GET    /admin/hosted-numbers/{id}/calls            — последние звонки номера (GetCallHistory)
   POST   /admin/hosted-numbers/{id}/release         — забрать номер у физлица в запас
   POST   /admin/hosted-numbers/{id}/deactivate      — отключить номер из запаса в Voximplant
   PUT    /admin/hosted-stock/{id}                   — свой номер в запас / из запаса {in_stock}
@@ -530,6 +532,46 @@ async def admin_hosted_numbers(
     if host:
         await hosted_numbers.fill_stock_prices(db, host)
     return hosted_numbers.admin_overview(db)
+
+
+@router.get("/admin/hosted-numbers/finance")
+async def admin_hosted_finance(
+    refresh: bool = Query(False),
+    db: Session = Depends(get_db),
+    admin: User = Depends(check_admin_access),
+):
+    """Номера физлиц для admin.html: владельцы, балансы, продления и списания
+    Voximplant за текущий месяц (по датам phone_next_renewal)."""
+    host = await asyncio.to_thread(hosted_numbers.get_host_account, db)
+    vox_numbers = await hosted_numbers.host_vox_numbers(host, refresh=refresh) if host else None
+    return await asyncio.to_thread(hosted_numbers.admin_finance, db, vox_numbers)
+
+
+@router.get("/admin/hosted-numbers/{phone_id}/calls")
+async def admin_hosted_number_calls(
+    phone_id: str,
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    admin: User = Depends(check_admin_access),
+):
+    """Последние звонки номера аккаунта администратора (GetCallHistory)."""
+    def _load():
+        phone = _admin_phone(db, phone_id)
+        host = hosted_numbers.get_host_account(db)
+        number = phone.phone_number
+        db.rollback()
+        return host, number
+    host, number = await asyncio.to_thread(_load)
+    if not host:
+        raise HTTPException(status_code=400, detail="Аккаунт для номеров физлиц не настроен")
+    try:
+        result = await hosted_numbers.number_calls(host, number, limit=limit)
+    except HostedError as e:
+        raise HTTPException(status_code=502, detail=f"Voximplant: {e}")
+    except Exception as e:
+        logger.warning(f"[HOSTED] calls of {number} failed: {e}")
+        raise HTTPException(status_code=502, detail="Не удалось получить историю звонков из Voximplant")
+    return {"phone_number": number, **result}
 
 
 def _admin_phone(db: Session, phone_id: str) -> VoximplantPhoneNumber:

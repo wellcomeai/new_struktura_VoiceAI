@@ -723,6 +723,291 @@ def admin_overview(db: Session) -> dict:
 
 
 # =============================================================================
+# ФИНАНСЫ НОМЕРОВ ДЛЯ АДМИНКИ (admin.html → «Номера физлиц»)
+# =============================================================================
+
+MSK = timezone(timedelta(hours=3))
+VOX_NUMBERS_CACHE_SECONDS = 300
+_vox_numbers_cache: Dict[str, Any] = {"at": 0.0, "account": None, "numbers": None}
+
+
+async def host_vox_numbers(host: VoximplantChildAccount, refresh: bool = False) -> Optional[List[dict]]:
+    """
+    Номера аккаунта администратора из Voximplant (GetPhoneNumbers): цена в месяц
+    и дата следующего списания (phone_next_renewal) — по ним Voximplant берёт
+    деньги с нас. Кэш VOX_NUMBERS_CACHE_SECONDS. None — Voximplant недоступен.
+    """
+    cache = _vox_numbers_cache
+    if (not refresh and cache["numbers"] is not None and cache["account"] == host.vox_account_id
+            and time.time() - cache["at"] < VOX_NUMBERS_CACHE_SECONDS):
+        return cache["numbers"]
+    from backend.services.voximplant_partner import get_voximplant_partner_service
+    try:
+        res = await get_voximplant_partner_service().get_phone_numbers(
+            child_account_id=host.vox_account_id, child_api_key=host.vox_api_key,
+        )
+    except Exception as e:
+        logger.warning(f"[HOSTED] GetPhoneNumbers for admin overview failed: {e}")
+        return None
+    if not res.get("success"):
+        logger.warning(f"[HOSTED] GetPhoneNumbers for admin overview: {res.get('error')}")
+        return None
+    cache.update(at=time.time(), account=host.vox_account_id, numbers=res.get("numbers") or [])
+    return cache["numbers"]
+
+
+def _parse_vox_date(value) -> Optional[datetime]:
+    """phone_next_renewal приходит как 'YYYY-MM-DD' (иногда с временем)."""
+    if not value:
+        return None
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _minus_month(d: datetime) -> datetime:
+    year = d.year - (1 if d.month == 1 else 0)
+    month = 12 if d.month == 1 else d.month - 1
+    return d.replace(year=year, month=month, day=min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def _rub(kopeks: int) -> float:
+    return round((kopeks or 0) / 100, 2)
+
+
+def admin_finance(db: Session, vox_numbers: Optional[List[dict]]) -> dict:
+    """
+    Обзор номеров физлиц для админки: кому сдан номер, баланс телефонии и
+    хватит ли его на продление, до какого числа оплачен, цена продления, наша
+    себестоимость и списания Voximplant за текущий месяц (по датам Voximplant).
+    Синхронная функция: вызывать через asyncio.to_thread.
+    """
+    from backend.models.telephony_verification import TelephonyVerification
+    host = get_host_account(db)
+    now = _now()
+    today = now.astimezone(MSK).date()
+    month_start = today.replace(day=1)
+    month_end = month_start.replace(day=calendar.monthrange(today.year, today.month)[1])
+
+    vox_by_digits = {digits(n.get("phone_number"))[-10:]: n for n in (vox_numbers or [])}
+
+    def vox_info(phone_number: str) -> dict:
+        n = vox_by_digits.get(digits(phone_number)[-10:])
+        if not n:
+            return {"vox_found": False, "vox_monthly_rub": None, "vox_next_renewal": None}
+        price = n.get("phone_price")
+        nxt = _parse_vox_date(n.get("phone_next_renewal"))
+        return {
+            "vox_found": True,
+            "vox_monthly_rub": float(price) if price is not None else None,
+            "vox_next_renewal": nxt.date().isoformat() if nxt else None,
+        }
+
+    rows = db.query(VoximplantPhoneNumber, User).join(
+        VoximplantChildAccount, VoximplantPhoneNumber.child_account_id == VoximplantChildAccount.id
+    ).join(User, VoximplantChildAccount.user_id == User.id).filter(
+        VoximplantChildAccount.is_hosted.is_(True)
+    ).order_by(VoximplantPhoneNumber.paid_until.asc().nullslast()).all()
+    verif = {
+        v.user_id: v for v in db.query(TelephonyVerification).filter(
+            TelephonyVerification.user_id.in_([u.id for _, u in rows] or [None])
+        ).all()
+    }
+
+    # Баланс у пользователя общий на все его номера: продления идут по очереди
+    # (по paid_until), поэтому «хватит ли» считаем накопительно.
+    spent_by_user: Dict[Any, int] = {}
+    rented = []
+    for phone, user in rows:
+        price = int(phone.hosted_price_kopeks or monthly_kopeks(phone.vox_monthly_price))
+        balance = int(user.telephony_balance or 0)
+        need = spent_by_user.get(user.id, 0) + price
+        spent_by_user[user.id] = need
+        paid_until = _aware(phone.paid_until)
+        days_left = None
+        if paid_until:
+            days_left = (paid_until.astimezone(MSK).date() - today).days
+        v = verif.get(user.id)
+        rented.append({
+            "id": str(phone.id),
+            "phone_number": phone.phone_number,
+            "region": phone.phone_region,
+            "user_id": str(user.id),
+            "email": user.email,
+            "name": user.full_name if getattr(user, "full_name", None) else None,
+            "verification_id": str(v.id) if v else None,
+            "status": phone.hosted_status or "active",
+            "is_active": bool(phone.is_active),
+            "assistant_type": phone.assistant_type,
+            "paid_until": paid_until.isoformat() if paid_until else None,
+            "days_left": days_left,
+            "renewal_rub": _rub(price),
+            "telephony_balance_rub": _rub(balance),
+            "balance_enough": balance >= need,
+            "purchased_at": phone.purchased_at.isoformat() if phone.purchased_at else None,
+            **vox_info(phone.phone_number),
+        })
+
+    stock = []
+    other = []
+    if host:
+        for p in db.query(VoximplantPhoneNumber).filter(
+            VoximplantPhoneNumber.child_account_id == host.id
+        ).order_by(VoximplantPhoneNumber.purchased_at).all():
+            item = {
+                "id": str(p.id),
+                "phone_number": p.phone_number,
+                "region": p.phone_region,
+                "user_monthly_rub": _rub(monthly_kopeks(p.vox_monthly_price)) if p.vox_monthly_price else None,
+                "is_test_pool": bool(p.is_test_pool),
+                **vox_info(p.phone_number),
+            }
+            if item["vox_monthly_rub"] is None and p.vox_monthly_price:
+                item["vox_monthly_rub"] = float(p.vox_monthly_price)
+            (stock if p.hosted_stock and not p.is_test_pool else other).append(item)
+
+    # Списания Voximplant в этом месяце: дата следующего списания не позже
+    # конца месяца — ещё спишут (дата в прошлом — Voximplant не смог списать,
+    # долг всё равно наш); предыдущая (на месяц раньше) в этом месяце и уже
+    # прошла — уже списано.
+    def month_charge(item: dict) -> Optional[str]:
+        nxt = _parse_vox_date(item.get("vox_next_renewal"))
+        if not nxt or item.get("vox_monthly_rub") is None:
+            return None
+        nxt_d = nxt.date()
+        if nxt_d <= month_end:
+            return "upcoming"
+        prev_d = _minus_month(nxt).date()
+        if month_start <= prev_d <= month_end and prev_d <= today:
+            return "charged"
+        return None
+
+    def group_sum(items: List[dict]) -> dict:
+        res = {"count": len(items), "monthly_rub": 0.0, "charged_rub": 0.0, "upcoming_rub": 0.0,
+               "month_total_rub": 0.0, "unknown": 0}
+        for it in items:
+            if it.get("vox_monthly_rub") is None:
+                res["unknown"] += 1
+                continue
+            price = float(it["vox_monthly_rub"])
+            res["monthly_rub"] += price
+            state = month_charge(it)
+            it["vox_month_state"] = state
+            if state == "charged":
+                res["charged_rub"] += price
+            elif state == "upcoming":
+                res["upcoming_rub"] += price
+        res["month_total_rub"] = res["charged_rub"] + res["upcoming_rub"]
+        return {k: round(v, 2) if isinstance(v, float) else v for k, v in res.items()}
+
+    vox_rented = group_sum(rented)
+    vox_stock = group_sum(stock)
+    vox_other = group_sum(other)
+
+    # Что получим с пользователей в этом месяце: продления с paid_until до конца месяца
+    income_upcoming = 0
+    at_risk = 0
+    for r in rented:
+        paid = _parse_vox_date(r["paid_until"]) if r["paid_until"] else None
+        if paid and paid.date() <= month_end:
+            income_upcoming += rub_to_kopeks(r["renewal_rub"])
+            if not r["balance_enough"]:
+                at_risk += 1
+
+    vox_month_total = round(vox_rented["month_total_rub"] + vox_stock["month_total_rub"], 2)
+    return {
+        "host_ready": bool(host and host.is_verified and host.vox_application_id),
+        "host_account_id": host.vox_account_id if host else None,
+        "vox_available": vox_numbers is not None,
+        "month": month_start.isoformat(),
+        "today": today.isoformat(),
+        "summary": {
+            "rented_count": len(rented),
+            "suspended_count": sum(1 for r in rented if r["status"] == "suspended"),
+            "stock_count": len(stock),
+            "at_risk_count": at_risk,
+            "not_enough_balance_count": sum(1 for r in rented if not r["balance_enough"]),
+            "vox_rented": vox_rented,
+            "vox_stock": vox_stock,
+            "vox_other": vox_other,
+            "vox_month_total_rub": vox_month_total,
+            "vox_month_upcoming_rub": round(vox_rented["upcoming_rub"] + vox_stock["upcoming_rub"], 2),
+            "vox_month_charged_rub": round(vox_rented["charged_rub"] + vox_stock["charged_rub"], 2),
+            "income_monthly_rub": round(sum(r["renewal_rub"] for r in rented), 2),
+            "income_month_upcoming_rub": _rub(income_upcoming),
+            "margin_monthly_rub": round(sum(r["renewal_rub"] for r in rented) - vox_rented["monthly_rub"], 2),
+        },
+        "rented": rented,
+        "stock": stock,
+        "other": other,
+    }
+
+
+async def number_calls(host: VoximplantChildAccount, phone_number: str,
+                       limit: int = 5, days: int = 90) -> dict:
+    """Последние звонки номера из GetCallHistory аккаунта администратора (local_number)."""
+    import httpx
+    import json as _json
+    now = datetime.now(timezone.utc)
+    params = {
+        "account_id": host.vox_account_id,
+        "api_key": host.vox_api_key,
+        "from_date": (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S"),
+        "to_date": (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "local_number": digits(phone_number),
+        "count": max(limit * 3, 15),
+        "with_calls": "true",
+        "with_records": "true",
+        "desc_order": "true",
+    }
+    url = "https://api.voximplant.com/platform_api/GetCallHistory"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        data = (await client.get(url, params=params)).json()
+        if (data.get("error") or {}).get("code") == 100 and settings.VOXIMPLANT_PARENT_ACCOUNT_ID:
+            params.update(account_id=settings.VOXIMPLANT_PARENT_ACCOUNT_ID,
+                          api_key=settings.VOXIMPLANT_PARENT_API_KEY,
+                          child_account_id=host.vox_account_id)
+            data = (await client.get(url, params=params)).json()
+    if "error" in data:
+        raise HostedError((data.get("error") or {}).get("msg") or "Voximplant не ответил", "vox_error")
+
+    own = digits(phone_number)[-10:]
+    calls = []
+    for session in data.get("result") or []:
+        legs = session.get("calls") or []
+        leg = next((c for c in legs if digits(c.get("local_number"))[-10:] == own), None)
+        if leg is None:
+            continue
+        try:
+            custom = _json.loads(session.get("custom_data") or "{}")
+        except (ValueError, TypeError):
+            custom = {}
+        records = session.get("records") or []
+        record_url = leg.get("record_url") or (records[0].get("record_url") if records else None)
+        total_cost = sum(float(c.get("cost") or 0) for c in legs) + sum(
+            float(r.get("cost") or 0) for r in (session.get("other_resource_usage") or [])
+        ) + sum(float(r.get("cost") or 0) for r in records)
+        calls.append({
+            "session_id": str(session.get("call_session_history_id") or ""),
+            "start_date": session.get("start_date"),
+            "incoming": bool(leg.get("incoming")),
+            "remote_number": leg.get("remote_number"),
+            "duration": int(leg.get("duration") or 0),
+            "session_duration": int(session.get("duration") or 0),
+            "successful": bool(leg.get("successful")) if leg.get("successful") is not None else None,
+            "finish_reason": session.get("finish_reason"),
+            "rule_name": session.get("rule_name"),
+            "assistant_type": custom.get("assistant_type") if isinstance(custom, dict) else None,
+            "cost_rub": round(total_cost, 2),
+            "record_url": record_url,
+        })
+        if len(calls) >= limit:
+            break
+    return {"calls": calls, "days": days, "start_date_tz": "UTC"}
+
+
+# =============================================================================
 # SMS, ошибочно записанные на аккаунт администратора
 # =============================================================================
 

@@ -1095,6 +1095,7 @@
         <div class="tab" data-tab="stats">Статистика</div>
         <div class="tab" data-tab="wallet">Кошелёк и тарифы</div>
         <div class="tab" data-tab="test-numbers">Тестовые номера</div>
+        <div class="tab" data-tab="hosted-numbers">Номера физлиц</div>
         <div class="tab" data-tab="user-details" style="display: none;">Детали пользователя</div>
       </div>
       
@@ -1889,6 +1890,204 @@
           if(timer) clearInterval(timer);
           timer=setInterval(function(){ if(tab.classList.contains('active')) { loadPool(); loadLeases(); } }, 30000);
         });
+      })();
+      </script>
+
+      <!-- 🆕 НОМЕРА ФИЗЛИЦ: аренда номеров аккаунта администратора, балансы, списания Voximplant -->
+      <div class="tab-content" id="hosted-numbers-tab">
+        <div class="stats-section">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem;">
+            <h3 style="margin:0;">Номера физлиц <span id="hn-month" style="color:var(--text-gray);font-weight:400;font-size:.95rem;"></span></h3>
+            <button class="btn btn-outline btn-sm" id="hn-refresh"><i class="fas fa-sync-alt"></i> Обновить из Voximplant</button>
+          </div>
+          <p style="color:var(--text-gray);font-size:.9rem;margin-bottom:1rem;">
+            Номера куплены на аккаунт администратора и сданы в аренду физлицам после верификации. Voximplant списывает
+            абонентскую плату с нашего аккаунта в даты «Списание Voximplant»; пользователь платит нам с телефонного баланса
+            в дату «Оплачен до» (месяц Voximplant + наценка).
+          </p>
+          <div id="hn-alert"></div>
+          <div class="stats-grid" id="hn-cards"></div>
+        </div>
+
+        <div class="stats-section" style="margin-top:1.5rem;">
+          <h3 style="margin-bottom:.75rem;">Сданы в аренду</h3>
+          <div class="table-container">
+            <table class="table" id="hn-rented-table">
+              <thead><tr><th>Номер</th><th>Владелец</th><th>Статус</th><th>Баланс телефонии</th><th>Оплачен до</th><th>Продление</th><th>Себестоимость</th><th>Списание Voximplant</th><th></th></tr></thead>
+              <tbody id="hn-rented-body"><tr><td colspan="9">Загрузка…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="stats-section" style="margin-top:1.5rem;">
+          <h3 style="margin-bottom:.75rem;">Свободны (запас) — тоже оплачиваем</h3>
+          <div class="table-container">
+            <table class="table">
+              <thead><tr><th>Номер</th><th>Регион</th><th>Себестоимость</th><th>Для пользователя</th><th>Списание Voximplant</th><th></th></tr></thead>
+              <tbody id="hn-stock-body"><tr><td colspan="6">—</td></tr></tbody>
+            </table>
+          </div>
+          <div id="hn-other" style="margin-top:.75rem;color:var(--text-gray);font-size:.875rem;"></div>
+        </div>
+      </div>
+
+      <div class="modal-overlay" id="hn-calls-modal">
+        <div class="modal" style="max-width:860px;width:calc(100% - 32px);">
+          <div class="modal-header">
+            <h3 class="modal-title" id="hn-calls-title">Последние звонки</h3>
+            <button class="modal-close" id="hn-calls-close">&times;</button>
+          </div>
+          <div class="modal-body" id="hn-calls-body" style="max-height:70vh;overflow:auto;"></div>
+        </div>
+      </div>
+      <style>
+        /* ширина 0 + min-width 100%: широкая таблица прокручивается внутри, а не раздувает страницу */
+        #hosted-numbers-tab .table-container { width:0; min-width:100%; }
+        #hosted-numbers-tab .stats-grid { grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr)); }
+        #hosted-numbers-tab .hn-row-warn td { background:#fff7ed; }
+        #hosted-numbers-tab .hn-row-bad td { background:#fef2f2; }
+        .hn-pill { display:inline-block;padding:.1rem .5rem;border-radius:999px;font-size:.75rem;font-weight:600;white-space:nowrap; }
+        .hn-ok { background:var(--green-light);color:var(--green-dark); }
+        .hn-warn { background:var(--orange-light);color:#c2410c; }
+        .hn-bad { background:var(--red-light);color:var(--red-dark); }
+        .hn-muted { color:var(--text-gray);font-size:.8rem; }
+        .hn-nowrap { white-space:nowrap; }
+        .hn-link { color:var(--primary-blue);cursor:pointer;text-decoration:none; }
+        .hn-link:hover { text-decoration:underline; }
+        #hn-calls-body table { width:100%;border-collapse:collapse;font-size:.875rem; }
+        #hn-calls-body th, #hn-calls-body td { padding:.5rem;border-bottom:1px solid var(--border-color);text-align:left;vertical-align:top; }
+        #hn-calls-body audio { width:180px;height:32px; }
+      </style>
+      <script>
+      (function(){
+        var API='/api/telephony/admin/hosted-numbers';
+        var MONTHS=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+        var loaded=false;
+        function hdr(){ return {'Authorization':'Bearer '+localStorage.getItem('auth_token')}; }
+        function esc(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+        function fmtPhone(p){ var d=String(p||'').replace(/\D/g,''); if(d.length===11) return '+'+d[0]+' ('+d.slice(1,4)+') '+d.slice(4,7)+'-'+d.slice(7,9)+'-'+d.slice(9); return p||'—'; }
+        function rub(v){ if(v==null) return '—'; return Number(v).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:2})+' ₽'; }
+        function fmtDay(s){ if(!s) return '—'; var m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m? m[3]+'.'+m[2]+'.'+m[1] : '—'; }
+        function fmtDateTimeUtc(s){ if(!s) return '—'; var d=new Date(String(s).replace(' ','T')+(/[zZ+]/.test(s)?'':'Z')); return isNaN(d)?esc(s):d.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+        function mmss(sec){ sec=Math.max(0,sec|0); return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0'); }
+        function daysLabel(n){ n=Math.abs(n); var m10=n%10,m100=n%100; return n+' '+(m10===1&&m100!==11?'день':(m10>=2&&m10<=4&&(m100<10||m100>=20)?'дня':'дней')); }
+        function req(url){ return fetch(url,{headers:hdr()}).then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error(d.detail||d.message||('HTTP '+r.status)); return d; }); }); }
+
+        function card(icon,color,value,label,sub){
+          return '<div class="stat-card"><div class="stat-icon '+color+'"><i class="fas '+icon+'"></i></div>'+
+            '<div class="stat-value">'+value+'</div><div class="stat-label">'+label+'</div>'+
+            (sub?'<div class="hn-muted" style="margin-top:.35rem;">'+sub+'</div>':'')+'</div>';
+        }
+        function voxCell(it){
+          if(!it.vox_found) return '<span class="hn-muted">нет в Voximplant</span>';
+          var st = it.vox_month_state==='charged' ? '<span class="hn-pill hn-ok">списано в этом месяце</span>' :
+                   it.vox_month_state==='upcoming' ? '<span class="hn-pill hn-warn">спишут в этом месяце</span>' : '';
+          return '<span class="hn-nowrap">'+fmtDay(it.vox_next_renewal)+'</span>'+(st?'<br>'+st:'');
+        }
+
+        function render(d){
+          var s=d.summary, m=String(d.month||'').match(/^(\d{4})-(\d{2})/);
+          var monthName = m ? MONTHS[parseInt(m[2],10)-1]+' '+m[1] : '';
+          document.getElementById('hn-month').textContent = monthName ? '· '+monthName : '';
+          var alert='';
+          if(!d.host_ready) alert+='<div style="padding:.7rem .9rem;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;margin-bottom:1rem;font-size:.875rem;">Аккаунт для номеров физлиц не готов: у владельца (HOSTED_NUMBERS_OWNER_EMAIL) должен быть верифицированный аккаунт телефонии с приложением.</div>';
+          if(!d.vox_available) alert+='<div style="padding:.7rem .9rem;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;margin-bottom:1rem;font-size:.875rem;">Voximplant не ответил — даты списаний и суммы к оплате не посчитаны. Нажмите «Обновить из Voximplant».</div>';
+          var unknown=(s.vox_rented.unknown||0)+(s.vox_stock.unknown||0);
+          if(d.vox_available && unknown) alert+='<div style="padding:.6rem .9rem;border-radius:10px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;margin-bottom:1rem;font-size:.85rem;">У '+unknown+' номер(ов) нет цены в Voximplant — в суммы они не вошли.</div>';
+          document.getElementById('hn-alert').innerHTML=alert;
+
+          document.getElementById('hn-cards').innerHTML =
+            card('fa-wallet','orange', rub(s.vox_month_total_rub), 'Платим Voximplant за '+(monthName||'месяц'),
+                 'уже списано '+rub(s.vox_month_charged_rub)+' · осталось '+rub(s.vox_month_upcoming_rub)+
+                 '<br>аренда '+rub(s.vox_rented.month_total_rub)+' · запас '+rub(s.vox_stock.month_total_rub)) +
+            card('fa-coins','green', rub(s.income_monthly_rub)+'/мес', 'Платят пользователи',
+                 'продлений до конца месяца: '+rub(s.income_month_upcoming_rub)) +
+            card('fa-chart-line','purple', rub(s.margin_monthly_rub)+'/мес', 'Маржа по арендованным',
+                 'аренда минус себестоимость '+rub(s.vox_rented.monthly_rub)+'/мес; запас — в минус '+rub(s.vox_stock.monthly_rub)+'/мес') +
+            card('fa-mobile-alt','cyan', s.rented_count, 'Сдано в аренду',
+                 'приостановлено: '+s.suspended_count+' · в запасе: '+s.stock_count) +
+            card('fa-exclamation-triangle', s.not_enough_balance_count?'orange':'green', s.not_enough_balance_count, 'Не хватает баланса на продление',
+                 s.at_risk_count ? 'из них с продлением в этом месяце: '+s.at_risk_count : 'в этом месяце рисков нет');
+
+          var rb=document.getElementById('hn-rented-body');
+          if(!d.rented.length){ rb.innerHTML='<tr><td colspan="9">Пока никто не арендовал номер</td></tr>'; }
+          else rb.innerHTML=d.rented.map(function(r){
+            var cls = r.status==='suspended' ? 'hn-row-bad' : (!r.balance_enough ? 'hn-row-warn' : '');
+            var status = r.status==='suspended' ? '<span class="hn-pill hn-bad">Приостановлен</span>' : '<span class="hn-pill hn-ok">Работает</span>';
+            var days = r.days_left==null ? '' : (r.days_left<0 ? 'просрочен на '+daysLabel(r.days_left) : (r.days_left===0?'сегодня':'через '+daysLabel(r.days_left)));
+            var bal = '<span class="hn-nowrap">'+rub(r.telephony_balance_rub)+'</span><br>'+
+              (r.balance_enough ? '<span class="hn-pill hn-ok">хватает</span>' : '<span class="hn-pill hn-bad">не хватит на продление</span>');
+            return '<tr class="'+cls+'">'+
+              '<td class="hn-nowrap"><a class="hn-link" data-calls="'+esc(r.id)+'" data-phone="'+esc(r.phone_number)+'"><strong>'+esc(fmtPhone(r.phone_number))+'</strong></a>'+
+                (r.region?'<br><span class="hn-muted">'+esc(r.region)+'</span>':'')+'</td>'+
+              '<td><a class="hn-link" data-user="'+esc(r.user_id)+'">'+esc(r.email)+'</a>'+(r.name?'<br><span class="hn-muted">'+esc(r.name)+'</span>':'')+'</td>'+
+              '<td>'+status+'</td>'+
+              '<td>'+bal+'</td>'+
+              '<td class="hn-nowrap">'+fmtDay(r.paid_until)+(days?'<br><span class="hn-muted">'+days+'</span>':'')+'</td>'+
+              '<td class="hn-nowrap">'+rub(r.renewal_rub)+'</td>'+
+              '<td class="hn-nowrap">'+(r.vox_monthly_rub!=null?rub(r.vox_monthly_rub)+'/мес':'—')+'</td>'+
+              '<td>'+voxCell(r)+'</td>'+
+              '<td><button class="btn btn-outline btn-sm hn-nowrap" data-calls="'+esc(r.id)+'" data-phone="'+esc(r.phone_number)+'"><i class="fas fa-phone-alt"></i> Звонки</button></td>'+
+            '</tr>';
+          }).join('');
+
+          var sb=document.getElementById('hn-stock-body');
+          if(!d.stock.length){ sb.innerHTML='<tr><td colspan="6">Свободных номеров нет</td></tr>'; }
+          else sb.innerHTML=d.stock.map(function(p){
+            return '<tr><td class="hn-nowrap"><strong>'+esc(fmtPhone(p.phone_number))+'</strong></td><td>'+esc(p.region||'—')+'</td>'+
+              '<td class="hn-nowrap">'+(p.vox_monthly_rub!=null?rub(p.vox_monthly_rub)+'/мес':'—')+'</td>'+
+              '<td class="hn-nowrap">'+(p.user_monthly_rub!=null?rub(p.user_monthly_rub)+'/мес':'—')+'</td>'+
+              '<td>'+voxCell(p)+'</td>'+
+              '<td><button class="btn btn-outline btn-sm hn-nowrap" data-calls="'+esc(p.id)+'" data-phone="'+esc(p.phone_number)+'"><i class="fas fa-phone-alt"></i> Звонки</button></td></tr>';
+          }).join('');
+
+          var o=s.vox_other;
+          document.getElementById('hn-other').innerHTML = o.count ?
+            'Остальные номера аккаунта администратора (свои, тестовый пул): '+o.count+' шт., '+rub(o.monthly_rub)+'/мес, в этом месяце '+rub(o.month_total_rub)+' — в суммы выше не входят.' : '';
+
+          document.querySelectorAll('#hosted-numbers-tab [data-calls]').forEach(function(b){
+            b.addEventListener('click', function(){ openCalls(this.getAttribute('data-calls'), this.getAttribute('data-phone')); });
+          });
+          document.querySelectorAll('#hosted-numbers-tab [data-user]').forEach(function(a){
+            a.addEventListener('click', function(){ if(window.adminViewUser) window.adminViewUser(this.getAttribute('data-user')); });
+          });
+        }
+
+        function load(refresh){
+          document.getElementById('hn-rented-body').innerHTML='<tr><td colspan="9">Загрузка…</td></tr>';
+          return req(API+'/finance'+(refresh?'?refresh=true':'')).then(function(d){ loaded=true; render(d); })
+            .catch(function(e){ document.getElementById('hn-rented-body').innerHTML='<tr><td colspan="9" style="color:#dc2626;">Ошибка: '+esc(e.message)+'</td></tr>'; });
+        }
+
+        var modal=document.getElementById('hn-calls-modal');
+        function closeCalls(){ modal.classList.remove('visible'); modal.querySelectorAll('audio').forEach(function(a){ a.pause(); }); }
+        document.getElementById('hn-calls-close').addEventListener('click', closeCalls);
+        modal.addEventListener('click', function(e){ if(e.target===modal) closeCalls(); });
+        document.addEventListener('keydown', function(e){ if(e.key==='Escape' && modal.classList.contains('visible')) closeCalls(); });
+
+        function openCalls(id, phone){
+          document.getElementById('hn-calls-title').textContent='Последние 5 звонков · '+fmtPhone(phone);
+          var body=document.getElementById('hn-calls-body');
+          body.innerHTML='<p class="hn-muted">Загрузка из Voximplant…</p>';
+          modal.classList.add('visible');
+          req(API+'/'+encodeURIComponent(id)+'/calls?limit=5').then(function(d){
+            if(!d.calls.length){ body.innerHTML='<p>За последние '+d.days+' дней звонков по номеру не было.</p>'; return; }
+            body.innerHTML='<table><thead><tr><th>Когда</th><th>Направление</th><th>Собеседник</th><th>Длительность</th><th>Стоимость</th><th>Запись</th></tr></thead><tbody>'+
+              d.calls.map(function(c){
+                var dir = c.incoming ? '<span class="hn-pill hn-ok">Входящий</span>' : '<span class="hn-pill hn-warn">Исходящий</span>';
+                var dur = c.duration>0 ? mmss(c.duration) : '<span class="hn-muted">не состоялся</span>';
+                var rec = c.record_url ? '<audio controls preload="none" src="'+esc(c.record_url)+'"></audio><br><a class="hn-link" href="'+esc(c.record_url)+'" target="_blank" rel="noopener">Скачать</a>' : '<span class="hn-muted">—</span>';
+                return '<tr><td class="hn-nowrap">'+fmtDateTimeUtc(c.start_date)+'</td><td>'+dir+
+                  (c.assistant_type?'<br><span class="hn-muted">'+esc(c.assistant_type)+'</span>':'')+'</td>'+
+                  '<td class="hn-nowrap">'+esc(fmtPhone(c.remote_number))+'</td><td>'+dur+'</td><td class="hn-nowrap">'+rub(c.cost_rub)+'</td><td>'+rec+'</td></tr>';
+              }).join('')+'</tbody></table>'+
+              '<p class="hn-muted" style="margin-top:.5rem;">Данные Voximplant за последние '+d.days+' дней, время — местное. Стоимость — себестоимость связи.</p>';
+          }).catch(function(e){ body.innerHTML='<p style="color:#dc2626;">Ошибка: '+esc(e.message)+'</p>'; });
+        }
+
+        document.getElementById('hn-refresh').addEventListener('click', function(){ load(true); });
+        var tab=document.querySelector('.tab[data-tab="hosted-numbers"]');
+        if(tab) tab.addEventListener('click', function(){ load(false); });
       })();
       </script>
 
@@ -3355,6 +3554,8 @@
         }
       }
       
+      window.adminViewUser = function(userId) { return viewUserDetails(userId); };
+
       async function viewUserDetails(userId) {
         try {
           ui.setLoading(true);
