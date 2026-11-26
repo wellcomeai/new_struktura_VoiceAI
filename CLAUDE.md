@@ -313,6 +313,12 @@ JSON `job-<token>.json` рядом с превью (`save_import_job`/`load_impo
 (колонка, счётчики, `unrecognized_date_columns` — колонки с датами, не взятые временем звонка) — `import.js`
 (`renderImportScheduleLines`) показывает строки и предупреждение. Тест: `python test_contact_import_schedule.py`.
 
+**Календарь задач после большого импорта (ветка 2611-2026).** Календарь (`agent/tasks-calendar.js`) грузил
+`GET /api/agent/tasks?limit=500`, поэтому после импорта 2416 контактов показывал только первые 500 задач (до ~30.11),
+хотя в базе были все до 11.12 — выглядело как «задачи не проставились». Теперь сетка — по счётчикам
+`GET /api/agent/tasks/calendar` (`{total, days: {"YYYY-MM-DD": n}}`, GROUP BY дню МСК, без лимита), а задачи
+дня — `GET /api/agent/tasks?date=YYYY-MM-DD` (лимит до 2000; `_msk_day_bounds_utc` общий с массовым удалением).
+
 ## Контакты агента обзвона: фильтры и массовые действия для ИИ (ветка 1909-pamatb)
 
 Инструменты оркестратора в `backend/services/agent_tools.py` работают через общий фильтр

@@ -9,7 +9,13 @@
 /* ── TASKS CALENDAR ── */
 const TCAL_MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 const TCAL_DAY_LIMIT = 5;            // порог "много задач" на один день
-let _tcalByDay = {};                 // 'YYYY-MM-DD' -> [task, ...]
+// Сетка рисуется по счётчикам (/tasks/calendar — все задачи, без лимита), список
+// дня грузится отдельно (/tasks?date=). Раньше календарь брал /tasks?limit=500
+// и не видел задачи после 500-й (импорт на 2400 контактов «обрывался» на 500).
+const TCAL_DAY_FETCH_LIMIT = 2000;   // задач одного дня за запрос
+let _tcalCounts = {};                // 'YYYY-MM-DD' -> число задач
+let _tcalTotal = 0;                  // всего запланированных задач агента
+let _tcalByDay = {};                 // 'YYYY-MM-DD' -> [task, ...] — загруженные дни
 let _tcalYear = 0, _tcalMonth = 0;   // отображаемый месяц (0-based)
 let _tcalSel = null;                 // выбранный день 'YYYY-MM-DD'
 let _tcalExpanded = false;           // развёрнут ли список дня с >5 задачами
@@ -37,17 +43,7 @@ async function openTasksCalendar(){
   const grid = document.getElementById('tcal-grid');
   grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px"><div class="spinner" style="margin:0 auto"></div></div>';
   _tcalByDay = {}; _tcalSel = null; _tcalExpanded = false;
-  try{
-    const r = await apiFetch(API + '/tasks?status=scheduled&limit=500');
-    const data = (r && r.status===200) ? await r.json() : {tasks:[]};
-    (data.tasks || []).forEach(t => {
-      const k = t.scheduled_time ? mskDateKey(t.scheduled_time) : null;
-      if(!k) return;
-      (_tcalByDay[k] = _tcalByDay[k] || []).push(t);
-    });
-    // сортируем задачи внутри дня по времени
-    Object.values(_tcalByDay).forEach(arr => arr.sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time)));
-  }catch(e){ _tcalByDay = {}; }
+  await _tcalLoadCounts();
 
   // отображаемый месяц = текущий по МСК
   const today = _mskTodayKey();
@@ -55,13 +51,56 @@ async function openTasksCalendar(){
   _tcalMonth = parseInt(today.slice(5,7),10) - 1;
 
   // выбор по умолчанию: ближайший день с задачами (сегодня или позже), иначе первый
-  const keys = Object.keys(_tcalByDay).sort();
+  const keys = Object.keys(_tcalCounts).sort();
   if(keys.length){
     _tcalSel = keys.find(k => k >= today) || keys[0];
     // показать месяц выбранного дня
     _tcalYear = parseInt(_tcalSel.slice(0,4),10);
     _tcalMonth = parseInt(_tcalSel.slice(5,7),10) - 1;
   }
+  _tcalRenderGrid();
+  await _tcalShowDay(_tcalSel);
+}
+
+// Счётчики задач по дням (все задачи агента)
+async function _tcalLoadCounts(){
+  try{
+    const r = await apiFetch(API + '/tasks/calendar?status=scheduled');
+    const data = (r && r.status===200) ? await r.json() : {days:{}, total:0};
+    _tcalCounts = data.days || {};
+    _tcalTotal = data.total || 0;
+  }catch(e){ _tcalCounts = {}; _tcalTotal = 0; }
+}
+
+// Задачи одного дня (МСК), с кэшем на время открытой модалки
+async function _tcalLoadDay(key, force){
+  if(!key) return [];
+  if(!force && _tcalByDay[key]) return _tcalByDay[key];
+  if(!_tcalCounts[key]){ delete _tcalByDay[key]; return []; }
+  try{
+    const r = await apiFetch(API + '/tasks?status=scheduled&date=' + encodeURIComponent(key) + '&limit=' + TCAL_DAY_FETCH_LIMIT);
+    const data = (r && r.status===200) ? await r.json() : {tasks:[]};
+    const arr = (data.tasks || []).slice().sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
+    _tcalByDay[key] = arr;
+    return arr;
+  }catch(e){ return []; }
+}
+
+// Показать список дня: спиннер, загрузка, отрисовка (если день всё ещё выбран)
+async function _tcalShowDay(key){
+  if(key && _tcalCounts[key] && !_tcalByDay[key]){
+    document.getElementById('tcal-side-head').textContent = _tcalDateLabel(key);
+    document.getElementById('tcal-side-sub').textContent = `Задач: ${_tcalCounts[key]}`;
+    document.getElementById('tcal-side-body').innerHTML = '<div style="text-align:center;padding:30px"><div class="spinner" style="margin:0 auto"></div></div>';
+  }
+  await _tcalLoadDay(key);
+  if(key === _tcalSel) _tcalRenderList(key);
+}
+
+// Перечитать счётчики и указанные дни после правок
+async function _tcalRefresh(keys){
+  await _tcalLoadCounts();
+  for(const k of keys){ if(k) await _tcalLoadDay(k, true); }
   _tcalRenderGrid();
   _tcalRenderList(_tcalSel);
 }
@@ -83,13 +122,13 @@ function _tcalRenderGrid(){
   for(let i=0;i<firstDow;i++) html += '<div class="tcal-day empty"></div>';
   for(let day=1; day<=daysInMonth; day++){
     const key = `${_tcalYear}-${_pad2(_tcalMonth+1)}-${_pad2(day)}`;
-    const tasks = _tcalByDay[key];
+    const n = _tcalCounts[key] || 0;
     const cls = ['tcal-day'];
     let badge = '';
-    if(tasks && tasks.length){
+    if(n){
       cls.push('has');
-      const cnt = tasks.length > 9 ? '9+' : tasks.length;
-      badge = `<span class="tcal-count" title="${tasks.length} ${pluralRu(tasks.length,'задача','задачи','задач')}">${cnt}</span>`;
+      const cnt = n > 99 ? '99+' : n;
+      badge = `<span class="tcal-count" title="${n} ${pluralRu(n,'задача','задачи','задач')}">${cnt}</span>`;
     }
     if(key === today) cls.push('today');
     if(key === _tcalSel) cls.push('sel');
@@ -102,7 +141,7 @@ function _tcalSelectDay(key){
   _tcalSel = key;
   _tcalExpanded = false;
   _tcalRenderGrid();
-  _tcalRenderList(key);
+  _tcalShowDay(key);
 }
 
 function _tcalDateLabel(key){
@@ -156,23 +195,13 @@ async function _tcalSaveTask(id, key){
     const r = await apiFetch(API + '/tasks/' + id, { method:'PUT', body: JSON.stringify({ title, scheduled_time: iso }) });
     if(!r || r.status !== 200){ showToast('Не удалось сохранить задачу', 'error'); return; }
     const upd = await r.json();
-    // вытащить задачу из старого дня (сохранив contact_name и пр.)
-    let task = null;
-    if(_tcalByDay[key]){
-      const i = _tcalByDay[key].findIndex(x => String(x.id) === String(id));
-      if(i >= 0){ task = _tcalByDay[key][i]; _tcalByDay[key].splice(i, 1); if(!_tcalByDay[key].length) delete _tcalByDay[key]; }
-    }
-    task = { ...(task || {}), ...upd };
     const newKey = mskDateKey(upd.scheduled_time) || key;
-    (_tcalByDay[newKey] = _tcalByDay[newKey] || []).push(task);
-    _tcalByDay[newKey].sort((a,b)=> new Date(a.scheduled_time)-new Date(b.scheduled_time));
     // если день сменился — переходим на него
     _tcalSel = newKey;
     _tcalExpanded = false;
     _tcalYear = parseInt(newKey.slice(0,4),10);
     _tcalMonth = parseInt(newKey.slice(5,7),10) - 1;
-    _tcalRenderGrid();
-    _tcalRenderList(_tcalSel);
+    await _tcalRefresh(newKey === key ? [key] : [key, newKey]);
     loadTasks();
     showToast(newKey !== key ? 'Задача перенесена' : 'Задача обновлена', 'success');
   }catch(e){ showToast('Ошибка сети', 'error'); }
@@ -188,6 +217,10 @@ async function _tcalDeleteTask(id, key){
       _tcalByDay[key] = _tcalByDay[key].filter(t => String(t.id) !== String(id));
       if(!_tcalByDay[key].length) delete _tcalByDay[key];
     }
+    if(_tcalCounts[key]){
+      _tcalCounts[key] -= 1; _tcalTotal = Math.max(0, _tcalTotal - 1);
+      if(_tcalCounts[key] <= 0) delete _tcalCounts[key];
+    }
     _tcalRenderGrid();
     _tcalRenderList(key);
     loadTasks();   // обновляем виджет "Ближайшие задачи"
@@ -195,9 +228,9 @@ async function _tcalDeleteTask(id, key){
   }catch(e){ showToast('Ошибка сети','error'); }
 }
 
-// Всего задач в кэше календаря
+// Всего запланированных задач агента (по счётчикам, не по загруженным дням)
 function _tcalTotalCount(){
-  return Object.values(_tcalByDay).reduce((s, arr) => s + arr.length, 0);
+  return _tcalTotal;
 }
 
 // Удалить ВСЕ запланированные задачи агента
@@ -210,7 +243,7 @@ async function tcalDeleteAllTasks(){
     const r = await apiFetch(API + '/tasks', { method:'DELETE' });
     if(!r || r.status !== 200){ showToast('Не удалось удалить задачи', 'error'); return; }
     const data = await r.json();
-    _tcalByDay = {}; _tcalExpanded = false;
+    _tcalByDay = {}; _tcalCounts = {}; _tcalTotal = 0; _tcalExpanded = false;
     _tcalRenderGrid();
     _tcalRenderList(_tcalSel);
     loadTasks();   // обновляем виджет "Ближайшие задачи"
@@ -221,9 +254,8 @@ async function tcalDeleteAllTasks(){
 
 // Удалить все задачи одного дня (key = 'YYYY-MM-DD' МСК)
 async function tcalDeleteDayTasks(key){
-  const tasks = _tcalByDay[key] || [];
-  if(!tasks.length){ showToast('На этот день задач нет', 'error'); return; }
-  const n = tasks.length;
+  const n = _tcalCounts[key] || 0;
+  if(!n){ showToast('На этот день задач нет', 'error'); return; }
   const msg = `Удалить все задачи на ${_tcalDateLabel(key)} (${n} ${pluralRu(n,'задача','задачи','задач')})? Запланированные звонки не будут выполнены.`;
   if(!confirm(msg)) return;
   try{
@@ -231,6 +263,8 @@ async function tcalDeleteDayTasks(key){
     if(!r || r.status !== 200){ showToast('Не удалось удалить задачи', 'error'); return; }
     const data = await r.json();
     delete _tcalByDay[key];
+    _tcalTotal = Math.max(0, _tcalTotal - (_tcalCounts[key] || 0));
+    delete _tcalCounts[key];
     _tcalExpanded = false;
     _tcalRenderGrid();
     _tcalRenderList(key);

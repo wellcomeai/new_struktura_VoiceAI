@@ -2433,15 +2433,61 @@ def _agent_task_dict(t: Task) -> dict:
     }
 
 
-@router.get("/tasks")
-def list_agent_tasks(
+def _msk_day_bounds_utc(date: str):
+    """'YYYY-MM-DD' (МСК) → границы суток в UTC. МСК = UTC+3 без переходов."""
+    try:
+        day_start_msk = datetime.strptime(date, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid_date")
+    start = day_start_msk.replace(tzinfo=timezone.utc) - timedelta(hours=3)
+    return start, start + timedelta(days=1)
+
+
+@router.get("/tasks/calendar")
+def agent_tasks_calendar(
     status: Optional[str] = Query("scheduled"),
-    limit: int = Query(10, ge=1, le=500),
     agent_id: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List the agent's upcoming tasks (with contact names) for the dashboard."""
+    """
+    Сколько задач агента на каждый день (МСК) — для сетки календаря.
+    Сами задачи календарь берёт по дню: GET /tasks?date=YYYY-MM-DD.
+    Раньше календарь грузил GET /tasks?limit=500 и не видел задачи после 500-й.
+    """
+    agent = _resolve_agent(db, current_user, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="not_found")
+
+    day = func.to_char(func.timezone("Europe/Moscow", Task.scheduled_time), "YYYY-MM-DD")
+    q = db.query(day.label("day"), func.count(Task.id)).join(
+        AgentContact, Task.agent_contact_id == AgentContact.id
+    ).filter(
+        Task.user_id == current_user.id,
+        Task.is_agent_task == True,
+        AgentContact.agent_config_id == agent.id,
+    )
+    if status:
+        try:
+            q = q.filter(Task.status == TaskStatus(status))
+        except ValueError:
+            q = q.filter(Task.status == status)
+    rows = q.group_by(day).all()
+    days = {d: int(n) for d, n in rows if d}
+    return {"total": sum(days.values()), "days": days}
+
+
+@router.get("/tasks")
+def list_agent_tasks(
+    status: Optional[str] = Query("scheduled"),
+    limit: int = Query(10, ge=1, le=2000),
+    date: Optional[str] = Query(None, description="YYYY-MM-DD (МСК) — только задачи этого дня"),
+    agent_id: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List the agent's upcoming tasks (with contact names) for the dashboard.
+    С `date` — задачи одного дня по МСК (календарь)."""
     agent = _resolve_agent(db, current_user, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="not_found")
@@ -2458,6 +2504,10 @@ def list_agent_tasks(
             q = q.filter(Task.status == TaskStatus(status))
         except ValueError:
             q = q.filter(Task.status == status)
+
+    if date:
+        day_start_utc, day_end_utc = _msk_day_bounds_utc(date)
+        q = q.filter(Task.scheduled_time >= day_start_utc, Task.scheduled_time < day_end_utc)
 
     tasks = q.order_by(Task.scheduled_time.asc()).limit(limit).all()
 
@@ -2511,16 +2561,8 @@ def delete_agent_tasks_bulk(
     )
 
     if date:
-        try:
-            day_start_msk = datetime.strptime(date, "%Y-%m-%d")
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid_date")
-        # МСК = UTC+3 без сезонных переходов
-        day_start_utc = day_start_msk.replace(tzinfo=timezone.utc) - timedelta(hours=3)
-        q = q.filter(
-            Task.scheduled_time >= day_start_utc,
-            Task.scheduled_time < day_start_utc + timedelta(days=1),
-        )
+        day_start_utc, day_end_utc = _msk_day_bounds_utc(date)
+        q = q.filter(Task.scheduled_time >= day_start_utc, Task.scheduled_time < day_end_utc)
 
     tasks = q.all()
     for t in tasks:
